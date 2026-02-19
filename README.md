@@ -27,6 +27,7 @@ Thanks for your patience while I work through this.
     -   [Playlist Import](#playlist-import)
 -   [Mobile Support](#mobile-support)
 -   [Quick Start](#quick-start)
+-   [Installation guide (Docker / Dockge)](INSTALL-DOCKER-DOCKGE.md)
 -   [Configuration](#configuration)
 -   [CLAP Audio Analysis](#clap-audio-analysis)
 -   [GPU Acceleration](#gpu-acceleration)
@@ -212,6 +213,8 @@ The TV interface is automatically enabled when accessing Lidify from an Android 
 ---
 
 ## Quick Start
+
+For **step-by-step instructions** (Docker, Docker Compose, and Dockge), see the **[Installation guide (Docker / Dockge)](INSTALL-DOCKER-DOCKGE.md)**.
 
 ### One Command Install
 
