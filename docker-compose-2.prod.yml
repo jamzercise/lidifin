@@ -20,6 +20,12 @@ services:
     extra_hosts:
       - host.docker.internal:host-gateway
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "/app/healthcheck.js"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
 volumes:
   lidifin_data: null
 networks: {}
