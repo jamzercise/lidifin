@@ -243,7 +243,7 @@ export async function getJellyfinTracks(
         let album: ResolvedAlbum | undefined;
         if (item.AlbumId) {
             try {
-                const albumItem = await getJellyfinItem(cfg, item.AlbumId);
+                const albumItem = await getJellyfinItem(cfg, item.AlbumId, "MusicAlbum");
                 if (albumItem)
                     album = {
                         id: `${JELLYFIN_PREFIX}${albumItem.Id}`,
@@ -268,17 +268,33 @@ export async function getJellyfinTracks(
     return tracks;
 }
 
+/** Fields to request when fetching a MusicAlbum (avoids 400 from track-only fields). */
+const JELLYFIN_ALBUM_FIELDS =
+    "Id,Name,Type,ImageTags,ProductionYear,ParentId,AlbumArtists";
+/** Fields to request when fetching an Audio track. */
+const JELLYFIN_AUDIO_FIELDS =
+    "Id,Name,Type,RunTimeTicks,AlbumId,AlbumArtist,AlbumArtists,ImageTags,ParentId";
+
 /**
  * Get a single item by id (raw Jellyfin id, no prefix).
+ * Use itemType when known to avoid 400: Jellyfin rejects Fields that don't apply to the item type
+ * (e.g. RunTimeTicks/AlbumId on MusicAlbum).
  */
 export async function getJellyfinItem(
     cfg: JellyfinConfig,
-    itemId: string
+    itemId: string,
+    itemType?: "MusicAlbum" | "Audio"
 ): Promise<JellyfinItem | null> {
     const client = createClient(cfg.url, cfg.apiKey);
+    const fields =
+        itemType === "MusicAlbum"
+            ? JELLYFIN_ALBUM_FIELDS
+            : itemType === "Audio"
+              ? JELLYFIN_AUDIO_FIELDS
+              : JELLYFIN_ALBUM_FIELDS;
     try {
         const res = await client.get<JellyfinItem>(`/Items/${itemId}`, {
-            params: { Fields: "Id,Name,Type,RunTimeTicks,AlbumId,AlbumArtist,AlbumArtists,ImageTags,ProductionYear,ParentId" },
+            params: { Fields: fields },
         });
         return res.data ?? null;
     } catch (err: any) {
@@ -308,11 +324,11 @@ export async function resolveTrackReference(trackId: string): Promise<ResolvedTr
         const cfg = await getJellyfinConfig();
         if (!cfg) return null;
         const rawId = trackId.slice(JELLYFIN_PREFIX.length);
-        const item = await getJellyfinItem(cfg, rawId);
+        const item = await getJellyfinItem(cfg, rawId, "Audio");
         if (!item || item.Type !== "Audio") return null;
         let album: ResolvedAlbum | undefined;
         if (item.AlbumId) {
-            const albumItem = await getJellyfinItem(cfg, item.AlbumId);
+            const albumItem = await getJellyfinItem(cfg, item.AlbumId, "MusicAlbum");
             if (albumItem)
                 album = {
                     id: `${JELLYFIN_PREFIX}${albumItem.Id}`,
@@ -618,7 +634,7 @@ export async function getJellyfinFavorites(cfg: JellyfinConfig): Promise<Resolve
         let album: ResolvedAlbum | undefined;
         if (item.AlbumId) {
             try {
-                const albumItem = await getJellyfinItem(cfg, item.AlbumId);
+                const albumItem = await getJellyfinItem(cfg, item.AlbumId, "MusicAlbum");
                 if (albumItem)
                     album = {
                         id: `${JELLYFIN_PREFIX}${albumItem.Id}`,

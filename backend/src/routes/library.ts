@@ -1658,7 +1658,7 @@ router.get("/albums/:id", async (req, res) => {
                 });
             }
             const rawId = idParam.slice("jellyfin:".length);
-            const albumItem = await getJellyfinItem(cfg, rawId);
+            const albumItem = await getJellyfinItem(cfg, rawId, "MusicAlbum");
             if (!albumItem || albumItem.Type !== "MusicAlbum") {
                 return res.status(404).json({ error: "Album not found" });
             }
