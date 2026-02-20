@@ -208,7 +208,7 @@ export default function AlbumPage({ params }: AlbumPageProps) {
                         <SimilarAlbums
                             similarAlbums={album.similarAlbums}
                             colors={colors}
-                            onNavigate={(id) => router.push(`/album/${id}`)}
+                            onNavigate={(albumId) => router.push(`/album/${encodeURIComponent(albumId)}`)}
                         />
                     )}
                 </div>

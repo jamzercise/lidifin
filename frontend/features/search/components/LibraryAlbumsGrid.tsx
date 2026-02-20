@@ -14,7 +14,7 @@ export function LibraryAlbumsGrid({ albums }: LibraryAlbumsGridProps) {
             {albums.slice(0, 6).map((album, index) => (
                 <Link
                     key={album.id}
-                    href={`/album/${album.id}`}
+                    href={`/album/${encodeURIComponent(album.id)}`}
                     data-tv-card
                     data-tv-card-index={index}
                     tabIndex={0}

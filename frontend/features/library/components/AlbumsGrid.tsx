@@ -52,7 +52,7 @@ const AlbumCardItem = memo(
 
         return (
             <Link
-                href={`/album/${album.id}`}
+                href={`/album/${encodeURIComponent(album.id)}`}
                 prefetch={false}
                 data-tv-card
                 data-tv-card-index={index}

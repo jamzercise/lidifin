@@ -136,7 +136,7 @@ export function LibraryTracksList({ tracks }: LibraryTracksListProps) {
                                 </Link>
                                 <span className="mx-1">•</span>
                                 <Link
-                                    href={`/album/${track.album.id}`}
+                                    href={`/album/${encodeURIComponent(track.album.id)}`}
                                     className="hover:underline hover:text-white"
                                     onClick={(e) => e.stopPropagation()}
                                 >

@@ -56,7 +56,7 @@ export function Discography({
                     return (
                         <PlayableCard
                             key={album.id}
-                            href={`/album/${album.id}`}
+                            href={`/album/${encodeURIComponent(album.id)}`}
                             coverArt={
                                 album.coverArt
                                     ? api.getCoverArtUrl(album.coverArt, 300)

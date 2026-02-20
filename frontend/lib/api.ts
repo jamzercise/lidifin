@@ -625,7 +625,7 @@ class ApiClient {
 
     // Streaming
     getStreamUrl(trackId: string): string {
-        const baseUrl = `${this.getBaseUrl()}/api/library/tracks/${trackId}/stream`;
+        const baseUrl = `${this.getBaseUrl()}/api/library/tracks/${encodeURIComponent(trackId)}/stream`;
         // For audio element requests, cookies may not be sent cross-origin in development
         // Add token as query param for authentication (supported by requireAuthOrToken)
         const token = this.getCurrentToken();

@@ -10,7 +10,8 @@ import { useMemo, useEffect, useRef } from "react";
 export function useAlbumData(albumId?: string) {
     const params = useParams();
     const router = useRouter();
-    const id = albumId || (params.id as string);
+    const rawId = albumId || (params.id as string);
+    const id = typeof rawId === "string" ? decodeURIComponent(rawId) : rawId;
     const { downloadStatus } = useDownloadContext();
     const prevActiveCountRef = useRef(downloadStatus.activeDownloads.length);
 

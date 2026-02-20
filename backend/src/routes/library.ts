@@ -51,6 +51,8 @@ import {
     getJellyfinArtists,
     getJellyfinAlbums,
     getJellyfinTracks,
+    getJellyfinItem,
+    getJellyfinImageUrl,
     resolveTrackReference,
     resolveTrackReferences,
     getJellyfinStreamUrl,
@@ -1642,6 +1644,50 @@ router.get("/albums", async (req, res) => {
 router.get("/albums/:id", async (req, res) => {
     try {
         const idParam = req.params.id;
+
+        // Jellyfin album by id (jellyfin:uuid) – return album + tracks from Jellyfin
+        if (idParam.startsWith("jellyfin:")) {
+            if (!(await isJellyfinMusicSource())) {
+                return res.status(404).json({ error: "Album not found" });
+            }
+            const cfg = await getJellyfinConfig();
+            if (!cfg) {
+                return res.status(503).json({
+                    error: "Jellyfin is not configured",
+                    jellyfin: true,
+                });
+            }
+            const rawId = idParam.slice("jellyfin:".length);
+            const albumItem = await getJellyfinItem(cfg, rawId);
+            if (!albumItem || albumItem.Type !== "MusicAlbum") {
+                return res.status(404).json({ error: "Album not found" });
+            }
+            const tracks = await getJellyfinTracks(cfg, {
+                albumId: idParam,
+                limit: 500,
+            });
+            const artist = albumItem.AlbumArtists?.[0]
+                ? {
+                      id: `jellyfin:${albumItem.AlbumArtists[0].Id}`,
+                      name: albumItem.AlbumArtists[0].Name,
+                      mbid: null as string | null,
+                  }
+                : { id: "", name: "Unknown Artist", mbid: null as string | null };
+            const coverArt = getJellyfinImageUrl(
+                cfg.url,
+                albumItem.Id,
+                albumItem.ImageTags?.Primary,
+                cfg.apiKey
+            );
+            return res.json({
+                id: idParam,
+                title: albumItem.Name,
+                artist,
+                tracks,
+                owned: true,
+                coverArt,
+            });
+        }
 
         // Find album by ID or rgMbid (for discovery albums) in single query
         const album = await prisma.album.findFirst({

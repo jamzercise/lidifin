@@ -84,7 +84,7 @@ function LazyAlbumCard({
     return (
         <PlayableCard
             key={album.id}
-            href={`/album/${album.id}`}
+            href={`/album/${encodeURIComponent(album.id)}`}
             coverArt={coverArt}
             title={album.title}
             subtitle={subtitle}

@@ -19,7 +19,7 @@ export function SimilarAlbums({ similarAlbums, colors, onNavigate }: SimilarAlbu
         {similarAlbums.map((album, index) => (
           <PlayableCard
             key={album.id}
-            href={`/album/${album.id}`}
+            href={`/album/${encodeURIComponent(album.id)}`}
             coverArt={album.coverArt ? api.getCoverArtUrl(album.coverArt, 300) : album.coverUrl}
             title={album.title}
             subtitle={album.artist?.name}

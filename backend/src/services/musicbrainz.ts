@@ -3,6 +3,11 @@ import { logger } from "../utils/logger";
 import { redisClient } from "../utils/redis";
 import { rateLimiter } from "./rateLimiter";
 
+/** MusicBrainz only accepts MusicBrainz UUIDs. Jellyfin IDs (jellyfin:xxx) must not be sent. */
+function isNotMusicBrainzId(id: string): boolean {
+    return !id || id.startsWith("jellyfin:");
+}
+
 class MusicBrainzService {
     private client: AxiosInstance;
 
@@ -62,6 +67,7 @@ class MusicBrainzService {
     }
 
     async getArtist(mbid: string, includes: string[] = ["url-rels", "tags"]) {
+        if (isNotMusicBrainzId(mbid)) return null;
         const cacheKey = `mb:artist:${mbid}:${includes.join(",")}`;
 
         return this.cachedRequest(cacheKey, async () => {
@@ -80,6 +86,7 @@ class MusicBrainzService {
         types: string[] = ["album", "ep"],
         limit = 100
     ) {
+        if (isNotMusicBrainzId(artistMbid)) return [];
         const cacheKey = `mb:rg:${artistMbid}:${types.join(",")}:${limit}`;
 
         return this.cachedRequest(cacheKey, async () => {
@@ -96,6 +103,7 @@ class MusicBrainzService {
     }
 
     async getReleaseGroup(rgMbid: string) {
+        if (isNotMusicBrainzId(rgMbid)) return null;
         const cacheKey = `mb:rg:${rgMbid}`;
 
         return this.cachedRequest(cacheKey, async () => {
@@ -110,6 +118,7 @@ class MusicBrainzService {
     }
 
     async getReleaseGroupDetails(rgMbid: string) {
+        if (isNotMusicBrainzId(rgMbid)) return null;
         const cacheKey = `mb:rg:details:${rgMbid}`;
 
         return this.cachedRequest(cacheKey, async () => {
@@ -124,6 +133,7 @@ class MusicBrainzService {
     }
 
     async getRelease(releaseMbid: string) {
+        if (isNotMusicBrainzId(releaseMbid)) return null;
         const cacheKey = `mb:release:${releaseMbid}`;
 
         return this.cachedRequest(cacheKey, async () => {
