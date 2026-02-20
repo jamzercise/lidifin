@@ -1,0 +1,25 @@
+services:
+  lidifin:
+    # Use pre-built image from Docker Hub (OPTION B: remove "build" and keep this)
+    image: jamzercise/lidifin:latest
+    # Build from GitHub (OPTION A: keep this; image above tags the result for optional push)
+    build:
+      context: https://github.com/jamzercise/lidifin.git
+      dockerfile: Dockerfile
+    container_name: lidifin-player
+    volumes:
+      - /path/to/your/music:/music
+      # this is to your Jellyfin data/downloads folder
+      - /path/to/lidifin/data:/data
+      - /path/to/lidifin/data/postgres:/data/postgres
+    ports:
+      - 31013:3030
+    environment:
+      - TZ=America/Los_Angeles
+      # Required for Lidarr webhook integration on Linux
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    restart: unless-stopped
+volumes:
+  lidifin_data: null
+networks: {}
