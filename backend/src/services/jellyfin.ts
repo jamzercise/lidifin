@@ -88,7 +88,7 @@ function jellyfinAuthHeader(apiKey: string): string {
 }
 
 function createClient(baseUrl: string, apiKey: string): AxiosInstance {
-    return axios.create({
+    const client = axios.create({
         baseURL: baseUrl,
         timeout: 15000,
         headers: {
@@ -96,6 +96,16 @@ function createClient(baseUrl: string, apiKey: string): AxiosInstance {
             "Content-Type": "application/json",
         },
     });
+    client.interceptors.response.use(
+        (r) => r,
+        (err) => {
+            if (err.response?.status === 400 && err.response?.data != null) {
+                logger.warn("[Jellyfin] 400 response:", JSON.stringify(err.response.data));
+            }
+            return Promise.reject(err);
+        }
+    );
+    return client;
 }
 
 /**
@@ -155,7 +165,7 @@ export async function getJellyfinArtists(
         Fields: "Id,Name",
     };
     if (options?.search) params.SearchTerm = options.search;
-    const res = await client.get<{ Items: JellyfinItem[] }>("/Users/Me/Items", {
+    const res = await client.get<{ Items: JellyfinItem[] }>("/Items", {
         params,
     });
     const items = res.data?.Items ?? [];
@@ -187,7 +197,7 @@ export async function getJellyfinAlbums(
         params.ParentId = rawId;
     }
     if (options?.search) params.SearchTerm = options.search;
-    const res = await client.get<{ Items: JellyfinItem[] }>("/Users/Me/Items", {
+    const res = await client.get<{ Items: JellyfinItem[] }>("/Items", {
         params,
     });
     const items = res.data?.Items ?? [];
@@ -224,7 +234,7 @@ export async function getJellyfinTracks(
         params.ParentId = rawId;
     }
     if (options?.search) params.SearchTerm = options.search;
-    const res = await client.get<{ Items: JellyfinItem[] }>("/Users/Me/Items", {
+    const res = await client.get<{ Items: JellyfinItem[] }>("/Items", {
         params,
     });
     const items = res.data?.Items ?? [];
@@ -267,7 +277,7 @@ export async function getJellyfinItem(
 ): Promise<JellyfinItem | null> {
     const client = createClient(cfg.url, cfg.apiKey);
     try {
-        const res = await client.get<JellyfinItem>(`/Users/Me/Items/${itemId}`, {
+        const res = await client.get<JellyfinItem>(`/Items/${itemId}`, {
             params: { Fields: "Id,Name,Type,RunTimeTicks,AlbumId,AlbumArtist,AlbumArtists,ImageTags,ProductionYear,ParentId" },
         });
         return res.data ?? null;
@@ -375,7 +385,7 @@ export async function resolveTrackReferences(
     if (cfg && jellyfinIds.length > 0) {
         try {
             const client = createClient(cfg.url, cfg.apiKey);
-            const res = await client.get<{ Items: JellyfinItem[] }>("/Users/Me/Items", {
+            const res = await client.get<{ Items: JellyfinItem[] }>("/Items", {
                 params: {
                     Ids: jellyfinIds.join(","),
                     Fields: "Id,Name,RunTimeTicks,AlbumId,AlbumArtist,AlbumArtists,ImageTags,ParentId",
@@ -583,17 +593,17 @@ export async function removeItemFromJellyfinPlaylistByItemId(
 
 export async function addJellyfinFavorite(cfg: JellyfinConfig, itemId: string): Promise<void> {
     const client = createClient(cfg.url, cfg.apiKey);
-    await client.post(`/Users/Me/FavoriteItems/${itemId}`);
+    await client.post(`/UserFavoriteItems/${itemId}`);
 }
 
 export async function removeJellyfinFavorite(cfg: JellyfinConfig, itemId: string): Promise<void> {
     const client = createClient(cfg.url, cfg.apiKey);
-    await client.delete(`/Users/Me/FavoriteItems/${itemId}`);
+    await client.delete(`/UserFavoriteItems/${itemId}`);
 }
 
 export async function getJellyfinFavorites(cfg: JellyfinConfig): Promise<ResolvedTrack[]> {
     const client = createClient(cfg.url, cfg.apiKey);
-    const res = await client.get<{ Items: JellyfinItem[] }>("/Users/Me/Items", {
+    const res = await client.get<{ Items: JellyfinItem[] }>("/Items", {
         params: {
             IncludeItemTypes: "Audio",
             Recursive: "true",
