@@ -82,12 +82,17 @@ export async function isJellyfinMusicSource(): Promise<boolean> {
     return cfg != null;
 }
 
+/** Build Jellyfin Authorization header (recommended; avoids 400 with API key on Jellyfin 10.11+). */
+function jellyfinAuthHeader(apiKey: string): string {
+    return `MediaBrowser Token="${apiKey.replace(/"/g, '\\"')}", Client="Lidifin", Device="Server", DeviceId="lidifin-server", Version="1.0"`;
+}
+
 function createClient(baseUrl: string, apiKey: string): AxiosInstance {
     return axios.create({
         baseURL: baseUrl,
         timeout: 15000,
         headers: {
-            "X-Emby-Token": apiKey,
+            Authorization: jellyfinAuthHeader(apiKey),
             "Content-Type": "application/json",
         },
     });
@@ -642,7 +647,7 @@ export async function testJellyfinConnection(
     const client = axios.create({
         baseURL: baseUrl,
         timeout: 10000,
-        headers: { "X-Emby-Token": apiKey },
+        headers: { Authorization: jellyfinAuthHeader(apiKey) },
     });
     try {
         await client.get("/System/Info");
