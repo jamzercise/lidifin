@@ -109,6 +109,8 @@ model SystemSettings {
   jellyfinEnabled             Boolean  @default(false)
   jellyfinUrl                 String?
   jellyfinApiKey              String?
+  jellyfinUsername            String?  // optional: use AuthenticateByName for token + User.Id
+  jellyfinPassword            String?  // encrypted
 }
 
 model Artist {

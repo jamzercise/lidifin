@@ -57,6 +57,8 @@ const systemSettingsSchema = z.object({
     jellyfinEnabled: z.boolean().optional(),
     jellyfinUrl: z.string().nullable().optional(),
     jellyfinApiKey: z.string().nullable().optional(),
+    jellyfinUsername: z.string().nullable().optional(),
+    jellyfinPassword: z.string().nullable().optional(),
 
     // Soulseek (direct connection via slsk-client)
     soulseekUsername: z.string().nullable().optional(),
@@ -135,6 +137,8 @@ router.get("/", async (req, res) => {
                 ? undefined
                 : safeDecrypt(settings.jellyfinApiKey),
             jellyfinApiKeyFromEnv: jellyfinApiKeyFromEnv || undefined,
+            jellyfinUsername: settings.jellyfinUsername ?? undefined,
+            jellyfinPassword: undefined,
         };
 
         res.json(decryptedSettings);
@@ -182,6 +186,12 @@ router.post("/", async (req, res) => {
             );
         if (data.jellyfinApiKey != null)
             encryptedData.jellyfinApiKey = encrypt(data.jellyfinApiKey);
+        if (data.jellyfinUsername !== undefined)
+            encryptedData.jellyfinUsername = data.jellyfinUsername || null;
+        if (data.jellyfinPassword !== undefined)
+            encryptedData.jellyfinPassword = data.jellyfinPassword
+                ? encrypt(data.jellyfinPassword)
+                : null;
 
         const settings = await prisma.systemSettings.upsert({
             where: { id: "default" },

@@ -15,6 +15,9 @@ export interface JellyfinConfig {
     enabled: boolean;
     url: string;
     apiKey: string;
+    /** Optional: use AuthenticateByName for token + User.Id when API key alone fails */
+    username?: string | null;
+    password?: string | null;
 }
 
 export interface ResolvedTrack {
@@ -58,22 +61,23 @@ function runTimeTicksToSeconds(ticks: number | undefined): number {
 }
 
 /**
- * Get Jellyfin config from system settings. Returns null if not enabled or missing URL/API key.
+ * Get Jellyfin config from system settings. Returns null if not enabled or missing URL and auth.
+ * Auth: either API key, or username+password (for AuthenticateByName per jmshrv.com guide).
  */
 export async function getJellyfinConfig(): Promise<JellyfinConfig | null> {
     const settings = await getSystemSettings();
-    if (
-        !settings?.jellyfinEnabled ||
-        !settings?.jellyfinUrl?.trim() ||
-        !settings?.jellyfinApiKey?.trim()
-    ) {
-        return null;
-    }
+    if (!settings?.jellyfinEnabled || !settings?.jellyfinUrl?.trim()) return null;
+    const hasApiKey = !!(settings.jellyfinApiKey?.trim());
+    const hasUserPass =
+        !!(settings.jellyfinUsername?.trim() && settings.jellyfinPassword?.trim());
+    if (!hasApiKey && !hasUserPass) return null;
     const url = settings.jellyfinUrl.replace(/\/$/, "");
     return {
         enabled: true,
         url,
-        apiKey: settings.jellyfinApiKey,
+        apiKey: settings.jellyfinApiKey ?? "",
+        username: settings.jellyfinUsername ?? undefined,
+        password: settings.jellyfinPassword ?? undefined,
     };
 }
 
@@ -82,19 +86,38 @@ export async function isJellyfinMusicSource(): Promise<boolean> {
     return cfg != null;
 }
 
-/** Build Jellyfin Authorization header (recommended; avoids 400 with API key on Jellyfin 10.11+). */
-function jellyfinAuthHeader(apiKey: string): string {
-    return `MediaBrowser Token="${apiKey.replace(/"/g, '\\"')}", Client="Lidifin", Device="Server", DeviceId="lidifin-server", Version="1.0"`;
+/** In-memory cache for resolved Jellyfin user id (per url+apiKey) when using API key only. */
+const jellyfinUserIdCache = new Map<string, string>();
+
+/** Session from AuthenticateByName (per url+username). Guide: jmshrv.com/posts/jellyfin-api */
+interface JellyfinSession {
+    token: string;
+    userId: string;
+}
+const jellyfinSessionByUser = new Map<string, JellyfinSession>();
+
+/**
+ * Build Jellyfin Authorization header per guide (jmshrv.com/posts/jellyfin-api).
+ * Format: MediaBrowser Client="...", Device="...", DeviceId="...", Version="...", Token="..."
+ * Also set X-Emby-Token (Jellyfin uses it as fallback if token not in Authorization).
+ */
+function jellyfinAuthHeaders(token: string): { Authorization: string; "X-Emby-Token"?: string } {
+    const escaped = token.replace(/"/g, '\\"');
+    return {
+        Authorization: `MediaBrowser Client="Lidifin", Device="Server", DeviceId="lidifin-server", Version="1.0", Token="${escaped}"`,
+        "X-Emby-Token": token,
+    };
 }
 
-function createClient(baseUrl: string, apiKey: string): AxiosInstance {
+function createClient(baseUrl: string, token: string): AxiosInstance {
+    const headers: Record<string, string> = {
+        ...jellyfinAuthHeaders(token),
+        "Content-Type": "application/json",
+    };
     const client = axios.create({
         baseURL: baseUrl,
         timeout: 15000,
-        headers: {
-            Authorization: jellyfinAuthHeader(apiKey),
-            "Content-Type": "application/json",
-        },
+        headers,
     });
     client.interceptors.response.use(
         (r) => r,
@@ -106,6 +129,67 @@ function createClient(baseUrl: string, apiKey: string): AxiosInstance {
         }
     );
     return client;
+}
+
+/**
+ * Authenticate with username/password per guide (AuthenticateByName). Returns token + User.Id.
+ * Cached per url+username. Use when API key alone returns 400 for /Users/Me or item requests.
+ */
+async function authenticateByName(cfg: JellyfinConfig): Promise<JellyfinSession | null> {
+    if (!cfg.username?.trim() || !cfg.password?.trim()) return null;
+    const cacheKey = `${cfg.url}:${cfg.username}`;
+    const cached = jellyfinSessionByUser.get(cacheKey);
+    if (cached) return cached;
+
+    const client = axios.create({
+        baseURL: cfg.url,
+        timeout: 10000,
+        headers: { "Content-Type": "application/json" },
+    });
+    try {
+        const res = await client.post<{
+            AccessToken?: string;
+            User?: { Id?: string };
+        }>("/Users/AuthenticateByName", {
+            Username: cfg.username.trim(),
+            Pw: cfg.password.trim(),
+        });
+        const token = res.data?.AccessToken?.trim();
+        const userId = res.data?.User?.Id?.trim();
+        if (!token || !userId) {
+            logger.warn("[Jellyfin] AuthenticateByName missing AccessToken or User.Id");
+            return null;
+        }
+        const session: JellyfinSession = { token, userId };
+        jellyfinSessionByUser.set(cacheKey, session);
+        logger.debug("[Jellyfin] AuthenticateByName succeeded, userId:", userId);
+        return session;
+    } catch (err: any) {
+        logger.warn("[Jellyfin] AuthenticateByName failed:", err?.message);
+        return null;
+    }
+}
+
+/**
+ * Resolve the token to use for requests (session token from AuthenticateByName or API key).
+ */
+async function getEffectiveToken(cfg: JellyfinConfig): Promise<string> {
+    if (cfg.username?.trim() && cfg.password?.trim()) {
+        const session = await authenticateByName(cfg);
+        if (session) return session.token;
+    }
+    return cfg.apiKey;
+}
+
+/**
+ * When using username+password we have userId from AuthenticateByName. Otherwise resolve via API.
+ */
+async function getEffectiveUserId(cfg: JellyfinConfig): Promise<string | null> {
+    if (cfg.username?.trim() && cfg.password?.trim()) {
+        const session = await authenticateByName(cfg);
+        if (session) return session.userId;
+    }
+    return getJellyfinUserIdWithApiKey(cfg);
 }
 
 /**
@@ -156,7 +240,8 @@ export async function getJellyfinArtists(
     cfg: JellyfinConfig,
     options?: { limit?: number; offset?: number; search?: string }
 ): Promise<ResolvedArtist[]> {
-    const client = createClient(cfg.url, cfg.apiKey);
+    const token = await getEffectiveToken(cfg);
+    const client = createClient(cfg.url, token);
     const params: Record<string, string | number> = {
         IncludeItemTypes: "MusicArtist",
         Recursive: "true",
@@ -182,7 +267,8 @@ export async function getJellyfinAlbums(
     cfg: JellyfinConfig,
     options?: { limit?: number; offset?: number; artistId?: string; search?: string }
 ): Promise<ResolvedAlbum[]> {
-    const client = createClient(cfg.url, cfg.apiKey);
+    const token = await getEffectiveToken(cfg);
+    const client = createClient(cfg.url, token);
     const params: Record<string, string | number> = {
         IncludeItemTypes: "MusicAlbum",
         Recursive: "true",
@@ -219,7 +305,8 @@ export async function getJellyfinTracks(
     cfg: JellyfinConfig,
     options?: { limit?: number; offset?: number; albumId?: string; artistId?: string; search?: string }
 ): Promise<ResolvedTrack[]> {
-    const client = createClient(cfg.url, cfg.apiKey);
+    const token = await getEffectiveToken(cfg);
+    const client = createClient(cfg.url, token);
     const params: Record<string, string | number> = {
         IncludeItemTypes: "Audio",
         Recursive: "true",
@@ -270,16 +357,16 @@ export async function getJellyfinTracks(
 
 /**
  * Get a single item by id (raw Jellyfin id, no prefix).
- * Uses user-scoped path when available (GET /Users/{userId}/Items/{id}) to avoid 400 from
- * some Jellyfin versions; omits Fields to avoid validation errors.
+ * Uses effective token (session or API key) and user-scoped path when available.
  */
 export async function getJellyfinItem(
     cfg: JellyfinConfig,
     itemId: string,
     _itemType?: "MusicAlbum" | "Audio"
 ): Promise<JellyfinItem | null> {
-    const client = createClient(cfg.url, cfg.apiKey);
-    const userId = await getJellyfinUserId(cfg);
+    const token = await getEffectiveToken(cfg);
+    const userId = await getEffectiveUserId(cfg);
+    const client = createClient(cfg.url, token);
     const path = userId
         ? `/Users/${userId}/Items/${itemId}`
         : `/Items/${itemId}`;
@@ -301,8 +388,8 @@ export async function getJellyfinStreamUrl(
     itemId: string
 ): Promise<string> {
     const base = cfg.url.replace(/\/$/, "");
-    const apiKey = cfg.apiKey;
-    return `${base}/Audio/${itemId}/stream?api_key=${apiKey}&Static=true`;
+    const token = await getEffectiveToken(cfg);
+    return `${base}/Audio/${itemId}/stream?api_key=${encodeURIComponent(token)}&Static=true`;
 }
 
 /**
@@ -389,7 +476,8 @@ export async function resolveTrackReferences(
     const cfg = await getJellyfinConfig();
     if (cfg && jellyfinIds.length > 0) {
         try {
-            const client = createClient(cfg.url, cfg.apiKey);
+            const token = await getEffectiveToken(cfg);
+            const client = createClient(cfg.url, token);
             const res = await client.get<{ Items: JellyfinItem[] }>("/Items", {
                 params: {
                     Ids: jellyfinIds.join(","),
@@ -454,16 +542,56 @@ export async function resolveTrackReferences(
 
 // --- Playlists (Lidifin sync) ---
 
-/** Get Jellyfin current user id (for playlist creation). Returns null if API key doesn't support /Users/Me. */
-export async function getJellyfinUserId(cfg: JellyfinConfig): Promise<string | null> {
-    const client = createClient(cfg.url, cfg.apiKey);
+/** Jellyfin user list item (minimal). */
+interface JellyfinUser {
+    Id: string;
+    Name?: string;
+}
+
+/**
+ * Resolve user id when using API key only (/Users/Me then GET /Users fallback). Cached per url+apiKey.
+ */
+async function getJellyfinUserIdWithApiKey(cfg: JellyfinConfig): Promise<string | null> {
+    const cacheKey = `${cfg.url}:${cfg.apiKey}`;
+    const cached = jellyfinUserIdCache.get(cacheKey);
+    if (cached) return cached;
+
+    const token = await getEffectiveToken(cfg);
+    const client = createClient(cfg.url, token);
     try {
         const res = await client.get<{ Id: string }>("/Users/Me");
-        return res.data?.Id ?? null;
+        if (res.data?.Id) {
+            jellyfinUserIdCache.set(cacheKey, res.data.Id);
+            return res.data.Id;
+        }
     } catch (err: any) {
-        logger.warn("[Jellyfin] getUserId failed:", err.message);
-        return null;
+        if (err.response?.status === 400) {
+            logger.debug("[Jellyfin] /Users/Me returned 400 (common with API key), trying GET /Users");
+        } else {
+            logger.warn("[Jellyfin] getUserId (/Users/Me) failed:", err.message);
+        }
     }
+    try {
+        const res = await client.get<{ Items?: JellyfinUser[] }>("/Users");
+        const users = res.data?.Items ?? [];
+        const first = users.find((u) => u?.Id) ?? users[0];
+        if (first?.Id) {
+            logger.debug("[Jellyfin] Using user from GET /Users:", first.Id);
+            jellyfinUserIdCache.set(cacheKey, first.Id);
+            return first.Id;
+        }
+    } catch (err: any) {
+        logger.warn("[Jellyfin] GET /Users fallback failed:", err.message);
+    }
+    return null;
+}
+
+/**
+ * Get Jellyfin user id for API requests. Uses AuthenticateByName session when username+password set;
+ * otherwise API key with /Users/Me and GET /Users fallback.
+ */
+export async function getJellyfinUserId(cfg: JellyfinConfig): Promise<string | null> {
+    return getEffectiveUserId(cfg);
 }
 
 /**
@@ -477,7 +605,8 @@ export async function createJellyfinPlaylist(
 ): Promise<string | null> {
     const userId = await getJellyfinUserId(cfg);
     if (!userId) return null;
-    const client = createClient(cfg.url, cfg.apiKey);
+    const token = await getEffectiveToken(cfg);
+    const client = createClient(cfg.url, token);
     try {
         const res = await client.post<{ Id: string }>("/Playlists", {
             Name: name,
@@ -503,7 +632,8 @@ export async function addToJellyfinPlaylist(
     if (itemIds.length === 0) return true;
     const userId = await getJellyfinUserId(cfg);
     if (!userId) return false;
-    const client = createClient(cfg.url, cfg.apiKey);
+    const token = await getEffectiveToken(cfg);
+    const client = createClient(cfg.url, token);
     try {
         await client.post(`/Playlists/${playlistId}/Items`, null, {
             params: { Ids: itemIds.join(","), UserId: userId },
@@ -525,7 +655,8 @@ export async function removeFromJellyfinPlaylist(
     entryIds: string[]
 ): Promise<boolean> {
     if (entryIds.length === 0) return true;
-    const client = createClient(cfg.url, cfg.apiKey);
+    const token = await getEffectiveToken(cfg);
+    const client = createClient(cfg.url, token);
     try {
         await client.delete(`/Playlists/${playlistId}/Items`, {
             data: { EntryIds: entryIds },
@@ -545,7 +676,8 @@ export async function getJellyfinPlaylistItems(
     cfg: JellyfinConfig,
     playlistId: string
 ): Promise<{ entryId: string; itemId: string }[]> {
-    const client = createClient(cfg.url, cfg.apiKey);
+    const token = await getEffectiveToken(cfg);
+    const client = createClient(cfg.url, token);
     try {
         const res = await client.get<{ Items?: { Id: string; PlaylistItemId?: string }[] }>(
             `/Playlists/${playlistId}/Items`,
@@ -597,17 +729,20 @@ export async function removeItemFromJellyfinPlaylistByItemId(
 // --- Favorites ---
 
 export async function addJellyfinFavorite(cfg: JellyfinConfig, itemId: string): Promise<void> {
-    const client = createClient(cfg.url, cfg.apiKey);
+    const token = await getEffectiveToken(cfg);
+    const client = createClient(cfg.url, token);
     await client.post(`/UserFavoriteItems/${itemId}`);
 }
 
 export async function removeJellyfinFavorite(cfg: JellyfinConfig, itemId: string): Promise<void> {
-    const client = createClient(cfg.url, cfg.apiKey);
+    const token = await getEffectiveToken(cfg);
+    const client = createClient(cfg.url, token);
     await client.delete(`/UserFavoriteItems/${itemId}`);
 }
 
 export async function getJellyfinFavorites(cfg: JellyfinConfig): Promise<ResolvedTrack[]> {
-    const client = createClient(cfg.url, cfg.apiKey);
+    const token = await getEffectiveToken(cfg);
+    const client = createClient(cfg.url, token);
     const userId = await getJellyfinUserId(cfg);
     const path = userId ? `/Users/${userId}/Items` : "/Items";
     const res = await client.get<{ Items: JellyfinItem[] }>(path, {
@@ -664,7 +799,7 @@ export async function testJellyfinConnection(
     const client = axios.create({
         baseURL: baseUrl,
         timeout: 10000,
-        headers: { Authorization: jellyfinAuthHeader(apiKey) },
+        headers: jellyfinAuthHeaders(apiKey),
     });
     try {
         await client.get("/System/Info");

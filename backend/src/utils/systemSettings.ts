@@ -78,6 +78,8 @@ export async function getSystemSettings(forceRefresh = false) {
             process.env.JELLYFIN_API_KEY !== ""
                 ? process.env.JELLYFIN_API_KEY
                 : safeDecrypt(settings.jellyfinApiKey, "jellyfinApiKey"),
+        jellyfinUsername: settings.jellyfinUsername ?? null,
+        jellyfinPassword: safeDecrypt(settings.jellyfinPassword, "jellyfinPassword"),
     };
 
     cachedSettings = decrypted;
