@@ -9,6 +9,7 @@ interface SettingsInputProps {
     placeholder?: string;
     disabled?: boolean;
     className?: string;
+    autoComplete?: string;
 }
 
 export function SettingsInput({ 
@@ -18,7 +19,8 @@ export function SettingsInput({
     onChange, 
     placeholder,
     disabled,
-    className = ""
+    className = "",
+    autoComplete,
 }: SettingsInputProps) {
     const [showPassword, setShowPassword] = useState(false);
     const isPassword = type === "password";
@@ -32,6 +34,7 @@ export function SettingsInput({
                 onChange={(e) => onChange(e.target.value)}
                 placeholder={placeholder}
                 disabled={disabled}
+                autoComplete={autoComplete}
                 className={`
                     w-full bg-[#333] text-white text-sm
                     px-3 py-2 rounded-md
