@@ -268,34 +268,23 @@ export async function getJellyfinTracks(
     return tracks;
 }
 
-/** Fields to request when fetching a MusicAlbum (avoids 400 from track-only fields). */
-const JELLYFIN_ALBUM_FIELDS =
-    "Id,Name,Type,ImageTags,ProductionYear,ParentId,AlbumArtists";
-/** Fields to request when fetching an Audio track. */
-const JELLYFIN_AUDIO_FIELDS =
-    "Id,Name,Type,RunTimeTicks,AlbumId,AlbumArtist,AlbumArtists,ImageTags,ParentId";
-
 /**
  * Get a single item by id (raw Jellyfin id, no prefix).
- * Use itemType when known to avoid 400: Jellyfin rejects Fields that don't apply to the item type
- * (e.g. RunTimeTicks/AlbumId on MusicAlbum).
+ * Uses user-scoped path when available (GET /Users/{userId}/Items/{id}) to avoid 400 from
+ * some Jellyfin versions; omits Fields to avoid validation errors.
  */
 export async function getJellyfinItem(
     cfg: JellyfinConfig,
     itemId: string,
-    itemType?: "MusicAlbum" | "Audio"
+    _itemType?: "MusicAlbum" | "Audio"
 ): Promise<JellyfinItem | null> {
     const client = createClient(cfg.url, cfg.apiKey);
-    const fields =
-        itemType === "MusicAlbum"
-            ? JELLYFIN_ALBUM_FIELDS
-            : itemType === "Audio"
-              ? JELLYFIN_AUDIO_FIELDS
-              : JELLYFIN_ALBUM_FIELDS;
+    const userId = await getJellyfinUserId(cfg);
+    const path = userId
+        ? `/Users/${userId}/Items/${itemId}`
+        : `/Items/${itemId}`;
     try {
-        const res = await client.get<JellyfinItem>(`/Items/${itemId}`, {
-            params: { Fields: fields },
-        });
+        const res = await client.get<JellyfinItem>(path);
         return res.data ?? null;
     } catch (err: any) {
         if (err.response?.status === 404) return null;
@@ -619,7 +608,9 @@ export async function removeJellyfinFavorite(cfg: JellyfinConfig, itemId: string
 
 export async function getJellyfinFavorites(cfg: JellyfinConfig): Promise<ResolvedTrack[]> {
     const client = createClient(cfg.url, cfg.apiKey);
-    const res = await client.get<{ Items: JellyfinItem[] }>("/Items", {
+    const userId = await getJellyfinUserId(cfg);
+    const path = userId ? `/Users/${userId}/Items` : "/Items";
+    const res = await client.get<{ Items: JellyfinItem[] }>(path, {
         params: {
             IncludeItemTypes: "Audio",
             Recursive: "true",
