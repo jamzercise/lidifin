@@ -574,17 +574,17 @@ router.put("/:id/items/reorder", async (req, res) => {
         await prisma.$transaction(updates);
 
         // Lidifin: sync new order to Jellyfin (only Jellyfin-track ids)
-        const playlist = await prisma.playlist.findUnique({
+        const playlistMeta = await prisma.playlist.findUnique({
             where: { id: req.params.id },
             select: { jellyfinPlaylistId: true },
         });
-        if (playlist?.jellyfinPlaylistId) {
+        if (playlistMeta?.jellyfinPlaylistId) {
             const cfg = await getJellyfinConfig();
             if (cfg) {
                 const jellyfinIds = trackIds
                     .filter((id) => id.startsWith("jellyfin:"))
                     .map((id) => id.slice("jellyfin:".length));
-                setJellyfinPlaylistItems(cfg, playlist.jellyfinPlaylistId, jellyfinIds).catch(
+                setJellyfinPlaylistItems(cfg, playlistMeta.jellyfinPlaylistId, jellyfinIds).catch(
                     () => {}
                 );
             }

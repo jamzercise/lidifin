@@ -789,19 +789,21 @@ export class ProgrammaticPlaylistService {
         userId: string,
         today: string
     ): Promise<ProgrammaticMix | null> {
-        // Get tracks with low play count (0-2 plays)
+        // Play counts: Track has no plays relation (Play.trackId can be jellyfin:xxx). Use raw query.
+        const playCounts = await prisma.$queryRaw<{ trackId: string; c: number }[]>`
+            SELECT "trackId", COUNT(*)::int as c FROM "Play"
+            WHERE "userId" = ${userId} AND "trackId" NOT LIKE 'jellyfin:%'
+            GROUP BY "trackId"
+        `;
+        const playCountMap = new Map(playCounts.map((r) => [r.trackId, r.c]));
+
         const allTracks = await prisma.track.findMany({
             include: {
-                _count: {
-                    select: {
-                        plays: { where: { userId } },
-                    },
-                },
                 album: { select: { coverUrl: true } },
             },
         });
 
-        const underplayedTracks = allTracks.filter((t) => t._count.plays <= 2);
+        const underplayedTracks = allTracks.filter((t) => (playCountMap.get(t.id) ?? 0) <= 2);
 
         if (underplayedTracks.length < 5) return null;
 
@@ -3257,13 +3259,17 @@ export class ProgrammaticPlaylistService {
         userId: string,
         today: string
     ): Promise<ProgrammaticMix | null> {
-        // Get tracks that haven't been played much
+        // Track has no plays relation. Get unplayed track IDs via raw query.
+        const unplayedIds = await prisma.$queryRaw<{ id: string }[]>`
+            SELECT t.id FROM "Track" t
+            LEFT JOIN "Play" p ON p."trackId" = t.id
+            WHERE p.id IS NULL
+            LIMIT 200
+        `;
+        const unplayedIdSet = new Set(unplayedIds.map((r) => r.id));
+
         const tracks = await prisma.track.findMany({
-            where: {
-                plays: {
-                    none: {},
-                },
-            },
+            where: { id: { in: [...unplayedIdSet] } },
             include: {
                 album: {
                     select: {
@@ -3276,18 +3282,23 @@ export class ProgrammaticPlaylistService {
         });
 
         if (tracks.length < 15) {
-            // Fallback: tracks with few plays
+            // Fallback: tracks with few plays (raw count)
+            const playCounts = await prisma.$queryRaw<{ trackId: string; c: number }[]>`
+                SELECT "trackId", COUNT(*)::int as c FROM "Play"
+                WHERE "trackId" NOT LIKE 'jellyfin:%'
+                GROUP BY "trackId"
+                HAVING COUNT(*) <= 3
+            `;
+            const lowPlayIdSet = new Set(playCounts.map((r) => r.trackId));
             const lowPlayTracks = await prisma.track.findMany({
+                where: { id: { in: [...lowPlayIdSet] } },
                 include: {
                     album: { select: { coverUrl: true } },
-                    _count: { select: { plays: true } },
                 },
                 take: 200,
             });
 
-            const filtered = lowPlayTracks
-                .filter((t) => t._count.plays <= 3)
-                .map((t) => ({ ...t, album: t.album }));
+            const filtered = lowPlayTracks.map((t) => ({ ...t, album: t.album }));
 
             if (filtered.length < 15) return null;
 

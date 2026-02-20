@@ -52,6 +52,7 @@ import {
     getJellyfinAlbums,
     getJellyfinTracks,
     resolveTrackReference,
+    resolveTrackReferences,
     getJellyfinStreamUrl,
     addJellyfinFavorite,
     removeJellyfinFavorite,
@@ -3211,14 +3212,13 @@ router.get("/radio", async (req, res) => {
         switch (type) {
             case "discovery":
                 // Lesser-played tracks - get tracks the user hasn't played or played least
-                // First, get tracks with NO plays at all (truly undiscovered)
-                const unplayedTracks = await prisma.track.findMany({
-                    where: {
-                        plays: { none: {} }, // No plays by anyone
-                    },
-                    select: { id: true },
-                    take: limitNum * 2,
-                });
+                // Track has no plays relation in schema (Play.trackId can be jellyfin:xxx). Use raw query.
+                const unplayedTracks = await prisma.$queryRaw<{ id: string }[]>`
+                    SELECT t.id FROM "Track" t
+                    LEFT JOIN "Play" p ON p."trackId" = t.id
+                    WHERE p.id IS NULL
+                    LIMIT ${limitNum * 2}
+                `;
 
                 if (unplayedTracks.length >= limitNum) {
                     trackIds = unplayedTracks.map((t) => t.id);

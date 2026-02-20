@@ -37,7 +37,7 @@ docker run -d \
 |----------|-------------|
 | `SESSION_SECRET` | Session encryption (recommended: `openssl rand -base64 32`) |
 | `TZ` | Timezone (e.g. `America/New_York`) |
-| `JELLYFIN_API_KEY` | When using [Lidifin](https://github.com/jamzercise/lidifin#jellyfin-lidifin) (Jellyfin as music source) |
+| `JELLYFIN_API_KEY` | Optional: override the API key when using [Lidifin](https://github.com/jamzercise/lidifin#jellyfin-lidifin). The **Jellyfin URL** is set in the app (see below). |
 | `LIDIFY_CALLBACK_URL` | URL Lidarr uses for webhooks (e.g. `http://host.docker.internal:31013`) |
 
 Example with secrets and timezone:
@@ -159,12 +159,12 @@ cd /opt/stacks/lidifin
 cp /path/to/lidifin/docker-compose.prod.yml compose.yaml
 ```
 
-**Option B – Use the Dockge-oriented compose (build from Git or use image):**
+**Option B – Use the same compose file (image only or build from Git):**
 
-Copy the contents of `docs/compose-dockge.yaml` from the repo into `compose.yaml` in your stack directory. Then:
+Use `docker-compose.prod.yml` from the repo root (same as Option A): copy it to `compose.yaml` in your stack directory. Then:
 
-- **Image only:** set `image: jamzercise/lidifin:latest` and remove the `build` block.
-- **Build from Git:** keep the `build` block; first deploy will take 15–30 minutes (downloads and builds the app).
+- **Image only:** ensure `image: jamzercise/lidifin:latest` is set (the default in the file).
+- **Build from Git:** add a `build` block pointing at the repo; first deploy will take 15–30 minutes (downloads and builds the app).
 
 Edit the **volumes** in `compose.yaml` to match your host paths:
 
@@ -176,7 +176,7 @@ Edit the **volumes** in `compose.yaml` to match your host paths:
 In the same directory as `compose.yaml` (e.g. `/opt/stacks/lidifin`), create `.env`:
 
 ```env
-# Required for docker-compose.prod.yml / server; optional for compose-dockge if you use fixed paths in compose
+# Required for docker-compose.prod.yml; optional if you use fixed paths in compose
 MUSIC_PATH=/path/to/your/music
 
 # Strongly recommended
@@ -205,7 +205,7 @@ If your compose uses a **bind mount** for `/data` (e.g. `/mnt/AI/AppData/config/
 
 2. Ensure the **music path** exists and is readable (e.g. `ls /mnt/Data/MediaServer/Music`).
 
-See [docs/DOCKGE-PREINSTALL.md](docs/DOCKGE-PREINSTALL.md) in the repo for the full checklist (paths may differ from the example above).
+The steps above are the main pre-install checklist; paths may differ on your system.
 
 ### Step 6: Create and deploy the stack in Dockge
 
@@ -225,6 +225,8 @@ Open **http://YOUR_SERVER_IP:31013** (or the port you set). Create the first use
 - **First account** – The first user you create is the admin. Use **Settings** to configure music path (if not using Jellyfin), Lidarr, Jellyfin (Lidifin), Soulseek, etc.
 - **Lidifin (Jellyfin as music source)** – In **Settings → Jellyfin (Music)** (or during onboarding), enter your Jellyfin URL and API key, then enable “Use Jellyfin for music.” You can set `JELLYFIN_API_KEY` in your `.env` or Docker env to override the value stored in Settings.
 - **Lidarr webhooks** – If you use Lidarr, set `LIDIFY_CALLBACK_URL` so Lidarr can reach Lidify (e.g. `http://host.docker.internal:31013` or `http://YOUR_SERVER_IP:31013`). The `extra_hosts: host.docker.internal:host-gateway` in the compose file is required on Linux for `host.docker.internal` to work.
+
+**Where to put your Jellyfin URL** – The Jellyfin **instance URL** is not in `.env` or Docker. Set it in the app: open **Settings → Jellyfin (Music)** (or the Jellyfin step during onboarding), enter your **Jellyfin server URL** (e.g. `http://localhost:8096`, `http://jellyfin.example.com`, or `http://192.168.1.10:8096`), then your API key. Use a URL that the Lidifin container can reach (from inside Docker, `localhost` is the container; use your host IP or hostname if Jellyfin is on the host or another machine). Enable **Use Jellyfin for music** and use **Test connection** to verify. You can optionally set `JELLYFIN_API_KEY` in `.env` to override only the API key.
 
 ---
 
