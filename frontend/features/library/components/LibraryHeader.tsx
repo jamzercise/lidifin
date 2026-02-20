@@ -1,4 +1,10 @@
-export function LibraryHeader() {
+interface LibraryHeaderProps {
+  title?: string;
+  subtitle?: string;
+  showSync?: boolean;
+}
+
+export function LibraryHeader({ title = "Your Library", subtitle, showSync }: LibraryHeaderProps) {
   return (
     <div className="relative">
       {/* Quick gradient fade - yellow to purple */}
@@ -16,8 +22,11 @@ export function LibraryHeader() {
       {/* Compact header */}
       <div className="relative px-4 md:px-8 pt-6 pb-2">
         <h1 className="text-2xl font-bold text-white">
-          Your Library
+          {title}
         </h1>
+        {subtitle != null && subtitle !== "" && (
+          <p className="text-sm text-gray-400 mt-0.5">{subtitle}</p>
+        )}
       </div>
     </div>
   );
