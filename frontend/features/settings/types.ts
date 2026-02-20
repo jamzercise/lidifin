@@ -33,6 +33,8 @@ export interface SystemSettings {
     jellyfinUrl?: string | null;
     jellyfinApiKey?: string | null;
     jellyfinApiKeyFromEnv?: boolean;
+    jellyfinUsername?: string | null;
+    jellyfinPassword?: string | null; // Only sent when saving; never returned by API
     // Soulseek (direct connection via slsk-client)
     soulseekUsername: string;
     soulseekPassword: string;

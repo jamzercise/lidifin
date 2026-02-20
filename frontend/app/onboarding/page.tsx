@@ -62,6 +62,8 @@ export default function OnboardingPage() {
     const [jellyfin, setJellyfin] = useState({
         url: "",
         apiKey: "",
+        username: "",
+        password: "",
         enabled: false,
     });
 
@@ -139,10 +141,23 @@ export default function OnboardingPage() {
                     password: soulseek.password,
                 });
             } else if (type === "jellyfin") {
-                if (!jellyfin.url || !jellyfin.apiKey) {
-                    throw new Error("URL and API key are required");
+                const hasUserPass =
+                    jellyfin.username?.trim() && jellyfin.password?.trim();
+                const hasApiKey = !!jellyfin.apiKey?.trim();
+                if (!jellyfin.url?.trim()) {
+                    throw new Error("Jellyfin server URL is required");
                 }
-                await api.testJellyfin(jellyfin.url, jellyfin.apiKey);
+                if (!hasUserPass && !hasApiKey) {
+                    throw new Error(
+                        "Enter your Jellyfin username and password (or API key)"
+                    );
+                }
+                await api.testJellyfin(
+                    jellyfin.url,
+                    jellyfin.apiKey || undefined,
+                    jellyfin.username || undefined,
+                    jellyfin.password || undefined
+                );
             }
             setSuccess(`${type} connected successfully!`);
         } catch (err: unknown) {
@@ -518,7 +533,7 @@ export default function OnboardingPage() {
                                             {/* Jellyfin (Lidifin - music library) */}
                                             <IntegrationCard
                                                 title="Jellyfin (Music)"
-                                                description="Use Jellyfin as your music library and stream from it"
+                                                description="Sign in with your Jellyfin account for Library, Favorites, and streaming"
                                                 localPort="localhost:8096"
                                                 icon={
                                                     <svg
@@ -544,16 +559,25 @@ export default function OnboardingPage() {
                                                 }
                                                 url={jellyfin.url}
                                                 apiKey={jellyfin.apiKey}
+                                                username={jellyfin.username}
+                                                password={jellyfin.password}
                                                 onUrlChange={(url) =>
                                                     setJellyfin({ ...jellyfin, url })
                                                 }
                                                 onApiKeyChange={(apiKey) =>
                                                     setJellyfin({ ...jellyfin, apiKey })
                                                 }
+                                                onUsernameChange={(username) =>
+                                                    setJellyfin({ ...jellyfin, username })
+                                                }
+                                                onPasswordChange={(password) =>
+                                                    setJellyfin({ ...jellyfin, password })
+                                                }
                                                 onTest={() =>
                                                     testConnection("jellyfin")
                                                 }
                                                 loading={loading}
+                                                useJellyfinCreds
                                             />
                                         </div>
 
@@ -761,6 +785,7 @@ interface IntegrationCardProps {
     onTest: () => void;
     loading: boolean;
     useSoulseekCreds?: boolean;
+    useJellyfinCreds?: boolean;
 }
 
 function IntegrationCard({
@@ -781,6 +806,7 @@ function IntegrationCard({
     onTest,
     loading,
     useSoulseekCreds = false,
+    useJellyfinCreds = false,
 }: IntegrationCardProps) {
     return (
         <div
@@ -861,6 +887,39 @@ function IntegrationCard({
                                     not your Slskd login
                                 </p>
                             </>
+                        ) : useJellyfinCreds ? (
+                            <>
+                                <input
+                                    type="text"
+                                    value={username || ""}
+                                    onChange={(e) =>
+                                        onUsernameChange?.(e.target.value)
+                                    }
+                                    placeholder="Jellyfin username"
+                                    className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-lg text-white text-sm placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-transparent transition-all "
+                                />
+                                <input
+                                    type="password"
+                                    value={password || ""}
+                                    onChange={(e) =>
+                                        onPasswordChange?.(e.target.value)
+                                    }
+                                    placeholder="Jellyfin password"
+                                    className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-lg text-white text-sm placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-transparent transition-all "
+                                />
+                                <input
+                                    type="password"
+                                    value={apiKey || ""}
+                                    onChange={(e) =>
+                                        onApiKeyChange?.(e.target.value)
+                                    }
+                                    placeholder="API key (optional)"
+                                    className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-lg text-white text-sm placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-transparent transition-all "
+                                />
+                                <p className="text-xs text-white/50 mt-2">
+                                    Your Jellyfin login is used for Library and Favorites
+                                </p>
+                            </>
                         ) : (
                             <input
                                 type="password"
@@ -878,9 +937,11 @@ function IntegrationCard({
                             disabled={
                                 loading ||
                                 !url ||
-                                (!useSoulseekCreds
-                                    ? !apiKey
-                                    : !username || !password)
+                                (useSoulseekCreds
+                                    ? !username || !password
+                                    : useJellyfinCreds
+                                      ? (!username?.trim() || !password) && !apiKey?.trim()
+                                      : !apiKey)
                             }
                             tabIndex={0}
                             className="w-full bg-white/10 text-white px-4 py-2.5 rounded-lg text-sm font-medium hover:bg-white/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-brand/30"

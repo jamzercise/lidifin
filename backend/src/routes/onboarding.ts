@@ -38,6 +38,8 @@ const soulseekConfigSchema = z.object({
 const jellyfinConfigSchema = z.object({
     url: z.string().url().optional().or(z.literal("")),
     apiKey: z.string().optional().or(z.literal("")),
+    username: z.string().optional().or(z.literal("")),
+    password: z.string().optional().or(z.literal("")),
     enabled: z.boolean(),
 });
 
@@ -395,14 +397,28 @@ router.post("/jellyfin", requireAuth, requireAdmin, async (req, res) => {
                     jellyfinEnabled: false,
                     jellyfinUrl: null,
                     jellyfinApiKey: null,
+                    jellyfinUsername: null,
+                    jellyfinPassword: null,
                 },
                 update: {
                     jellyfinEnabled: false,
                     jellyfinUrl: null,
                     jellyfinApiKey: null,
+                    jellyfinUsername: null,
+                    jellyfinPassword: null,
                 },
             });
             return res.json({ success: true, tested: false });
+        }
+
+        const url = (config.url || "").trim() || null;
+        const hasApiKey = !!(config.apiKey && config.apiKey.trim());
+        const hasUserPass =
+            !!(config.username && config.username.trim() && config.password && config.password.trim());
+        if (!url || (!hasApiKey && !hasUserPass)) {
+            return res.status(400).json({
+                error: "Jellyfin URL and either username+password or API key are required",
+            });
         }
 
         await prisma.systemSettings.upsert({
@@ -410,15 +426,26 @@ router.post("/jellyfin", requireAuth, requireAdmin, async (req, res) => {
             create: {
                 id: "default",
                 jellyfinEnabled: true,
-                jellyfinUrl: (config.url || "").trim() || null,
-                jellyfinApiKey: config.apiKey ? encryptField(config.apiKey) : null,
+                jellyfinUrl: url,
+                jellyfinApiKey: config.apiKey?.trim() ? encryptField(config.apiKey) : null,
+                jellyfinUsername: config.username?.trim() || null,
+                jellyfinPassword: config.password?.trim() ? encryptField(config.password) : null,
             },
             update: {
                 jellyfinEnabled: true,
-                jellyfinUrl: (config.url || "").trim() || null,
-                jellyfinApiKey: config.apiKey ? encryptField(config.apiKey) : null,
+                jellyfinUrl: url,
+                jellyfinApiKey: config.apiKey?.trim() ? encryptField(config.apiKey) : null,
+                jellyfinUsername: config.username?.trim() || null,
+                jellyfinPassword: config.password?.trim() ? encryptField(config.password) : null,
             },
         });
+
+        try {
+            const { clearJellyfinSessionCache } = await import("../services/jellyfin");
+            clearJellyfinSessionCache();
+        } catch {
+            // ignore
+        }
 
         res.json({ success: true, tested: true });
     } catch (err: any) {

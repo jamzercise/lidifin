@@ -204,6 +204,21 @@ router.post("/", async (req, res) => {
 
         invalidateSystemSettingsCache();
 
+        // Clear Jellyfin auth caches when credentials change so next request uses new token/user
+        if (
+            data.jellyfinUrl !== undefined ||
+            data.jellyfinApiKey !== undefined ||
+            data.jellyfinUsername !== undefined ||
+            data.jellyfinPassword !== undefined
+        ) {
+            try {
+                const { clearJellyfinSessionCache } = await import("../services/jellyfin");
+                clearJellyfinSessionCache();
+            } catch (err) {
+                logger.warn("Failed to clear Jellyfin session cache:", err);
+            }
+        }
+
         // Refresh Last.fm API key if it was updated
         try {
             const { lastFmService } = await import("../services/lastfm");
@@ -653,22 +668,43 @@ router.post("/test-audiobookshelf", async (req, res) => {
     }
 });
 
-// Test Jellyfin connection (Lidifin)
+// Test Jellyfin connection (Lidifin). Supports API key or username+password.
 router.post("/test-jellyfin", async (req, res) => {
     try {
-        let { url, apiKey } = req.body || {};
-        if (!url || !apiKey) {
+        let { url, apiKey, username, password } = req.body || {};
+        const hasApiKey = url && (apiKey != null && String(apiKey).trim() !== "");
+        const hasUserPass = username != null && password != null && String(username).trim() !== "" && String(password).trim() !== "";
+        if (!url) {
             const settings = await getSystemSettings();
-            url = url || settings?.jellyfinUrl;
-            apiKey = apiKey || settings?.jellyfinApiKey;
+            url = settings?.jellyfinUrl;
         }
-        if (!url || !apiKey) {
-            return res
-                .status(400)
-                .json({ error: "Jellyfin URL and API key are required" });
+        if (!url?.trim()) {
+            return res.status(400).json({ error: "Jellyfin URL is required" });
+        }
+        if (!hasApiKey && !hasUserPass) {
+            const settings = await getSystemSettings();
+            const savedApiKey = settings?.jellyfinApiKey;
+            const savedUsername = settings?.jellyfinUsername;
+            const savedPassword = settings?.jellyfinPassword;
+            if (savedApiKey?.trim()) {
+                apiKey = savedApiKey;
+            }
+            if (savedUsername?.trim() && savedPassword?.trim()) {
+                username = savedUsername;
+                password = savedPassword;
+            }
+        }
+        const effectiveApiKey = (apiKey != null && String(apiKey).trim() !== "") ? String(apiKey).trim() : "";
+        const effectiveUserPass = username != null && password != null && String(username).trim() !== "" && String(password).trim() !== ""
+            ? { username: String(username).trim(), password: String(password).trim() }
+            : undefined;
+        if (!effectiveApiKey && !effectiveUserPass) {
+            return res.status(400).json({
+                error: "Provide either an API key or Jellyfin username and password",
+            });
         }
         const { testJellyfinConnection } = await import("../services/jellyfin");
-        const result = await testJellyfinConnection(url, apiKey);
+        const result = await testJellyfinConnection(url, effectiveApiKey, effectiveUserPass);
         if (result.ok) {
             return res.json({ success: true, message: "Jellyfin connection successful" });
         }

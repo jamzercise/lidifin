@@ -97,6 +97,16 @@ interface JellyfinSession {
 const jellyfinSessionByUser = new Map<string, JellyfinSession>();
 
 /**
+ * Clear in-memory Jellyfin auth caches. Call when system settings (URL, API key, username, password) change
+ * so the next request uses fresh credentials.
+ */
+export function clearJellyfinSessionCache(): void {
+    jellyfinUserIdCache.clear();
+    jellyfinSessionByUser.clear();
+    logger.debug("[Jellyfin] Session and user id caches cleared");
+}
+
+/**
  * Build Jellyfin Authorization header per guide (jmshrv.com/posts/jellyfin-api).
  * Format: MediaBrowser Client="...", Device="...", DeviceId="...", Version="...", Token="..."
  * Also set X-Emby-Token (Jellyfin uses it as fallback if token not in Authorization).
@@ -241,7 +251,9 @@ export async function getJellyfinArtists(
     options?: { limit?: number; offset?: number; search?: string }
 ): Promise<ResolvedArtist[]> {
     const token = await getEffectiveToken(cfg);
+    const userId = await getEffectiveUserId(cfg);
     const client = createClient(cfg.url, token);
+    const path = userId ? `/Users/${userId}/Items` : "/Items";
     const params: Record<string, string | number> = {
         IncludeItemTypes: "MusicArtist",
         Recursive: "true",
@@ -250,7 +262,7 @@ export async function getJellyfinArtists(
         Fields: "Id,Name",
     };
     if (options?.search) params.SearchTerm = options.search;
-    const res = await client.get<{ Items: JellyfinItem[] }>("/Items", {
+    const res = await client.get<{ Items: JellyfinItem[] }>(path, {
         params,
     });
     const items = res.data?.Items ?? [];
@@ -268,7 +280,9 @@ export async function getJellyfinAlbums(
     options?: { limit?: number; offset?: number; artistId?: string; search?: string }
 ): Promise<ResolvedAlbum[]> {
     const token = await getEffectiveToken(cfg);
+    const userId = await getEffectiveUserId(cfg);
     const client = createClient(cfg.url, token);
+    const path = userId ? `/Users/${userId}/Items` : "/Items";
     const params: Record<string, string | number> = {
         IncludeItemTypes: "MusicAlbum",
         Recursive: "true",
@@ -283,7 +297,7 @@ export async function getJellyfinAlbums(
         params.ParentId = rawId;
     }
     if (options?.search) params.SearchTerm = options.search;
-    const res = await client.get<{ Items: JellyfinItem[] }>("/Items", {
+    const res = await client.get<{ Items: JellyfinItem[] }>(path, {
         params,
     });
     const items = res.data?.Items ?? [];
@@ -306,7 +320,9 @@ export async function getJellyfinTracks(
     options?: { limit?: number; offset?: number; albumId?: string; artistId?: string; search?: string }
 ): Promise<ResolvedTrack[]> {
     const token = await getEffectiveToken(cfg);
+    const userId = await getEffectiveUserId(cfg);
     const client = createClient(cfg.url, token);
+    const path = userId ? `/Users/${userId}/Items` : "/Items";
     const params: Record<string, string | number> = {
         IncludeItemTypes: "Audio",
         Recursive: "true",
@@ -321,7 +337,7 @@ export async function getJellyfinTracks(
         params.ParentId = rawId;
     }
     if (options?.search) params.SearchTerm = options.search;
-    const res = await client.get<{ Items: JellyfinItem[] }>("/Items", {
+    const res = await client.get<{ Items: JellyfinItem[] }>(path, {
         params,
     });
     const items = res.data?.Items ?? [];
@@ -477,8 +493,10 @@ export async function resolveTrackReferences(
     if (cfg && jellyfinIds.length > 0) {
         try {
             const token = await getEffectiveToken(cfg);
+            const userId = await getEffectiveUserId(cfg);
             const client = createClient(cfg.url, token);
-            const res = await client.get<{ Items: JellyfinItem[] }>("/Items", {
+            const path = userId ? `/Users/${userId}/Items` : "/Items";
+            const res = await client.get<{ Items: JellyfinItem[] }>(path, {
                 params: {
                     Ids: jellyfinIds.join(","),
                     Fields: "Id,Name,RunTimeTicks,AlbumId,AlbumArtist,AlbumArtists,ImageTags,ParentId",
@@ -790,16 +808,44 @@ export async function getJellyfinFavorites(cfg: JellyfinConfig): Promise<Resolve
 
 /**
  * Test Jellyfin connection (e.g. for Settings "Test connection").
+ * Supports either apiKey or (username + password) via AuthenticateByName.
  */
 export async function testJellyfinConnection(
     url: string,
-    apiKey: string
+    apiKey: string,
+    options?: { username?: string; password?: string }
 ): Promise<{ ok: boolean; error?: string }> {
     const baseUrl = url.replace(/\/$/, "");
+    let token: string;
+
+    if (options?.username?.trim() && options?.password?.trim()) {
+        try {
+            const res = await axios.post<{ AccessToken?: string }>(
+                `${baseUrl}/Users/AuthenticateByName`,
+                { Username: options.username.trim(), Pw: options.password.trim() },
+                { timeout: 10000, headers: { "Content-Type": "application/json" } }
+            );
+            token = res.data?.AccessToken?.trim();
+            if (!token) {
+                return { ok: false, error: "AuthenticateByName did not return a token" };
+            }
+        } catch (err: any) {
+            const status = err.response?.status;
+            const message = err.response?.data?.Message ?? err.message;
+            if (status === 401) return { ok: false, error: "Invalid username or password" };
+            if (status == null) return { ok: false, error: "Could not reach Jellyfin. Check the URL." };
+            return { ok: false, error: message || `Jellyfin returned ${status}` };
+        }
+    } else if (apiKey?.trim()) {
+        token = apiKey.trim();
+    } else {
+        return { ok: false, error: "Provide either API key or username and password" };
+    }
+
     const client = axios.create({
         baseURL: baseUrl,
         timeout: 10000,
-        headers: jellyfinAuthHeaders(apiKey),
+        headers: jellyfinAuthHeaders(token),
     });
     try {
         await client.get("/System/Info");
@@ -807,7 +853,7 @@ export async function testJellyfinConnection(
     } catch (err: any) {
         const status = err.response?.status;
         const message = err.response?.data?.Message ?? err.message;
-        if (status === 401) return { ok: false, error: "Invalid API key" };
+        if (status === 401) return { ok: false, error: "Invalid API key or session" };
         if (status == null) return { ok: false, error: "Could not reach Jellyfin. Check the URL." };
         return { ok: false, error: message || `Jellyfin returned ${status}` };
     }
