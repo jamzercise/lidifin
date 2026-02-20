@@ -825,10 +825,11 @@ export async function testJellyfinConnection(
                 { Username: options.username.trim(), Pw: options.password.trim() },
                 { timeout: 10000, headers: { "Content-Type": "application/json" } }
             );
-            token = res.data?.AccessToken?.trim();
-            if (!token) {
+            const rawToken = res.data?.AccessToken?.trim();
+            if (!rawToken) {
                 return { ok: false, error: "AuthenticateByName did not return a token" };
             }
+            token = rawToken;
         } catch (err: any) {
             const status = err.response?.status;
             const message = err.response?.data?.Message ?? err.message;
