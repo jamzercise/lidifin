@@ -11,7 +11,7 @@ services:
     # Lidarr - Music collection manager
     lidarr:
         image: lscr.io/linuxserver/lidarr:latest
-        container_name: lidify-player_lidarr
+        container_name: lidifin-player_lidarr
         environment:
             - PUID=${PUID:-1000}
             - PGID=${PGID:-1000}
@@ -24,12 +24,12 @@ services:
             - "8686:8686"
         restart: unless-stopped
         networks:
-            - lidify_network
+            - lidifin_network
 
     # Prowlarr - Indexer manager
     prowlarr:
         image: lscr.io/linuxserver/prowlarr:latest
-        container_name: lidify-player_prowlarr
+        container_name: lidifin-player_prowlarr
         environment:
             - PUID=${PUID:-1000}
             - PGID=${PGID:-1000}
@@ -40,12 +40,12 @@ services:
             - "9696:9696"
         restart: unless-stopped
         networks:
-            - lidify_network
+            - lidifin_network
 
     # FlareSolverr - Cloudflare bypass for Prowlarr
     flaresolverr:
         image: ghcr.io/flaresolverr/flaresolverr:latest
-        container_name: lidify-player_flaresolverr
+        container_name: lidifin-player_flaresolverr
         environment:
             - LOG_LEVEL=${LOG_LEVEL:-info}
             - LOG_HTML=${LOG_HTML:-false}
@@ -55,12 +55,12 @@ services:
             - "8191:8191"
         restart: unless-stopped
         networks:
-            - lidify_network
+            - lidifin_network
 
     # qBittorrent - Torrent client
     qbittorrent:
         image: lscr.io/linuxserver/qbittorrent:latest
-        container_name: lidify-player_qbittorrent
+        container_name: lidifin-player_qbittorrent
         environment:
             - PUID=${PUID:-1000}
             - PGID=${PGID:-1000}
@@ -76,12 +76,12 @@ services:
             - "6881:6881/udp"
         restart: unless-stopped
         networks:
-            - lidify_network
+            - lidifin_network
 
     # NZBGet - Usenet client
     nzbget:
         image: lscr.io/linuxserver/nzbget:latest
-        container_name: lidify-player_nzbget
+        container_name: lidifin-player_nzbget
         environment:
             - PUID=${PUID:-1000}
             - PGID=${PGID:-1000}
@@ -94,7 +94,7 @@ services:
             - "6789:6789"
         restart: unless-stopped
         networks:
-            - lidify_network
+            - lidifin_network
 
 volumes:
     lidarr_config:
@@ -103,5 +103,5 @@ volumes:
     nzbget_config:
 
 networks:
-    lidify_network:
+    lidifin_network:
         external: true

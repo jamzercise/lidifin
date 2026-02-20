@@ -9,16 +9,16 @@ services:
     # LIDIFY (All-in-One: Frontend + Backend + PostgreSQL + Redis)
     # ==============================================================================
 
-    lidify:
-        image: jamzercise/lidify-fork:latest
-        container_name: lidify-player
+    lidifin:
+        image: jamzercise/lidifin:latest
+        container_name: lidifin-player
         ports:
             - "${FRONTEND_PORT:-31013}:3030"
         volumes:
             # IMPORTANT: CHANGE THIS to your music library path
             - ${MUSIC_PATH:-/path/to/your/music}:/music
             # Persistent data (database, cache, covers, etc.)
-            - lidify_data:/data
+            - lidifin_data:/data
         environment:
             - TZ=${TZ:-America/Chicago}
             # Generate with: openssl rand -base64 32
@@ -56,7 +56,7 @@ services:
     # Lidarr - Music collection manager
     lidarr:
         image: lscr.io/linuxserver/lidarr:latest
-        container_name: lidify-player_lidarr
+        container_name: lidifin-player_lidarr
         environment:
             - PUID=${PUID:-1000}
             - PGID=${PGID:-1000}
@@ -72,7 +72,7 @@ services:
     # Prowlarr - Indexer manager
     prowlarr:
         image: lscr.io/linuxserver/prowlarr:latest
-        container_name: lidify-player_prowlarr
+        container_name: lidifin-player_prowlarr
         environment:
             - PUID=${PUID:-1000}
             - PGID=${PGID:-1000}
@@ -86,7 +86,7 @@ services:
     # FlareSolverr - Cloudflare bypass for Prowlarr
     flaresolverr:
         image: ghcr.io/flaresolverr/flaresolverr:latest
-        container_name: lidify-player_flaresolverr
+        container_name: lidifin-player_flaresolverr
         environment:
             - LOG_LEVEL=${LOG_LEVEL:-info}
             - LOG_HTML=${LOG_HTML:-false}
@@ -99,7 +99,7 @@ services:
     # qBittorrent - Torrent client
     qbittorrent:
         image: lscr.io/linuxserver/qbittorrent:latest
-        container_name: lidify-player_qbittorrent
+        container_name: lidifin-player_qbittorrent
         environment:
             - PUID=${PUID:-1000}
             - PGID=${PGID:-1000}
@@ -118,7 +118,7 @@ services:
     # NZBGet - Usenet client
     nzbget:
         image: lscr.io/linuxserver/nzbget:latest
-        container_name: lidify-player_nzbget
+        container_name: lidifin-player_nzbget
         environment:
             - PUID=${PUID:-1000}
             - PGID=${PGID:-1000}
@@ -133,7 +133,7 @@ services:
 
 volumes:
     # Lidify
-    lidify_data:
+    lidifin_data:
     # External services
     lidarr_config:
     prowlarr_config:
@@ -142,4 +142,4 @@ volumes:
 
 networks:
     default:
-        name: lidify_network
+        name: lidifin_network

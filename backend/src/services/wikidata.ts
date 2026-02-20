@@ -15,7 +15,7 @@ class WikidataService {
             timeout: 10000,
             headers: {
                 "User-Agent":
-                    "Lidify/1.0.0 (https://github.com/Chevron7Locked/lidify)",
+                    "Lidify/1.0.0 (https://github.com/jamzercise/lidifin)",
             },
         });
     }

@@ -11,7 +11,7 @@ const options: swaggerJsdoc.Options = {
                 "Self-hosted music streaming server with Discover Weekly and full-text search",
             contact: {
                 name: "Lidify",
-                url: "https://github.com/Chevron7Locked/lidify",
+                url: "https://github.com/jamzercise/lidifin",
             },
         },
         servers: [

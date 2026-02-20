@@ -291,7 +291,7 @@ Comprehensive patch release addressing critical stability issues, performance im
 - **NAS Login (#75):** Backend now built with `tsc` and runs with `node dist/index.js`; proxy trust setting updated; session secret standardized
 - **Podcast Seek:** AbortController cancels upstream requests on client disconnect; stream error handlers prevent crashes
 - **Rate Limiter:** All rate limiter configurations disable proxy validation (`validate: { trustProxy: false }`)
-- **Wikimedia Proxy:** User-Agent standardized to `"Lidify/1.0.0 (https://github.com/Chevron7Locked/lidify)"` across all external API calls
+- **Wikimedia Proxy:** User-Agent standardized to `"Lidify/1.0.0 (https://github.com/jamzercise/lidifin)"` across all external API calls
 
 #### Production Readiness Improvements
 

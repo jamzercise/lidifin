@@ -13,15 +13,15 @@
 
 services:
   lidify:
-    image: ${DOCKERHUB_USERNAME:-jamzercise}/lidify-fork:${VERSION:-latest}
-    container_name: lidify-player
+    image: ${DOCKERHUB_USERNAME:-jamzercise}/lidifin:${VERSION:-latest}
+    container_name: lidifin-player
     ports:
       - "${PORT:-31013}:3030"
     volumes:
       # REQUIRED: Path to your music library
       - ${MUSIC_PATH:-/path/to/your/music}:/music
       # Persistent data (database, cache, etc.)
-      - lidify_data:/data
+      - lidifin_data:/data
     environment:
       - TZ=${TZ:-UTC}
       - SESSION_SECRET=${SESSION_SECRET:-}
@@ -45,4 +45,4 @@ services:
       retries: 3
 
 volumes:
-  lidify_data:
+  lidifin_data:

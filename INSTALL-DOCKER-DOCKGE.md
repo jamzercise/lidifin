@@ -9,7 +9,7 @@ Step-by-step instructions to run Lidify with Docker or [Dockge](https://github.c
 - **Docker** (20.10+)
 - **Docker Compose** (v2) if you use a compose file
 - **Dockge** (optional) – only if you want the Dockge web UI to manage the stack
-- A **music library path** on the host (or plan to use [Jellyfin as music source](https://github.com/jamzercise/lidify-fork#jellyfin-lidifin) so a local path is optional)
+- A **music library path** on the host (or plan to use [Jellyfin as music source](https://github.com/jamzercise/lidifin#jellyfin-lidifin) so a local path is optional)
 
 ---
 
@@ -19,17 +19,17 @@ Fastest way to try Lidify. Replace `/path/to/your/music` with your music folder.
 
 ```bash
 docker run -d \
-  --name lidify-player \
+  --name lidifin-player \
   -p 31013:3030 \
   -v /path/to/your/music:/music \
-  -v lidify_data:/data \
+  -v lidifin_data:/data \
   --add-host=host.docker.internal:host-gateway \
-  jamzercise/lidify-fork:latest
+  jamzercise/lidifin:latest
 ```
 
 - **URL:** http://localhost:31013 (or http://YOUR_SERVER_IP:31013)
 - **First run:** Create your account on first open; you become the admin.
-- **Data:** Database, cache, and secrets are stored in the named volume `lidify_data`.
+- **Data:** Database, cache, and secrets are stored in the named volume `lidifin_data`.
 
 **Optional env vars** (add with `-e VAR=value` before the image name):
 
@@ -37,21 +37,21 @@ docker run -d \
 |----------|-------------|
 | `SESSION_SECRET` | Session encryption (recommended: `openssl rand -base64 32`) |
 | `TZ` | Timezone (e.g. `America/New_York`) |
-| `JELLYFIN_API_KEY` | When using [Lidifin](https://github.com/jamzercise/lidify-fork#jellyfin-lidifin) (Jellyfin as music source) |
+| `JELLYFIN_API_KEY` | When using [Lidifin](https://github.com/jamzercise/lidifin#jellyfin-lidifin) (Jellyfin as music source) |
 | `LIDIFY_CALLBACK_URL` | URL Lidarr uses for webhooks (e.g. `http://host.docker.internal:31013`) |
 
 Example with secrets and timezone:
 
 ```bash
 docker run -d \
-  --name lidify-player \
+  --name lidifin-player \
   -p 31013:3030 \
   -v /path/to/your/music:/music \
-  -v lidify_data:/data \
+  -v lidifin_data:/data \
   -e SESSION_SECRET=$(openssl rand -base64 32) \
   -e TZ=America/New_York \
   --add-host=host.docker.internal:host-gateway \
-  jamzercise/lidify-fork:latest
+  jamzercise/lidifin:latest
 ```
 
 ---
@@ -68,7 +68,7 @@ Use a compose file for easier env and volume management.
 ### Step 2: Create a project directory and `.env`
 
 ```bash
-mkdir -p ~/lidify && cd ~/lidify
+mkdir -p ~/lidifin && cd ~/lidifin
 ```
 
 Create a `.env` file with at least:
@@ -144,8 +144,8 @@ See [Dockge’s documentation](https://github.com/louislam/dockge#-quick-start).
 On the host where Dockge runs (e.g. Linux):
 
 ```bash
-sudo mkdir -p /opt/stacks/lidify
-cd /opt/stacks/lidify
+sudo mkdir -p /opt/stacks/lidifin
+cd /opt/stacks/lidifin
 ```
 
 (Use any path your Dockge is configured to use for stacks.)
@@ -156,24 +156,24 @@ cd /opt/stacks/lidify
 
 ```bash
 # If you have the repo cloned
-cp /path/to/lidify/docker-compose.prod.yml compose.yaml
+cp /path/to/lidifin/docker-compose.prod.yml compose.yaml
 ```
 
 **Option B – Use the Dockge-oriented compose (build from Git or use image):**
 
 Copy the contents of `docs/compose-dockge.yaml` from the repo into `compose.yaml` in your stack directory. Then:
 
-- **Image only:** set `image: jamzercise/lidify-fork:latest` and remove the `build` block.
+- **Image only:** set `image: jamzercise/lidifin:latest` and remove the `build` block.
 - **Build from Git:** keep the `build` block; first deploy will take 15–30 minutes (downloads and builds the app).
 
 Edit the **volumes** in `compose.yaml` to match your host paths:
 
 - **Music:** first volume (e.g. `/mnt/Data/MediaServer/Music:/music`) → your music library path.
-- **Data:** second volume (e.g. `/mnt/AI/AppData/config/lidify-2:/data`) → a persistent directory for PostgreSQL, Redis, and cache.
+- **Data:** second volume (e.g. `/mnt/AI/AppData/config/lidifin-2:/data`) → a persistent directory for PostgreSQL, Redis, and cache.
 
 ### Step 4: Create `.env` in the stack directory
 
-In the same directory as `compose.yaml` (e.g. `/opt/stacks/lidify`), create `.env`:
+In the same directory as `compose.yaml` (e.g. `/opt/stacks/lidifin`), create `.env`:
 
 ```env
 # Required for docker-compose.prod.yml / server; optional for compose-dockge if you use fixed paths in compose
@@ -194,13 +194,13 @@ For the Dockge-style compose, if you use bind mounts with fixed paths in `compos
 
 ### Step 5: Pre-install checklist (bind-mounted `/data`)
 
-If your compose uses a **bind mount** for `/data` (e.g. `/mnt/AI/AppData/config/lidify-2:/data`):
+If your compose uses a **bind mount** for `/data` (e.g. `/mnt/AI/AppData/config/lidifin-2:/data`):
 
 1. Create the directory and set permissions so the container can write:
 
    ```bash
-   sudo mkdir -p /mnt/AI/AppData/config/lidify-2
-   sudo chmod 755 /mnt/AI/AppData/config/lidify-2
+   sudo mkdir -p /mnt/AI/AppData/config/lidifin-2
+   sudo chmod 755 /mnt/AI/AppData/config/lidifin-2
    ```
 
 2. Ensure the **music path** exists and is readable (e.g. `ls /mnt/Data/MediaServer/Music`).
@@ -210,7 +210,7 @@ See [docs/DOCKGE-PREINSTALL.md](docs/DOCKGE-PREINSTALL.md) in the repo for the f
 ### Step 6: Create and deploy the stack in Dockge
 
 1. In the Dockge UI, create a new **Interactive Stack**.
-2. Set the **stack path** to your stack directory (e.g. `/opt/stacks/lidify`). Dockge will use `compose.yaml` and `.env` from that path.
+2. Set the **stack path** to your stack directory (e.g. `/opt/stacks/lidifin`). Dockge will use `compose.yaml` and `.env` from that path.
 3. Click **Deploy**.
 4. Wait for the container to start (or for the first build to finish if you use “build from Git”).
 

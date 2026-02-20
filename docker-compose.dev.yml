@@ -12,7 +12,7 @@
 services:
     postgres:
         image: postgres:16-alpine
-        container_name: lidify-player_dev_db
+        container_name: lidifin-player_dev_db
         environment:
             POSTGRES_USER: lidify
             POSTGRES_PASSWORD: lidify
@@ -30,7 +30,7 @@ services:
 
     redis:
         image: redis:7-alpine
-        container_name: lidify-player_dev_redis
+        container_name: lidifin-player_dev_redis
         ports:
             - "6380:6379"
         restart: unless-stopped
@@ -44,7 +44,7 @@ services:
     audio-analyzer:
         build:
             context: ./services/audio-analyzer
-        container_name: lidify-player_audio_analyzer
+        container_name: lidifin-player_audio_analyzer
         environment:
             # Connect to host machine's services (or Docker services)
             REDIS_URL: redis://redis:6379

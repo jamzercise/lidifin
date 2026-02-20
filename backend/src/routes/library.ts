@@ -1919,7 +1919,7 @@ router.get("/cover-art/:id?", imageLimiter, async (req, res) => {
                     headers: {
                         Authorization: `Bearer ${audiobookshelfApiKey}`,
                         "User-Agent":
-                            "Lidify/1.0.0 (https://github.com/Chevron7Locked/lidify)",
+                            "Lidify/1.0.0 (https://github.com/jamzercise/lidifin)",
                     },
                 });
 
@@ -2110,7 +2110,7 @@ router.get("/cover-art/:id?", imageLimiter, async (req, res) => {
                     headers: {
                         Authorization: `Bearer ${audiobookshelfApiKey}`,
                         "User-Agent":
-                            "Lidify/1.0.0 (https://github.com/Chevron7Locked/lidify)",
+                            "Lidify/1.0.0 (https://github.com/jamzercise/lidifin)",
                     },
                 });
 
@@ -2222,7 +2222,7 @@ router.get("/cover-art/:id?", imageLimiter, async (req, res) => {
         const imageResponse = await fetch(coverUrl, {
             headers: {
                 "User-Agent":
-                    "Lidify/1.0.0 (https://github.com/Chevron7Locked/lidify)",
+                    "Lidify/1.0.0 (https://github.com/jamzercise/lidifin)",
             },
         });
         if (!imageResponse.ok) {
@@ -2382,7 +2382,7 @@ router.get("/cover-art-colors", imageLimiter, async (req, res) => {
         const imageResponse = await fetch(imageUrl, {
             headers: {
                 "User-Agent":
-                    "Lidify/1.0.0 (https://github.com/Chevron7Locked/lidify)",
+                    "Lidify/1.0.0 (https://github.com/jamzercise/lidifin)",
             },
         });
 

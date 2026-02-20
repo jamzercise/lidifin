@@ -1,7 +1,7 @@
 # Lidify
 
-[![Docker Image](https://img.shields.io/docker/v/jamzercise/lidify-fork?label=Docker&sort=semver)](https://hub.docker.com/r/jamzercise/lidify-fork)
-[![GitHub Release](https://img.shields.io/github/v/release/Chevron7Locked/lidify?label=Release)](https://github.com/Chevron7Locked/lidify/releases)
+[![Docker Image](https://img.shields.io/docker/v/jamzercise/lidifin?label=Docker&sort=semver)](https://hub.docker.com/r/jamzercise/lidifin)
+[![GitHub Release](https://img.shields.io/github/v/release/jamzercise/lidifin?label=Release)](https://github.com/jamzercise/lidifin/releases)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
 A self-hosted, on-demand audio streaming platform that brings the Spotify experience to your personal music library.
@@ -220,11 +220,11 @@ For **step-by-step instructions** (Docker, Docker Compose, and Dockge), see the 
 
 ```bash
 docker run -d \
-  --name lidify-player \
+  --name lidifin-player \
   -p 31013:3030 \
   -v /path/to/your/music:/music \
-  -v lidify_data:/data \
-  jamzercise/lidify-fork:latest
+  -v lidifin_data:/data \
+  jamzercise/lidifin:latest
 ```
 
 That's it! Open http://localhost:31013 and create your account.
@@ -279,12 +279,12 @@ That's it! Open http://localhost:31013 and create your account.
 
 ```bash
 docker run -d \
-  --name lidify-player \
+  --name lidifin-player \
   --gpus all \
   -p 31013:3030 \
   -v /path/to/your/music:/music \
-  -v lidify_data:/data \
-  jamzercise/lidify-fork:latest
+  -v lidifin_data:/data \
+  jamzercise/lidifin:latest
 ```
 
 ### What's Included
@@ -300,14 +300,14 @@ The Lidify container includes everything you need:
 
 ```bash
 docker run -d \
-  --name lidify-player \
+  --name lidifin-player \
   -p 31013:3030 \
   -v /path/to/your/music:/music \
-  -v lidify_data:/data \
+  -v lidifin_data:/data \
   -e SESSION_SECRET=your-secret-key \
   -e TZ=America/New_York \
   --add-host=host.docker.internal:host-gateway \
-  jamzercise/lidify-fork:latest
+  jamzercise/lidifin:latest
 ```
 
 | Variable         | Description            | Default        |
@@ -322,13 +322,13 @@ Create a `docker-compose.yml` file:
 ```yaml
 services:
     lidify:
-        image: jamzercise/lidify-fork:latest
-        container_name: lidify-player
+        image: jamzercise/lidifin:latest
+        container_name: lidifin-player
         ports:
             - "31013:3030"
         volumes:
             - /path/to/your/music:/music
-            - lidify_data:/data
+            - lidifin_data:/data
         environment:
             - TZ=America/New_York
         # Required for Lidarr webhook integration on Linux
@@ -337,7 +337,7 @@ services:
         restart: unless-stopped
 
 volumes:
-    lidify_data:
+    lidifin_data:
 ```
 
 Then run:
@@ -378,9 +378,9 @@ Lidify offers two release channels to match your stability preferences:
 Production-ready releases. Updated when new stable versions are released.
 
 ```bash
-docker pull jamzercise/lidify-fork:latest
+docker pull jamzercise/lidifin:latest
 # or specific version
-docker pull jamzercise/lidify-fork:v1.2.0
+docker pull jamzercise/lidifin:v1.2.0
 ```
 
 ### 🔴 Nightly (Development)
@@ -390,7 +390,7 @@ Latest development build. Built on every push to main.
 ⚠️ **Not recommended for production** - may be unstable or broken.
 
 ```bash
-docker pull jamzercise/lidify-fork:nightly
+docker pull jamzercise/lidifin:nightly
 ```
 
 **For contributors:** See [`CONTRIBUTING.md`](CONTRIBUTING.md) for information on submitting pull requests and contributing to Lidify.
@@ -572,7 +572,7 @@ nvidia-container-runtime --version
 
 **All-in-One container:**
 ```bash
-docker run -d --gpus all -p 31013:3030 -v /path/to/music:/music -v lidify_data:/data jamzercise/lidify-fork:latest
+docker run -d --gpus all -p 31013:3030 -v /path/to/music:/music -v lidifin_data:/data jamzercise/lidifin:latest
 ```
 
 **Docker Compose:**
@@ -593,8 +593,8 @@ Then restart: `docker compose up -d`
 ### Verify GPU Detection
 
 ```bash
-# All-in-one container (MusiCNN and CLAP run inside lidify-player)
-docker logs lidify-player 2>&1 | grep -i gpu
+# All-in-one container (MusiCNN and CLAP run inside lidifin-player)
+docker logs lidifin-player 2>&1 | grep -i gpu
 ```
 
 Expected: `TensorFlow GPU detected: ...` or `CUDA available: True`
@@ -1035,7 +1035,7 @@ If it happens often, try increasing the container memory limit or reducing analy
 
 If you encounter issues or have questions:
 
-1. Check the [Issues](https://github.com/chevron7locked/lidify/issues) page for known problems
+1. Check the [Issues](https://github.com/jamzercise/lidifin/issues) page for known problems
 2. Open a new issue with details about your setup and the problem you're experiencing
 3. Include logs from `docker compose logs` if relevant
 

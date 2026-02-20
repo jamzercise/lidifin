@@ -12,7 +12,7 @@ on:
                 type: string
 
 env:
-    IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/lidify-player
+    IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/lidifin
 
 jobs:
     build:
@@ -95,8 +95,8 @@ jobs:
                         --name lidify \
                         -p 3030:3030 \
                         -v /path/to/your/music:/music \
-                        -v lidify_data:/data \
-                        ${{ secrets.DOCKERHUB_USERNAME }}/lidify-player:${{ steps.version.outputs.version }}
+                        -v lidifin_data:/data \
+                        ${{ secrets.DOCKERHUB_USERNAME }}/lidifin:${{ steps.version.outputs.version }}
                       ```
 
                       Then open http://localhost:31013 and create your account!
