@@ -959,15 +959,10 @@ class ApiClient {
         });
     }
 
-    async testJellyfin(
-        url?: string,
-        apiKey?: string,
-        username?: string,
-        password?: string
-    ) {
+    async testJellyfin(url?: string, apiKey?: string) {
         return this.request<ServiceTestResult>("/system-settings/test-jellyfin", {
             method: "POST",
-            body: JSON.stringify({ url, apiKey, username, password }),
+            body: JSON.stringify({ url, apiKey }),
         });
     }
 

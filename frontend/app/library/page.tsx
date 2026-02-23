@@ -173,12 +173,16 @@ export default function LibraryPage() {
     } = useLibraryActions();
     const { favoriteIds, addFavorite, removeFavorite, refetch: refetchFavorites } = useFavorites();
 
-    // Refresh library and favorites (e.g. after changes in Jellyfin) — invalidates all library data and refetches favorites
+    // Refresh library and favorites (e.g. after changes in Jellyfin) — refetch all library queries including inactive ones
     const [isRefreshing, setIsRefreshing] = useState(false);
     const handleRefreshLibrary = useCallback(async () => {
         setIsRefreshing(true);
         try {
-            await queryClient.invalidateQueries({ queryKey: ["library"] });
+            // refetchType: 'all' ensures albums/tracks refetch even when their tab is inactive (enabled: false)
+            await queryClient.refetchQueries({
+                queryKey: ["library"],
+                refetchType: "all",
+            });
             await refetchFavorites();
         } finally {
             setIsRefreshing(false);
@@ -187,7 +191,10 @@ export default function LibraryPage() {
 
     // Light auto-refresh: refetch when this page is opened or when user switches back to the tab
     const refreshLibraryAndFavorites = useCallback(() => {
-        queryClient.invalidateQueries({ queryKey: ["library"] });
+        queryClient.refetchQueries({
+            queryKey: ["library"],
+            refetchType: "all",
+        });
         refetchFavorites();
     }, [queryClient, refetchFavorites]);
     useEffect(() => {

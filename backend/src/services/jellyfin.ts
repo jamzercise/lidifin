@@ -162,19 +162,24 @@ function mapJellyfinItemToTrack(
 
 /**
  * Get image URL for a Jellyfin item (cover art).
+ * Uses user-scoped path when userId is provided (required for user libraries on many Jellyfin servers).
  */
 export function getJellyfinImageUrl(
     baseUrl: string,
     itemId: string,
     tag?: string,
-    apiKey?: string
+    apiKey?: string,
+    userId?: string
 ): string {
-    const path = tag
-        ? `/Items/${itemId}/Images/Primary?tag=${tag}`
+    const base = baseUrl.replace(/\/$/, "");
+    const path = userId
+        ? `/Users/${userId}/Items/${itemId}/Images/Primary`
         : `/Items/${itemId}/Images/Primary`;
-    const sep = baseUrl.includes("?") ? "&" : "?";
-    const auth = apiKey ? `${sep}api_key=${apiKey}` : "";
-    return `${baseUrl}${path}${auth}`;
+    const params = new URLSearchParams();
+    if (tag) params.set("tag", tag);
+    if (apiKey) params.set("api_key", apiKey);
+    const qs = params.toString();
+    return `${base}${path}${qs ? "?" + qs : ""}`;
 }
 
 /**
@@ -222,7 +227,7 @@ export async function getJellyfinAlbums(
         Recursive: "true",
         Limit: options?.limit ?? 100,
         StartIndex: options?.offset ?? 0,
-        Fields: "Id,Name,ProductionYear,AlbumArtists,ParentId",
+        Fields: "Id,Name,ProductionYear,AlbumArtists,ParentId,ImageTags",
     };
     if (options?.artistId) {
         const rawId = options.artistId.startsWith(JELLYFIN_PREFIX)
@@ -238,7 +243,7 @@ export async function getJellyfinAlbums(
     return items.map((a) => ({
         id: `${JELLYFIN_PREFIX}${a.Id}`,
         title: a.Name,
-        coverArt: getJellyfinImageUrl(cfg.url, a.Id, a.ImageTags?.Primary, cfg.apiKey),
+        coverArt: getJellyfinImageUrl(cfg.url, a.Id, a.ImageTags?.Primary, cfg.apiKey, cfg.userId),
         artist: a.AlbumArtists?.[0]
             ? { id: `${JELLYFIN_PREFIX}${a.AlbumArtists[0].Id}`, name: a.AlbumArtists[0].Name }
             : undefined,
@@ -248,11 +253,12 @@ export async function getJellyfinAlbums(
 
 /**
  * Fetch tracks (Audio) from Jellyfin. Optional albumId or artistId to filter.
+ * Returns { tracks, total } where total is TotalRecordCount from the API.
  */
 export async function getJellyfinTracks(
     cfg: JellyfinConfig,
     options?: { limit?: number; offset?: number; albumId?: string; artistId?: string; search?: string }
-): Promise<ResolvedTrack[]> {
+): Promise<{ tracks: ResolvedTrack[]; total: number }> {
     const token = getEffectiveToken(cfg);
     const userId = getEffectiveUserId(cfg);
     const client = createClient(cfg.url, token);
@@ -270,11 +276,18 @@ export async function getJellyfinTracks(
             : options.albumId;
         params.ParentId = rawId;
     }
+    if (options?.artistId) {
+        const rawId = options.artistId.startsWith(JELLYFIN_PREFIX)
+            ? options.artistId.slice(JELLYFIN_PREFIX.length)
+            : options.artistId;
+        params.AlbumArtistIds = rawId;
+    }
     if (options?.search) params.SearchTerm = options.search;
-    const res = await client.get<{ Items: JellyfinItem[] }>(path, {
+    const res = await client.get<{ Items: JellyfinItem[]; TotalRecordCount?: number }>(path, {
         params,
     });
     const items = res.data?.Items ?? [];
+    const total = res.data?.TotalRecordCount ?? items.length;
     const tracks: ResolvedTrack[] = [];
     for (const item of items) {
         let album: ResolvedAlbum | undefined;
@@ -289,7 +302,8 @@ export async function getJellyfinTracks(
                             cfg.url,
                             albumItem.Id,
                             albumItem.ImageTags?.Primary,
-                            cfg.apiKey
+                            cfg.apiKey,
+                            cfg.userId
                         ),
                     };
             } catch {
@@ -302,7 +316,7 @@ export async function getJellyfinTracks(
             mapJellyfinItemToTrack(item, album, artistName, artistId ? `${JELLYFIN_PREFIX}${artistId}` : undefined)
         );
     }
-    return tracks;
+    return { tracks, total };
 }
 
 /**
@@ -363,7 +377,8 @@ export async function resolveTrackReference(trackId: string): Promise<ResolvedTr
                         cfg.url,
                         albumItem.Id,
                         albumItem.ImageTags?.Primary,
-                        cfg.apiKey
+                        cfg.apiKey,
+                        cfg.userId
                     ),
                 };
         }
@@ -680,7 +695,8 @@ export async function getJellyfinFavorites(cfg: JellyfinConfig): Promise<Resolve
                             cfg.url,
                             albumItem.Id,
                             albumItem.ImageTags?.Primary,
-                            cfg.apiKey
+                            cfg.apiKey,
+                            cfg.userId
                         ),
                     };
             } catch {

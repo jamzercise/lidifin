@@ -799,6 +799,65 @@ router.get("/artists/:id", async (req, res) => {
     try {
         const idParam = req.params.id;
 
+        // Jellyfin artist (jellyfin:uuid)
+        if (idParam.startsWith("jellyfin:")) {
+            if (!(await isJellyfinMusicSource())) {
+                return res.status(404).json({ error: "Artist not found" });
+            }
+            const cfg = await getJellyfinConfig();
+            if (!cfg) {
+                return res.status(503).json({
+                    error: JELLYFIN_UNREACHABLE_MESSAGE,
+                    jellyfin: true,
+                });
+            }
+            const rawId = idParam.slice("jellyfin:".length);
+            const artistItem = await getJellyfinItem(cfg, rawId);
+            if (!artistItem || artistItem.Type !== "MusicArtist") {
+                return res.status(404).json({ error: "Artist not found" });
+            }
+            const [albums, topTracksResult] = await Promise.all([
+                getJellyfinAlbums(cfg, { artistId: idParam, limit: 200 }),
+                getJellyfinTracks(cfg, { artistId: idParam, limit: 10 }),
+            ]);
+            const topTracks = topTracksResult.tracks;
+            const coverArt = artistItem.ImageTags?.Primary
+                ? getJellyfinImageUrl(
+                      cfg.url,
+                      artistItem.Id,
+                      artistItem.ImageTags.Primary,
+                      cfg.apiKey,
+                      cfg.userId
+                  )
+                : undefined;
+            return res.json({
+                id: idParam,
+                name: artistItem.Name,
+                coverArt: coverArt ?? undefined,
+                bio: null,
+                genres: [],
+                albums: albums.map((a) => ({
+                    id: a.id,
+                    title: a.title,
+                    coverArt: a.coverArt,
+                    coverUrl: a.coverArt,
+                    artist: a.artist,
+                    year: a.year,
+                    owned: true,
+                    source: "database" as const,
+                    tracks: [],
+                })),
+                topTracks: topTracks.map((t) => ({
+                    id: t.id,
+                    title: t.title,
+                    duration: t.duration,
+                    artist: t.artist,
+                    album: t.album,
+                })),
+                similarArtists: [],
+            });
+        }
+
         const artistInclude = {
             albums: {
                 orderBy: { year: Prisma.SortOrder.desc },
@@ -1662,7 +1721,7 @@ router.get("/albums/:id", async (req, res) => {
             if (!albumItem || albumItem.Type !== "MusicAlbum") {
                 return res.status(404).json({ error: "Album not found" });
             }
-            const tracks = await getJellyfinTracks(cfg, {
+            const { tracks } = await getJellyfinTracks(cfg, {
                 albumId: idParam,
                 limit: 500,
             });
@@ -1677,7 +1736,8 @@ router.get("/albums/:id", async (req, res) => {
                 cfg.url,
                 albumItem.Id,
                 albumItem.ImageTags?.Primary,
-                cfg.apiKey
+                cfg.apiKey,
+                cfg.userId
             );
             return res.json({
                 id: idParam,
@@ -1764,14 +1824,14 @@ router.get("/tracks", async (req, res) => {
                 });
             }
             try {
-                const tracks = await getJellyfinTracks(cfg, {
+                const { tracks, total } = await getJellyfinTracks(cfg, {
                     limit,
                     offset,
                     albumId: (albumId as string) || undefined,
                 });
                 return res.json({
                     tracks,
-                    total: tracks.length,
+                    total,
                     offset,
                     limit,
                 });

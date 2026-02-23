@@ -686,7 +686,7 @@ router.post("/test-audiobookshelf", async (req, res) => {
     }
 });
 
-// Test Jellyfin connection (Lidifin). Supports API key or username+password.
+// Test Jellyfin connection (Lidifin). Uses API key only (User ID is required in settings for library access).
 router.post("/test-jellyfin", async (req, res) => {
     try {
         let { url, apiKey } = req.body || {};

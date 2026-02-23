@@ -49,6 +49,8 @@ export function useArtistData() {
     // Determine source from the artist data (if it came from library or discovery)
     const source: ArtistSource | null = useMemo(() => {
         if (!artist) return null;
+        // Jellyfin artists (jellyfin:uuid) and CUIDs are from library
+        if (artist.id?.startsWith("jellyfin:")) return "library";
         return artist.id && !artist.id.includes("-") ? "library" : "discovery";
     }, [artist]);
 
