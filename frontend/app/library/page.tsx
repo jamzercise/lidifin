@@ -21,7 +21,7 @@ import { LibraryTabs } from "@/features/library/components/LibraryTabs";
 import { ArtistsGrid } from "@/features/library/components/ArtistsGrid";
 import { AlbumsGrid } from "@/features/library/components/AlbumsGrid";
 import { TracksList } from "@/features/library/components/TracksList";
-import { Shuffle, ListFilter } from "lucide-react";
+import { Shuffle, ListFilter, RefreshCw } from "lucide-react";
 
 export default function LibraryPage() {
     const router = useRouter();
@@ -145,7 +145,7 @@ export default function LibraryPage() {
         ],
     );
 
-    // Reload data function using React Query invalidation
+    // Reload data function using React Query invalidation (used after delete)
     const reloadData = useCallback(async () => {
         if (activeTab === "artists") {
             await queryClient.invalidateQueries({
@@ -171,7 +171,33 @@ export default function LibraryPage() {
         deleteAlbum,
         deleteTrack,
     } = useLibraryActions();
-    const { favoriteIds, addFavorite, removeFavorite } = useFavorites();
+    const { favoriteIds, addFavorite, removeFavorite, refetch: refetchFavorites } = useFavorites();
+
+    // Refresh library and favorites (e.g. after changes in Jellyfin) — invalidates all library data and refetches favorites
+    const [isRefreshing, setIsRefreshing] = useState(false);
+    const handleRefreshLibrary = useCallback(async () => {
+        setIsRefreshing(true);
+        try {
+            await queryClient.invalidateQueries({ queryKey: ["library"] });
+            await refetchFavorites();
+        } finally {
+            setIsRefreshing(false);
+        }
+    }, [queryClient, refetchFavorites]);
+
+    // Light auto-refresh: refetch when this page is opened or when user switches back to the tab
+    const refreshLibraryAndFavorites = useCallback(() => {
+        queryClient.invalidateQueries({ queryKey: ["library"] });
+        refetchFavorites();
+    }, [queryClient, refetchFavorites]);
+    useEffect(() => {
+        refreshLibraryAndFavorites();
+        const onVisibilityChange = () => {
+            if (document.visibilityState === "visible") refreshLibraryAndFavorites();
+        };
+        document.addEventListener("visibilitychange", onVisibilityChange);
+        return () => document.removeEventListener("visibilitychange", onVisibilityChange);
+    }, [refreshLibraryAndFavorites]);
     const handleToggleFavorite = useCallback(
         (trackId: string, isFavorite: boolean) => {
             if (isFavorite) removeFavorite(trackId);
@@ -339,6 +365,16 @@ export default function LibraryPage() {
                     />
 
                     <div className="flex items-center gap-2">
+                        {/* Refresh Library (e.g. after Jellyfin updates) */}
+                        <button
+                            onClick={handleRefreshLibrary}
+                            disabled={isRefreshing}
+                            className="flex items-center justify-center w-8 h-8 rounded-full bg-white/5 text-gray-400 hover:text-white hover:bg-white/10 transition-all disabled:opacity-50"
+                            title="Refresh library from server (Jellyfin or local)"
+                        >
+                            <RefreshCw className={`w-4 h-4 ${isRefreshing ? "animate-spin" : ""}`} />
+                        </button>
+
                         {/* Shuffle Button */}
                         <button
                             onClick={handleShuffleLibrary}

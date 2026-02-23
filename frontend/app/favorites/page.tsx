@@ -1,13 +1,13 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useAudioControls } from "@/lib/audio-controls-context";
 import { useFavorites } from "@/hooks/useFavorites";
 import { TracksList } from "@/features/library/components/TracksList";
 import { LibraryHeader } from "@/features/library/components/LibraryHeader";
 import { GradientSpinner } from "@/components/ui/GradientSpinner";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { Heart, AudioLines } from "lucide-react";
+import { Heart, AudioLines, RefreshCw } from "lucide-react";
 import { Track } from "@/features/library/types";
 
 function mapFavoritesToTrack(
@@ -29,7 +29,8 @@ function mapFavoritesToTrack(
 }
 
 export default function FavoritesPage() {
-    const { tracks, isLoading, error, favoriteIds, removeFavorite } = useFavorites();
+    const { tracks, isLoading, error, favoriteIds, removeFavorite, refetch } = useFavorites();
+    const [isRefreshing, setIsRefreshing] = useState(false);
     const { playTracks, addToQueue } = useAudioControls();
 
     const libraryTracks: Track[] = tracks.map(mapFavoritesToTrack);
@@ -89,13 +90,42 @@ export default function FavoritesPage() {
     const noopDelete = useCallback(() => {}, []);
     const noopAddToPlaylist = useCallback(() => {}, []);
 
+    const handleRefresh = useCallback(async () => {
+        setIsRefreshing(true);
+        try {
+            await refetch();
+        } finally {
+            setIsRefreshing(false);
+        }
+    }, [refetch]);
+
+    // Light auto-refresh: refetch when this page is opened or when user switches back to the tab
+    useEffect(() => {
+        refetch();
+        const onVisibilityChange = () => {
+            if (document.visibilityState === "visible") refetch();
+        };
+        document.addEventListener("visibilitychange", onVisibilityChange);
+        return () => document.removeEventListener("visibilitychange", onVisibilityChange);
+    }, [refetch]);
+
     return (
         <div className="min-h-screen">
-            <LibraryHeader
-                title="Favorites"
-                subtitle="Jellyfin favorites — play or remove from list"
-                showSync={false}
-            />
+            <div className="relative flex items-start justify-end">
+                <LibraryHeader
+                    title="Favorites"
+                    subtitle="Jellyfin favorites — play or remove from list"
+                    showSync={false}
+                />
+                <button
+                    onClick={handleRefresh}
+                    disabled={isRefreshing}
+                    className="absolute top-6 right-4 md:right-8 flex items-center justify-center w-8 h-8 rounded-full bg-white/5 text-gray-400 hover:text-white hover:bg-white/10 transition-all disabled:opacity-50"
+                    title="Refresh favorites from Jellyfin"
+                >
+                    <RefreshCw className={`w-4 h-4 ${isRefreshing ? "animate-spin" : ""}`} />
+                </button>
+            </div>
 
             {error && (
                 <div className="mx-4 mb-4 rounded-lg bg-red-500/10 border border-red-500/20 p-4 text-sm text-red-400">
