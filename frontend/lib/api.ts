@@ -543,7 +543,9 @@ class ApiClient {
     }
 
     async getArtist(id: string) {
-        return this.request<ApiData>(`/library/artists/${id}`);
+        return this.request<ApiData>(
+            `/library/artists/${encodeURIComponent(id)}`
+        );
     }
 
     async getAlbums(params?: {

@@ -50,7 +50,9 @@ import {
     isJellyfinMusicSource,
     getJellyfinArtists,
     getJellyfinAlbums,
+    getJellyfinAlbumsAllForArtist,
     getJellyfinTracks,
+    getJellyfinTracksAllForAlbum,
     getJellyfinItem,
     getJellyfinImageUrl,
     resolveTrackReference,
@@ -512,7 +514,7 @@ router.get("/artists", async (req, res) => {
                 });
             }
             try {
-                const artists = await getJellyfinArtists(cfg, {
+                const { artists, total } = await getJellyfinArtists(cfg, {
                     limit,
                     offset,
                     search: (query as string) || undefined,
@@ -521,12 +523,12 @@ router.get("/artists", async (req, res) => {
                     artists: artists.map((a) => ({
                         id: a.id,
                         name: a.name,
-                        heroUrl: null,
-                        coverArt: null,
+                        heroUrl: a.coverArt ?? null,
+                        coverArt: a.coverArt ?? null,
                         albumCount: 0,
                         trackCount: 0,
                     })),
-                    total: artists.length,
+                    total,
                     offset,
                     limit,
                 });
@@ -817,7 +819,7 @@ router.get("/artists/:id", async (req, res) => {
                 return res.status(404).json({ error: "Artist not found" });
             }
             const [albums, topTracksResult] = await Promise.all([
-                getJellyfinAlbums(cfg, { artistId: idParam, limit: 200 }),
+                getJellyfinAlbumsAllForArtist(cfg, idParam),
                 getJellyfinTracks(cfg, { artistId: idParam, limit: 10 }),
             ]);
             const topTracks = topTracksResult.tracks;
@@ -1530,7 +1532,7 @@ router.get("/albums", async (req, res) => {
                 });
             }
             try {
-                const albums = await getJellyfinAlbums(cfg, {
+                const { albums, total } = await getJellyfinAlbums(cfg, {
                     limit,
                     offset,
                     artistId: (artistId as string) || undefined,
@@ -1544,7 +1546,7 @@ router.get("/albums", async (req, res) => {
                         artist: a.artist,
                         year: a.year,
                     })),
-                    total: albums.length,
+                    total,
                     offset,
                     limit,
                 });
@@ -1721,10 +1723,7 @@ router.get("/albums/:id", async (req, res) => {
             if (!albumItem || albumItem.Type !== "MusicAlbum") {
                 return res.status(404).json({ error: "Album not found" });
             }
-            const { tracks } = await getJellyfinTracks(cfg, {
-                albumId: idParam,
-                limit: 500,
-            });
+            const tracks = await getJellyfinTracksAllForAlbum(cfg, idParam);
             const artist = albumItem.AlbumArtists?.[0]
                 ? {
                       id: `jellyfin:${albumItem.AlbumArtists[0].Id}`,

@@ -30,6 +30,7 @@ export interface ResolvedTrack {
 export interface ResolvedArtist {
     id: string;
     name: string;
+    coverArt?: string;
 }
 
 export interface ResolvedAlbum {
@@ -184,50 +185,65 @@ export function getJellyfinImageUrl(
 
 /**
  * Fetch artists from Jellyfin (MusicArtist).
+ * Returns { artists, total } where total is TotalRecordCount from the API.
  */
 export async function getJellyfinArtists(
     cfg: JellyfinConfig,
     options?: { limit?: number; offset?: number; search?: string }
-): Promise<ResolvedArtist[]> {
+): Promise<{ artists: ResolvedArtist[]; total: number }> {
     const token = getEffectiveToken(cfg);
     const userId = getEffectiveUserId(cfg);
     const client = createClient(cfg.url, token);
     const path = userId ? `/Users/${userId}/Items` : "/Items";
-    const params: Record<string, string | number> = {
+    const params: Record<string, string | number | boolean> = {
         IncludeItemTypes: "MusicArtist",
         Recursive: "true",
         Limit: options?.limit ?? 100,
         StartIndex: options?.offset ?? 0,
-        Fields: "Id,Name",
+        Fields: "Id,Name,ImageTags",
+        EnableTotalRecordCount: true,
     };
     if (options?.search) params.SearchTerm = options.search;
-    const res = await client.get<{ Items: JellyfinItem[] }>(path, {
+    const res = await client.get<{ Items: JellyfinItem[]; TotalRecordCount?: number }>(path, {
         params,
     });
     const items = res.data?.Items ?? [];
-    return items.map((a) => ({
+    const total = res.data?.TotalRecordCount ?? items.length;
+    const artists = items.map((a) => ({
         id: `${JELLYFIN_PREFIX}${a.Id}`,
         name: a.Name,
+        coverArt: a.ImageTags?.Primary
+            ? getJellyfinImageUrl(
+                  cfg.url,
+                  a.Id,
+                  a.ImageTags.Primary,
+                  cfg.apiKey,
+                  cfg.userId
+              )
+            : undefined,
     }));
+    return { artists, total };
 }
 
 /**
  * Fetch albums from Jellyfin (MusicAlbum). Optional parentId for artist's albums.
+ * Returns { albums, total } where total is TotalRecordCount from the API.
  */
 export async function getJellyfinAlbums(
     cfg: JellyfinConfig,
     options?: { limit?: number; offset?: number; artistId?: string; search?: string }
-): Promise<ResolvedAlbum[]> {
+): Promise<{ albums: ResolvedAlbum[]; total: number }> {
     const token = getEffectiveToken(cfg);
     const userId = getEffectiveUserId(cfg);
     const client = createClient(cfg.url, token);
     const path = userId ? `/Users/${userId}/Items` : "/Items";
-    const params: Record<string, string | number> = {
+    const params: Record<string, string | number | boolean> = {
         IncludeItemTypes: "MusicAlbum",
         Recursive: "true",
         Limit: options?.limit ?? 100,
         StartIndex: options?.offset ?? 0,
         Fields: "Id,Name,ProductionYear,AlbumArtists,ParentId,ImageTags",
+        EnableTotalRecordCount: true,
     };
     if (options?.artistId) {
         const rawId = options.artistId.startsWith(JELLYFIN_PREFIX)
@@ -236,11 +252,12 @@ export async function getJellyfinAlbums(
         params.ParentId = rawId;
     }
     if (options?.search) params.SearchTerm = options.search;
-    const res = await client.get<{ Items: JellyfinItem[] }>(path, {
+    const res = await client.get<{ Items: JellyfinItem[]; TotalRecordCount?: number }>(path, {
         params,
     });
     const items = res.data?.Items ?? [];
-    return items.map((a) => ({
+    const total = res.data?.TotalRecordCount ?? items.length;
+    const albums = items.map((a) => ({
         id: `${JELLYFIN_PREFIX}${a.Id}`,
         title: a.Name,
         coverArt: getJellyfinImageUrl(cfg.url, a.Id, a.ImageTags?.Primary, cfg.apiKey, cfg.userId),
@@ -249,6 +266,63 @@ export async function getJellyfinAlbums(
             : undefined,
         year: a.ProductionYear ?? undefined,
     }));
+    return { albums, total };
+}
+
+const ALBUMS_PAGE_SIZE = 200;
+
+/**
+ * Fetch all albums for an artist, paginating through Jellyfin until complete.
+ * Use when an artist may have more than 200 albums.
+ */
+export async function getJellyfinAlbumsAllForArtist(
+    cfg: JellyfinConfig,
+    artistId: string
+): Promise<ResolvedAlbum[]> {
+    const all: ResolvedAlbum[] = [];
+    let offset = 0;
+    let total = 0;
+    let fetched: ResolvedAlbum[];
+    do {
+        const result = await getJellyfinAlbums(cfg, {
+            artistId,
+            limit: ALBUMS_PAGE_SIZE,
+            offset,
+        });
+        fetched = result.albums;
+        total = result.total;
+        all.push(...fetched);
+        offset += fetched.length;
+    } while (all.length < total && fetched.length > 0);
+    return all;
+}
+
+const TRACKS_PAGE_SIZE = 500;
+
+/**
+ * Fetch all tracks for an album, paginating through Jellyfin until complete.
+ * Use when an album may have more than 500 tracks.
+ */
+export async function getJellyfinTracksAllForAlbum(
+    cfg: JellyfinConfig,
+    albumId: string
+): Promise<ResolvedTrack[]> {
+    const all: ResolvedTrack[] = [];
+    let offset = 0;
+    let total = 0;
+    let fetched: ResolvedTrack[];
+    do {
+        const result = await getJellyfinTracks(cfg, {
+            albumId,
+            limit: TRACKS_PAGE_SIZE,
+            offset,
+        });
+        fetched = result.tracks;
+        total = result.total;
+        all.push(...fetched);
+        offset += fetched.length;
+    } while (all.length < total && fetched.length > 0);
+    return all;
 }
 
 /**
@@ -263,12 +337,13 @@ export async function getJellyfinTracks(
     const userId = getEffectiveUserId(cfg);
     const client = createClient(cfg.url, token);
     const path = userId ? `/Users/${userId}/Items` : "/Items";
-    const params: Record<string, string | number> = {
+    const params: Record<string, string | number | boolean> = {
         IncludeItemTypes: "Audio",
         Recursive: "true",
         Limit: options?.limit ?? 100,
         StartIndex: options?.offset ?? 0,
         Fields: "Id,Name,RunTimeTicks,AlbumId,AlbumArtist,AlbumArtists,ImageTags,ParentId",
+        EnableTotalRecordCount: true,
     };
     if (options?.albumId) {
         const rawId = options.albumId.startsWith(JELLYFIN_PREFIX)

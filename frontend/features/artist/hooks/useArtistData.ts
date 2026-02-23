@@ -25,6 +25,11 @@ export function useArtistData() {
             try {
                 return await api.getArtist(id);
             } catch {
+                // Never fall back to discovery for Jellyfin IDs - discovery would treat
+                // "jellyfin:uuid" as an artist name and return garbage (ID as name)
+                if (id.startsWith("jellyfin:")) {
+                    throw new Error("Artist not found");
+                }
                 return await api.getArtistDiscovery(id);
             }
         },

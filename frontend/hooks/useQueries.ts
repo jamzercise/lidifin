@@ -120,7 +120,10 @@ export function useArtistQuery(id: string | undefined) {
             try {
                 return await api.getArtist(id);
             } catch {
-                // Fallback to discovery
+                // Never fall back to discovery for Jellyfin IDs
+                if (id.startsWith("jellyfin:")) {
+                    throw new Error("Artist not found");
+                }
                 return await api.getArtistDiscovery(id);
             }
         },

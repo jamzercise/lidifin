@@ -812,7 +812,7 @@ function VibePageContent() {
             try {
                 const [status, { tracks }] = await Promise.all([
                     api.getVibeStatus(),
-                    api.getTracks({ limit: 200 }),
+                    api.getTracks({ limit: 1000 }),
                 ]);
                 setVibeStatus(status);
                 setLibraryTracks(tracks);
@@ -876,7 +876,7 @@ function VibePageContent() {
             try {
                 const [status, { tracks }] = await Promise.all([
                     api.getVibeStatus(),
-                    api.getTracks({ limit: 200 }),
+                    api.getTracks({ limit: 1000 }),
                 ]);
                 setVibeStatus(status);
                 setLibraryTracks(tracks);
