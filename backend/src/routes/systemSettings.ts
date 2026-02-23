@@ -155,6 +155,19 @@ router.post("/", async (req, res) => {
     try {
         const data = systemSettingsSchema.parse(req.body);
 
+        if (data.jellyfinEnabled) {
+            if (!data.jellyfinUrl?.trim()) {
+                return res.status(400).json({
+                    error: "Jellyfin URL is required when Jellyfin is enabled",
+                });
+            }
+            if (!data.jellyfinUserId?.trim()) {
+                return res.status(400).json({
+                    error: "Jellyfin User ID is required when Jellyfin is enabled",
+                });
+            }
+        }
+
         logger.debug("[SYSTEM SETTINGS] Saving settings...");
         logger.debug(
             "[SYSTEM SETTINGS] transcodeCacheMaxGb:",
@@ -676,9 +689,7 @@ router.post("/test-audiobookshelf", async (req, res) => {
 // Test Jellyfin connection (Lidifin). Supports API key or username+password.
 router.post("/test-jellyfin", async (req, res) => {
     try {
-        let { url, apiKey, username, password } = req.body || {};
-        const hasApiKey = url && (apiKey != null && String(apiKey).trim() !== "");
-        const hasUserPass = username != null && password != null && String(username).trim() !== "" && String(password).trim() !== "";
+        let { url, apiKey } = req.body || {};
         if (!url) {
             const settings = await getSystemSettings();
             url = settings?.jellyfinUrl;
@@ -686,30 +697,16 @@ router.post("/test-jellyfin", async (req, res) => {
         if (!url?.trim()) {
             return res.status(400).json({ error: "Jellyfin URL is required" });
         }
-        if (!hasApiKey && !hasUserPass) {
+        if (!apiKey?.trim()) {
             const settings = await getSystemSettings();
-            const savedApiKey = settings?.jellyfinApiKey;
-            const savedUsername = settings?.jellyfinUsername;
-            const savedPassword = settings?.jellyfinPassword;
-            if (savedApiKey?.trim()) {
-                apiKey = savedApiKey;
-            }
-            if (savedUsername?.trim() && savedPassword?.trim()) {
-                username = savedUsername;
-                password = savedPassword;
-            }
+            if (settings?.jellyfinApiKey?.trim()) apiKey = settings.jellyfinApiKey;
         }
         const effectiveApiKey = (apiKey != null && String(apiKey).trim() !== "") ? String(apiKey).trim() : "";
-        const effectiveUserPass = username != null && password != null && String(username).trim() !== "" && String(password).trim() !== ""
-            ? { username: String(username).trim(), password: String(password).trim() }
-            : undefined;
-        if (!effectiveApiKey && !effectiveUserPass) {
-            return res.status(400).json({
-                error: "Provide either an API key or Jellyfin username and password",
-            });
+        if (!effectiveApiKey) {
+            return res.status(400).json({ error: "API key is required to test connection" });
         }
         const { testJellyfinConnection } = await import("../services/jellyfin");
-        const result = await testJellyfinConnection(url, effectiveApiKey, effectiveUserPass);
+        const result = await testJellyfinConnection(url, effectiveApiKey);
         if (result.ok) {
             return res.json({ success: true, message: "Jellyfin connection successful" });
         }

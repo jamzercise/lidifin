@@ -33,7 +33,7 @@ export function JellyfinSection({ settings, onUpdate, onTest, isTesting }: Jelly
         <SettingsSection
             id="jellyfin"
             title="Jellyfin (Music)"
-            description="Use Jellyfin as your music library and streaming source (Lidifin). Provide your API key and User ID so Library, Favorites, and streaming work correctly."
+            description="Use Jellyfin as your music library and streaming source (Lidifin). API key and User ID are required when enabled."
         >
             <SettingsRow
                 label="Use Jellyfin for music"
@@ -77,8 +77,8 @@ export function JellyfinSection({ settings, onUpdate, onTest, isTesting }: Jelly
                     </SettingsRow>
 
                     <SettingsRow
-                        label="Jellyfin User ID"
-                        description="Required for Library and Favorites on most servers. Find it in Jellyfin: Dashboard → Users → your user → the ID in the URL or API."
+                        label="Jellyfin User ID (required)"
+                        description="Required when Jellyfin is enabled. Find it in Jellyfin: Dashboard → Users → your user → the ID in the URL or API."
                     >
                         <SettingsInput
                             value={settings.jellyfinUserId ?? ""}

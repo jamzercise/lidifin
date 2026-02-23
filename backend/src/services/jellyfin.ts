@@ -15,11 +15,8 @@ export interface JellyfinConfig {
     enabled: boolean;
     url: string;
     apiKey: string;
-    /** Optional: provide Jellyfin User ID so user-scoped paths work with API key */
-    userId?: string | null;
-    /** Optional: use AuthenticateByName for token + User.Id when API key alone fails */
-    username?: string | null;
-    password?: string | null;
+    /** Required: Jellyfin User ID for user-scoped paths (Library, Favorites, etc.) */
+    userId: string;
 }
 
 export interface ResolvedTrack {
@@ -63,24 +60,21 @@ function runTimeTicksToSeconds(ticks: number | undefined): number {
 }
 
 /**
- * Get Jellyfin config from system settings. Returns null if not enabled or missing URL and API key.
- * User ID can be provided directly (jellyfinUserId) so API key + userId work without username/password.
+ * Get Jellyfin config from system settings. Returns null if not enabled or missing URL, API key, or User ID.
+ * Auth is API key + User ID only (no username/password). Uses forceRefresh for latest settings.
  */
 export async function getJellyfinConfig(): Promise<JellyfinConfig | null> {
-    const settings = await getSystemSettings();
+    const settings = await getSystemSettings(true);
     if (!settings?.jellyfinEnabled || !settings?.jellyfinUrl?.trim()) return null;
-    const hasApiKey = !!(settings.jellyfinApiKey?.trim());
-    const hasUserPass =
-        !!(settings.jellyfinUsername?.trim() && settings.jellyfinPassword?.trim());
-    if (!hasApiKey && !hasUserPass) return null;
+    const apiKey = settings.jellyfinApiKey?.trim();
+    const userId = settings.jellyfinUserId?.trim();
+    if (!apiKey || !userId) return null;
     const url = settings.jellyfinUrl.replace(/\/$/, "");
     return {
         enabled: true,
         url,
-        apiKey: settings.jellyfinApiKey ?? "",
-        userId: settings.jellyfinUserId?.trim() || undefined,
-        username: settings.jellyfinUsername ?? undefined,
-        password: settings.jellyfinPassword ?? undefined,
+        apiKey,
+        userId,
     };
 }
 
@@ -89,24 +83,12 @@ export async function isJellyfinMusicSource(): Promise<boolean> {
     return cfg != null;
 }
 
-/** In-memory cache for resolved Jellyfin user id (per url+apiKey) when using API key only. */
-const jellyfinUserIdCache = new Map<string, string>();
-
-/** Session from AuthenticateByName (per url+username). Guide: jmshrv.com/posts/jellyfin-api */
-interface JellyfinSession {
-    token: string;
-    userId: string;
-}
-const jellyfinSessionByUser = new Map<string, JellyfinSession>();
-
 /**
- * Clear in-memory Jellyfin auth caches. Call when system settings (URL, API key, username, password) change
- * so the next request uses fresh credentials.
+ * No-op for backward compatibility. Call when system settings (URL, API key, User ID) change.
+ * Auth is API key + User ID only; no in-memory caches.
  */
 export function clearJellyfinSessionCache(): void {
-    jellyfinUserIdCache.clear();
-    jellyfinSessionByUser.clear();
-    logger.debug("[Jellyfin] Session and user id caches cleared");
+    logger.debug("[Jellyfin] Settings change noted (no caches to clear)");
 }
 
 /**
@@ -144,66 +126,14 @@ function createClient(baseUrl: string, token: string): AxiosInstance {
     return client;
 }
 
-/**
- * Authenticate with username/password per guide (AuthenticateByName). Returns token + User.Id.
- * Cached per url+username. Use when API key alone returns 400 for /Users/Me or item requests.
- */
-async function authenticateByName(cfg: JellyfinConfig): Promise<JellyfinSession | null> {
-    if (!cfg.username?.trim() || !cfg.password?.trim()) return null;
-    const cacheKey = `${cfg.url}:${cfg.username}`;
-    const cached = jellyfinSessionByUser.get(cacheKey);
-    if (cached) return cached;
-
-    const client = axios.create({
-        baseURL: cfg.url,
-        timeout: 10000,
-        headers: { "Content-Type": "application/json" },
-    });
-    try {
-        const res = await client.post<{
-            AccessToken?: string;
-            User?: { Id?: string };
-        }>("/Users/AuthenticateByName", {
-            Username: cfg.username.trim(),
-            Pw: cfg.password.trim(),
-        });
-        const token = res.data?.AccessToken?.trim();
-        const userId = res.data?.User?.Id?.trim();
-        if (!token || !userId) {
-            logger.warn("[Jellyfin] AuthenticateByName missing AccessToken or User.Id");
-            return null;
-        }
-        const session: JellyfinSession = { token, userId };
-        jellyfinSessionByUser.set(cacheKey, session);
-        logger.debug("[Jellyfin] AuthenticateByName succeeded, userId:", userId);
-        return session;
-    } catch (err: any) {
-        logger.warn("[Jellyfin] AuthenticateByName failed:", err?.message);
-        return null;
-    }
-}
-
-/**
- * Resolve the token to use for requests (session token from AuthenticateByName or API key).
- */
-async function getEffectiveToken(cfg: JellyfinConfig): Promise<string> {
-    if (cfg.username?.trim() && cfg.password?.trim()) {
-        const session = await authenticateByName(cfg);
-        if (session) return session.token;
-    }
+/** Token is always the API key (User ID is required in config). */
+function getEffectiveToken(cfg: JellyfinConfig): string {
     return cfg.apiKey;
 }
 
-/**
- * User ID: from config if provided (jellyfinUserId), else AuthenticateByName, else resolve via API.
- */
-async function getEffectiveUserId(cfg: JellyfinConfig): Promise<string | null> {
-    if (cfg.userId?.trim()) return cfg.userId.trim();
-    if (cfg.username?.trim() && cfg.password?.trim()) {
-        const session = await authenticateByName(cfg);
-        if (session) return session.userId;
-    }
-    return getJellyfinUserIdWithApiKey(cfg);
+/** User ID is always from config (required when Jellyfin is enabled). */
+function getEffectiveUserId(cfg: JellyfinConfig): string {
+    return cfg.userId.trim();
 }
 
 /**
@@ -254,8 +184,8 @@ export async function getJellyfinArtists(
     cfg: JellyfinConfig,
     options?: { limit?: number; offset?: number; search?: string }
 ): Promise<ResolvedArtist[]> {
-    const token = await getEffectiveToken(cfg);
-    const userId = await getEffectiveUserId(cfg);
+    const token = getEffectiveToken(cfg);
+    const userId = getEffectiveUserId(cfg);
     const client = createClient(cfg.url, token);
     const path = userId ? `/Users/${userId}/Items` : "/Items";
     const params: Record<string, string | number> = {
@@ -283,8 +213,8 @@ export async function getJellyfinAlbums(
     cfg: JellyfinConfig,
     options?: { limit?: number; offset?: number; artistId?: string; search?: string }
 ): Promise<ResolvedAlbum[]> {
-    const token = await getEffectiveToken(cfg);
-    const userId = await getEffectiveUserId(cfg);
+    const token = getEffectiveToken(cfg);
+    const userId = getEffectiveUserId(cfg);
     const client = createClient(cfg.url, token);
     const path = userId ? `/Users/${userId}/Items` : "/Items";
     const params: Record<string, string | number> = {
@@ -323,8 +253,8 @@ export async function getJellyfinTracks(
     cfg: JellyfinConfig,
     options?: { limit?: number; offset?: number; albumId?: string; artistId?: string; search?: string }
 ): Promise<ResolvedTrack[]> {
-    const token = await getEffectiveToken(cfg);
-    const userId = await getEffectiveUserId(cfg);
+    const token = getEffectiveToken(cfg);
+    const userId = getEffectiveUserId(cfg);
     const client = createClient(cfg.url, token);
     const path = userId ? `/Users/${userId}/Items` : "/Items";
     const params: Record<string, string | number> = {
@@ -384,8 +314,8 @@ export async function getJellyfinItem(
     itemId: string,
     _itemType?: "MusicAlbum" | "Audio"
 ): Promise<JellyfinItem | null> {
-    const token = await getEffectiveToken(cfg);
-    const userId = await getEffectiveUserId(cfg);
+    const token = getEffectiveToken(cfg);
+    const userId = getEffectiveUserId(cfg);
     const client = createClient(cfg.url, token);
     const path = userId
         ? `/Users/${userId}/Items/${itemId}`
@@ -408,7 +338,7 @@ export async function getJellyfinStreamUrl(
     itemId: string
 ): Promise<string> {
     const base = cfg.url.replace(/\/$/, "");
-    const token = await getEffectiveToken(cfg);
+    const token = getEffectiveToken(cfg);
     return `${base}/Audio/${itemId}/stream?api_key=${encodeURIComponent(token)}&Static=true`;
 }
 
@@ -496,8 +426,8 @@ export async function resolveTrackReferences(
     const cfg = await getJellyfinConfig();
     if (cfg && jellyfinIds.length > 0) {
         try {
-            const token = await getEffectiveToken(cfg);
-            const userId = await getEffectiveUserId(cfg);
+            const token = getEffectiveToken(cfg);
+            const userId = getEffectiveUserId(cfg);
             const client = createClient(cfg.url, token);
             const path = userId ? `/Users/${userId}/Items` : "/Items";
             const res = await client.get<{ Items: JellyfinItem[] }>(path, {
@@ -570,49 +500,8 @@ interface JellyfinUser {
     Name?: string;
 }
 
-/**
- * Resolve user id when using API key only (/Users/Me then GET /Users fallback). Cached per url+apiKey.
- */
-async function getJellyfinUserIdWithApiKey(cfg: JellyfinConfig): Promise<string | null> {
-    const cacheKey = `${cfg.url}:${cfg.apiKey}`;
-    const cached = jellyfinUserIdCache.get(cacheKey);
-    if (cached) return cached;
-
-    const token = await getEffectiveToken(cfg);
-    const client = createClient(cfg.url, token);
-    try {
-        const res = await client.get<{ Id: string }>("/Users/Me");
-        if (res.data?.Id) {
-            jellyfinUserIdCache.set(cacheKey, res.data.Id);
-            return res.data.Id;
-        }
-    } catch (err: any) {
-        if (err.response?.status === 400) {
-            logger.debug("[Jellyfin] /Users/Me returned 400 (common with API key), trying GET /Users");
-        } else {
-            logger.warn("[Jellyfin] getUserId (/Users/Me) failed:", err.message);
-        }
-    }
-    try {
-        const res = await client.get<{ Items?: JellyfinUser[] }>("/Users");
-        const users = res.data?.Items ?? [];
-        const first = users.find((u) => u?.Id) ?? users[0];
-        if (first?.Id) {
-            logger.debug("[Jellyfin] Using user from GET /Users:", first.Id);
-            jellyfinUserIdCache.set(cacheKey, first.Id);
-            return first.Id;
-        }
-    } catch (err: any) {
-        logger.warn("[Jellyfin] GET /Users fallback failed:", err.message);
-    }
-    return null;
-}
-
-/**
- * Get Jellyfin user id for API requests. Uses AuthenticateByName session when username+password set;
- * otherwise API key with /Users/Me and GET /Users fallback.
- */
-export async function getJellyfinUserId(cfg: JellyfinConfig): Promise<string | null> {
+/** Get Jellyfin user id for API requests (from config; User ID is required when Jellyfin is enabled). */
+export function getJellyfinUserId(cfg: JellyfinConfig): string {
     return getEffectiveUserId(cfg);
 }
 
@@ -625,9 +514,9 @@ export async function createJellyfinPlaylist(
     name: string,
     itemIds: string[] = []
 ): Promise<string | null> {
-    const userId = await getJellyfinUserId(cfg);
+    const userId = getJellyfinUserId(cfg);
     if (!userId) return null;
-    const token = await getEffectiveToken(cfg);
+    const token = getEffectiveToken(cfg);
     const client = createClient(cfg.url, token);
     try {
         const res = await client.post<{ Id: string }>("/Playlists", {
@@ -652,9 +541,9 @@ export async function addToJellyfinPlaylist(
     itemIds: string[]
 ): Promise<boolean> {
     if (itemIds.length === 0) return true;
-    const userId = await getJellyfinUserId(cfg);
+    const userId = getJellyfinUserId(cfg);
     if (!userId) return false;
-    const token = await getEffectiveToken(cfg);
+    const token = getEffectiveToken(cfg);
     const client = createClient(cfg.url, token);
     try {
         await client.post(`/Playlists/${playlistId}/Items`, null, {
@@ -677,7 +566,7 @@ export async function removeFromJellyfinPlaylist(
     entryIds: string[]
 ): Promise<boolean> {
     if (entryIds.length === 0) return true;
-    const token = await getEffectiveToken(cfg);
+    const token = getEffectiveToken(cfg);
     const client = createClient(cfg.url, token);
     try {
         await client.delete(`/Playlists/${playlistId}/Items`, {
@@ -698,12 +587,12 @@ export async function getJellyfinPlaylistItems(
     cfg: JellyfinConfig,
     playlistId: string
 ): Promise<{ entryId: string; itemId: string }[]> {
-    const token = await getEffectiveToken(cfg);
+    const token = getEffectiveToken(cfg);
     const client = createClient(cfg.url, token);
     try {
         const res = await client.get<{ Items?: { Id: string; PlaylistItemId?: string }[] }>(
             `/Playlists/${playlistId}/Items`,
-            { params: { UserId: (await getJellyfinUserId(cfg)) ?? "" } }
+            { params: { UserId: getJellyfinUserId(cfg) } }
         );
         const items = res.data?.Items ?? [];
         return items.map((it) => ({
@@ -751,21 +640,21 @@ export async function removeItemFromJellyfinPlaylistByItemId(
 // --- Favorites ---
 
 export async function addJellyfinFavorite(cfg: JellyfinConfig, itemId: string): Promise<void> {
-    const token = await getEffectiveToken(cfg);
+    const token = getEffectiveToken(cfg);
     const client = createClient(cfg.url, token);
     await client.post(`/UserFavoriteItems/${itemId}`);
 }
 
 export async function removeJellyfinFavorite(cfg: JellyfinConfig, itemId: string): Promise<void> {
-    const token = await getEffectiveToken(cfg);
+    const token = getEffectiveToken(cfg);
     const client = createClient(cfg.url, token);
     await client.delete(`/UserFavoriteItems/${itemId}`);
 }
 
 export async function getJellyfinFavorites(cfg: JellyfinConfig): Promise<ResolvedTrack[]> {
-    const token = await getEffectiveToken(cfg);
+    const token = getEffectiveToken(cfg);
     const client = createClient(cfg.url, token);
-    const userId = await getJellyfinUserId(cfg);
+    const userId = getJellyfinUserId(cfg);
     const path = userId ? `/Users/${userId}/Items` : "/Items";
     const res = await client.get<{ Items: JellyfinItem[] }>(path, {
         params: {
@@ -811,40 +700,16 @@ export async function getJellyfinFavorites(cfg: JellyfinConfig): Promise<Resolve
 }
 
 /**
- * Test Jellyfin connection (e.g. for Settings "Test connection").
- * Supports either apiKey or (username + password) via AuthenticateByName.
+ * Test Jellyfin connection (e.g. for Settings "Test connection"). Uses API key only.
  */
 export async function testJellyfinConnection(
     url: string,
-    apiKey: string,
-    options?: { username?: string; password?: string }
+    apiKey: string
 ): Promise<{ ok: boolean; error?: string }> {
     const baseUrl = url.replace(/\/$/, "");
-    let token: string;
-
-    if (options?.username?.trim() && options?.password?.trim()) {
-        try {
-            const res = await axios.post<{ AccessToken?: string }>(
-                `${baseUrl}/Users/AuthenticateByName`,
-                { Username: options.username.trim(), Pw: options.password.trim() },
-                { timeout: 10000, headers: { "Content-Type": "application/json" } }
-            );
-            const rawToken = res.data?.AccessToken?.trim();
-            if (!rawToken) {
-                return { ok: false, error: "AuthenticateByName did not return a token" };
-            }
-            token = rawToken;
-        } catch (err: any) {
-            const status = err.response?.status;
-            const message = err.response?.data?.Message ?? err.message;
-            if (status === 401) return { ok: false, error: "Invalid username or password" };
-            if (status == null) return { ok: false, error: "Could not reach Jellyfin. Check the URL." };
-            return { ok: false, error: message || `Jellyfin returned ${status}` };
-        }
-    } else if (apiKey?.trim()) {
-        token = apiKey.trim();
-    } else {
-        return { ok: false, error: "Provide either API key or username and password" };
+    const token = apiKey?.trim();
+    if (!token) {
+        return { ok: false, error: "API key is required" };
     }
 
     const client = axios.create({
@@ -858,7 +723,7 @@ export async function testJellyfinConnection(
     } catch (err: any) {
         const status = err.response?.status;
         const message = err.response?.data?.Message ?? err.message;
-        if (status === 401) return { ok: false, error: "Invalid API key or session" };
+        if (status === 401) return { ok: false, error: "Invalid API key" };
         if (status == null) return { ok: false, error: "Could not reach Jellyfin. Check the URL." };
         return { ok: false, error: message || `Jellyfin returned ${status}` };
     }

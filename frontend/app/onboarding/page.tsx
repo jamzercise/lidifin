@@ -164,6 +164,11 @@ export default function OnboardingPage() {
 
         try {
             if (step === 2) {
+                if (jellyfin.enabled && !(jellyfin.userId ?? "").trim()) {
+                    setError("Jellyfin User ID is required when Jellyfin is enabled");
+                    setLoading(false);
+                    return;
+                }
                 // Save all integration configs
                 await Promise.all([
                     api.post("/onboarding/lidarr", lidarr),
@@ -177,9 +182,13 @@ export default function OnboardingPage() {
                 router.push("/sync");
             }
         } catch (err: unknown) {
-            setError(
-                err instanceof Error ? err.message : "Failed to save configuration"
-            );
+            const msg =
+                err && typeof err === "object" && "response" in err
+                    ? (err as { response?: { data?: { error?: string } } }).response?.data?.error
+                    : err instanceof Error
+                        ? err.message
+                        : "Failed to save configuration";
+            setError(msg || "Failed to save configuration");
         } finally {
             setLoading(false);
         }
@@ -893,7 +902,7 @@ function IntegrationCard({
                                     onChange={(e) =>
                                         onOptionalUserIdChange?.(e.target.value)
                                     }
-                                    placeholder="User ID (required for Library/Favorites)"
+                                    placeholder="User ID (required)"
                                     className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-lg text-white text-sm placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-transparent transition-all "
                                 />
                                 <p className="text-xs text-white/50 mt-2">

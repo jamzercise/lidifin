@@ -97,10 +97,19 @@ export default function SettingsPage() {
         }
 
         if (isAdmin) {
+            if (systemSettings.jellyfinEnabled && (!(systemSettings.jellyfinUrl ?? "").trim() || !(systemSettings.jellyfinUserId ?? "").trim())) {
+                saveStatus.setError("When Jellyfin is enabled, URL and User ID are required");
+                setIsSaving(false);
+                return;
+            }
             try {
                 changedSystemServices = await saveSystemSettings(systemSettings) || [];
-            } catch (error) {
+            } catch (error: unknown) {
                 console.error("Failed to save system settings:", error);
+                const msg = error && typeof error === "object" && "response" in error
+                    ? (error as { response?: { data?: { error?: string } } }).response?.data?.error
+                    : undefined;
+                saveStatus.setError(msg || "Failed to save system settings");
                 hasError = true;
             }
         }

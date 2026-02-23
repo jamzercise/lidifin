@@ -410,9 +410,15 @@ router.post("/jellyfin", requireAuth, requireAdmin, async (req, res) => {
 
         const url = (config.url || "").trim() || null;
         const hasApiKey = !!(config.apiKey && config.apiKey.trim());
+        const userId = (config.userId || "").trim() || null;
         if (!url || !hasApiKey) {
             return res.status(400).json({
                 error: "Jellyfin URL and API key are required",
+            });
+        }
+        if (!userId) {
+            return res.status(400).json({
+                error: "Jellyfin User ID is required when Jellyfin is enabled",
             });
         }
 
@@ -423,13 +429,13 @@ router.post("/jellyfin", requireAuth, requireAdmin, async (req, res) => {
                 jellyfinEnabled: true,
                 jellyfinUrl: url,
                 jellyfinApiKey: encryptField(config.apiKey!),
-                jellyfinUserId: (config.userId || "").trim() || null,
+                jellyfinUserId: userId,
             },
             update: {
                 jellyfinEnabled: true,
                 jellyfinUrl: url,
                 jellyfinApiKey: encryptField(config.apiKey!),
-                jellyfinUserId: (config.userId || "").trim() || null,
+                jellyfinUserId: userId,
             },
         });
 
