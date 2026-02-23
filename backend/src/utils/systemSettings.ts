@@ -80,6 +80,7 @@ export async function getSystemSettings(forceRefresh = false) {
                 : safeDecrypt(settings.jellyfinApiKey, "jellyfinApiKey"),
         jellyfinUsername: settings.jellyfinUsername ?? null,
         jellyfinPassword: safeDecrypt(settings.jellyfinPassword, "jellyfinPassword"),
+        jellyfinUserId: settings.jellyfinUserId ?? null,
     };
 
     cachedSettings = decrypted;

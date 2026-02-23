@@ -19,8 +19,7 @@ const defaultSystemSettings: SystemSettings = {
     jellyfinEnabled: false,
     jellyfinUrl: "",
     jellyfinApiKey: "",
-    jellyfinUsername: "",
-    jellyfinPassword: "",
+    jellyfinUserId: "",
     soulseekUsername: "",
     soulseekPassword: "",
     spotifyClientId: "",
@@ -187,9 +186,7 @@ export function useSystemSettings() {
                 case "jellyfin":
                     result = await api.testJellyfin(
                         systemSettings.jellyfinUrl ?? undefined,
-                        systemSettings.jellyfinApiKey ?? undefined,
-                        systemSettings.jellyfinUsername ?? undefined,
-                        systemSettings.jellyfinPassword ?? undefined
+                        systemSettings.jellyfinApiKey ?? undefined
                     );
                     break;
                 case "soulseek":

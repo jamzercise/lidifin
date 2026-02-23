@@ -33,7 +33,7 @@ export function JellyfinSection({ settings, onUpdate, onTest, isTesting }: Jelly
         <SettingsSection
             id="jellyfin"
             title="Jellyfin (Music)"
-            description="Use Jellyfin as your music library and streaming source (Lidifin). Sign in with your Jellyfin account so Library, Favorites, and streaming work correctly."
+            description="Use Jellyfin as your music library and streaming source (Lidifin). Provide your API key and User ID so Library, Favorites, and streaming work correctly."
         >
             <SettingsRow
                 label="Use Jellyfin for music"
@@ -59,47 +59,32 @@ export function JellyfinSection({ settings, onUpdate, onTest, isTesting }: Jelly
                     </SettingsRow>
 
                     <SettingsRow
-                        label="Jellyfin username"
-                        description="Your Jellyfin login. Required for Library, Favorites, and item details."
-                    >
-                        <SettingsInput
-                            value={settings.jellyfinUsername ?? ""}
-                            onChange={(v) => onUpdate({ jellyfinUsername: v || null })}
-                            placeholder="Jellyfin username"
-                            className="w-64"
-                            autoComplete="username"
-                        />
-                    </SettingsRow>
-
-                    <SettingsRow
-                        label="Jellyfin password"
-                        description="Stored encrypted. Used only to obtain a session for API requests."
-                    >
-                        <SettingsInput
-                            type="password"
-                            value={settings.jellyfinPassword ?? ""}
-                            onChange={(v) => onUpdate({ jellyfinPassword: v || null })}
-                            placeholder="Jellyfin password"
-                            className="w-64"
-                            autoComplete="current-password"
-                        />
-                    </SettingsRow>
-
-                    <SettingsRow
-                        label="API key (optional)"
+                        label="API key"
                         description={
                             settings.jellyfinApiKeyFromEnv
                                 ? "Using API key from environment"
-                                : "Only needed if your server requires it. Username and password above are used for Library and Favorites."
+                                : "From Jellyfin: Dashboard → API Keys"
                         }
                     >
                         <SettingsInput
                             type="password"
                             value={settings.jellyfinApiKeyFromEnv ? "" : (settings.jellyfinApiKey ?? "")}
                             onChange={(v) => onUpdate({ jellyfinApiKey: v || null })}
-                            placeholder={settings.jellyfinApiKeyFromEnv ? "Set via JELLYFIN_API_KEY env" : "Optional"}
+                            placeholder={settings.jellyfinApiKeyFromEnv ? "Set via JELLYFIN_API_KEY env" : "Enter API key"}
                             className="w-64"
                             disabled={!!settings.jellyfinApiKeyFromEnv}
+                        />
+                    </SettingsRow>
+
+                    <SettingsRow
+                        label="Jellyfin User ID"
+                        description="Required for Library and Favorites on most servers. Find it in Jellyfin: Dashboard → Users → your user → the ID in the URL or API."
+                    >
+                        <SettingsInput
+                            value={settings.jellyfinUserId ?? ""}
+                            onChange={(v) => onUpdate({ jellyfinUserId: v || null })}
+                            placeholder="e.g. 8152d64174a3fe92b4f191666d5107af"
+                            className="w-64"
                         />
                     </SettingsRow>
 
@@ -110,9 +95,7 @@ export function JellyfinSection({ settings, onUpdate, onTest, isTesting }: Jelly
                                 disabled={
                                     isTesting ||
                                     !settings.jellyfinUrl?.trim() ||
-                                    ((!settings.jellyfinUsername?.trim() || !settings.jellyfinPassword) &&
-                                        !settings.jellyfinApiKey &&
-                                        !settings.jellyfinApiKeyFromEnv)
+                                    (!settings.jellyfinApiKey && !settings.jellyfinApiKeyFromEnv)
                                 }
                                 className="px-4 py-1.5 text-sm bg-[#333] text-white rounded-full
                                     hover:bg-[#404040] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"

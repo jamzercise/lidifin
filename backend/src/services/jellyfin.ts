@@ -15,6 +15,8 @@ export interface JellyfinConfig {
     enabled: boolean;
     url: string;
     apiKey: string;
+    /** Optional: provide Jellyfin User ID so user-scoped paths work with API key */
+    userId?: string | null;
     /** Optional: use AuthenticateByName for token + User.Id when API key alone fails */
     username?: string | null;
     password?: string | null;
@@ -61,8 +63,8 @@ function runTimeTicksToSeconds(ticks: number | undefined): number {
 }
 
 /**
- * Get Jellyfin config from system settings. Returns null if not enabled or missing URL and auth.
- * Auth: either API key, or username+password (for AuthenticateByName per jmshrv.com guide).
+ * Get Jellyfin config from system settings. Returns null if not enabled or missing URL and API key.
+ * User ID can be provided directly (jellyfinUserId) so API key + userId work without username/password.
  */
 export async function getJellyfinConfig(): Promise<JellyfinConfig | null> {
     const settings = await getSystemSettings();
@@ -76,6 +78,7 @@ export async function getJellyfinConfig(): Promise<JellyfinConfig | null> {
         enabled: true,
         url,
         apiKey: settings.jellyfinApiKey ?? "",
+        userId: settings.jellyfinUserId?.trim() || undefined,
         username: settings.jellyfinUsername ?? undefined,
         password: settings.jellyfinPassword ?? undefined,
     };
@@ -192,9 +195,10 @@ async function getEffectiveToken(cfg: JellyfinConfig): Promise<string> {
 }
 
 /**
- * When using username+password we have userId from AuthenticateByName. Otherwise resolve via API.
+ * User ID: from config if provided (jellyfinUserId), else AuthenticateByName, else resolve via API.
  */
 async function getEffectiveUserId(cfg: JellyfinConfig): Promise<string | null> {
+    if (cfg.userId?.trim()) return cfg.userId.trim();
     if (cfg.username?.trim() && cfg.password?.trim()) {
         const session = await authenticateByName(cfg);
         if (session) return session.userId;

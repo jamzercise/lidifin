@@ -111,6 +111,7 @@ model SystemSettings {
   jellyfinApiKey              String?
   jellyfinUsername            String?  // optional: use AuthenticateByName for token + User.Id
   jellyfinPassword            String?  // encrypted
+  jellyfinUserId              String?  // optional: provide directly so API key + userId work without login
 }
 
 model Artist {

@@ -59,6 +59,7 @@ const systemSettingsSchema = z.object({
     jellyfinApiKey: z.string().nullable().optional(),
     jellyfinUsername: z.string().nullable().optional(),
     jellyfinPassword: z.string().nullable().optional(),
+    jellyfinUserId: z.string().nullable().optional(),
 
     // Soulseek (direct connection via slsk-client)
     soulseekUsername: z.string().nullable().optional(),
@@ -139,6 +140,7 @@ router.get("/", async (req, res) => {
             jellyfinApiKeyFromEnv: jellyfinApiKeyFromEnv || undefined,
             jellyfinUsername: settings.jellyfinUsername ?? undefined,
             jellyfinPassword: undefined,
+            jellyfinUserId: settings.jellyfinUserId ?? undefined,
         };
 
         res.json(decryptedSettings);
@@ -192,6 +194,8 @@ router.post("/", async (req, res) => {
             encryptedData.jellyfinPassword = data.jellyfinPassword
                 ? encrypt(data.jellyfinPassword)
                 : null;
+        if (data.jellyfinUserId !== undefined)
+            encryptedData.jellyfinUserId = data.jellyfinUserId || null;
 
         const settings = await prisma.systemSettings.upsert({
             where: { id: "default" },
@@ -209,7 +213,8 @@ router.post("/", async (req, res) => {
             data.jellyfinUrl !== undefined ||
             data.jellyfinApiKey !== undefined ||
             data.jellyfinUsername !== undefined ||
-            data.jellyfinPassword !== undefined
+            data.jellyfinPassword !== undefined ||
+            data.jellyfinUserId !== undefined
         ) {
             try {
                 const { clearJellyfinSessionCache } = await import("../services/jellyfin");
