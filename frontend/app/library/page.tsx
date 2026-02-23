@@ -178,10 +178,10 @@ export default function LibraryPage() {
     const handleRefreshLibrary = useCallback(async () => {
         setIsRefreshing(true);
         try {
-            // refetchType: 'all' ensures albums/tracks refetch even when their tab is inactive (enabled: false)
+            // type: 'all' ensures albums/tracks refetch even when their tab is inactive (enabled: false)
             await queryClient.refetchQueries({
                 queryKey: ["library"],
-                refetchType: "all",
+                type: "all",
             });
             await refetchFavorites();
         } finally {
@@ -193,7 +193,7 @@ export default function LibraryPage() {
     const refreshLibraryAndFavorites = useCallback(() => {
         queryClient.refetchQueries({
             queryKey: ["library"],
-            refetchType: "all",
+            type: "all",
         });
         refetchFavorites();
     }, [queryClient, refetchFavorites]);

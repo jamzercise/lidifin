@@ -1,0 +1,42 @@
+# Lidify - Build from source (for latest fixes before official image release)
+#
+# Use this when you need fixes that aren't yet in jamzercise/lidifin:latest.
+# Builds the full image from the repo (takes several minutes first time).
+#
+# Usage:
+#   docker compose -f docker-compose.build.yml up -d --build
+#
+# Or with Dockge: add this compose file and enable "Build" before deploy.
+
+services:
+  lidify:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ${DOCKERHUB_USERNAME:-jamzercise}/lidifin:local
+    container_name: lidifin-player
+    ports:
+      - "${PORT:-31013}:3030"
+    volumes:
+      - ${MUSIC_PATH:-/path/to/your/music}:/music
+      - lidifin_data:/data
+    environment:
+      - TZ=${TZ:-UTC}
+      - SESSION_SECRET=${SESSION_SECRET:-}
+      - INTERNAL_API_SECRET=${INTERNAL_API_SECRET:-lidify-internal-secret-change-me}
+      - JELLYFIN_API_KEY=${JELLYFIN_API_KEY:-}
+      - LIDIFY_CALLBACK_URL=${LIDIFY_CALLBACK_URL:-http://host.docker.internal:31013}
+      # Set to "info" to see Library/Jellyfin request logs for debugging
+      - LOG_LEVEL=${LOG_LEVEL:-warn}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "/app/healthcheck.js"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
+
+volumes:
+  lidifin_data:

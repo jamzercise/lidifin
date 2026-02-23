@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1.4
-# Lidify All-in-One Docker Image (Hardened)
-# Contains: Backend, Frontend, PostgreSQL, Redis, Audio Analyzer (Essentia AI), yt-dlp for YouTube Music
-# Usage: docker run -d -p 31013:3030 -v /path/to/music:/music -v lidifin_data:/data jamzercise/lidifin:latest
+# Lidifin - Jellyfin Music Client (All-in-One)
+# Contains: Backend, Frontend, PostgreSQL, Redis, yt-dlp for YouTube Music
+# Jellyfin-only: no Essentia/CLAP analyzers (vibe matching handled by Jellyfin AudioMuse AI plugin)
+# Usage: docker run -d -p 31013:3030 -v lidifin_data:/data jamzercise/lidifin:latest
 
 FROM node:20-slim
 
@@ -12,7 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /etc/apt/trusted.gpg.d/postgresql.gpg && \
     apt-get update
 
-# Install system dependencies including Python for audio analysis
+# Install system dependencies (no Python/ML - Jellyfin-only deployment)
 RUN apt-get install -y --no-install-recommends \
     postgresql-16 \
     postgresql-contrib-16 \
@@ -24,93 +25,12 @@ RUN apt-get install -y --no-install-recommends \
     openssl \
     bash \
     gosu \
-    # Python for audio analyzer
-    python3 \
-    python3-pip \
-    python3-numpy \
-    # Build tools (needed for some Python packages)
-    build-essential \
-    python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Create directories
-RUN mkdir -p /app/backend /app/frontend /app/audio-analyzer /app/models \
+RUN mkdir -p /app/backend /app/frontend \
     /data/postgres /data/redis /run/postgresql /var/log/supervisor \
     && chown -R postgres:postgres /data/postgres /run/postgresql
-
-# ============================================
-# AUDIO ANALYZER SETUP (Essentia AI)
-# ============================================
-WORKDIR /app/audio-analyzer
-
-# Install Python dependencies for audio analysis
-# Note: TensorFlow must be installed explicitly for Python 3.11+ compatibility
-RUN pip3 install --no-cache-dir --break-system-packages \
-    'tensorflow>=2.13.0,<2.16.0' \
-    essentia-tensorflow \
-    redis \
-    psycopg2-binary
-
-# Download Essentia ML models (~200MB total) - these enable Enhanced vibe matching
-# IMPORTANT: Using MusiCNN models to match analyzer.py expectations
-RUN echo "Downloading Essentia ML models for Enhanced vibe matching..." && \
-    # Base MusiCNN embedding model (required for all predictions)
-    curl -L --progress-bar -o /app/models/msd-musicnn-1.pb \
-        "https://essentia.upf.edu/models/autotagging/msd/msd-musicnn-1.pb" && \
-    # Mood classification heads (using MusiCNN architecture)
-    curl -L --progress-bar -o /app/models/mood_happy-msd-musicnn-1.pb \
-        "https://essentia.upf.edu/models/classification-heads/mood_happy/mood_happy-msd-musicnn-1.pb" && \
-    curl -L --progress-bar -o /app/models/mood_sad-msd-musicnn-1.pb \
-        "https://essentia.upf.edu/models/classification-heads/mood_sad/mood_sad-msd-musicnn-1.pb" && \
-    curl -L --progress-bar -o /app/models/mood_relaxed-msd-musicnn-1.pb \
-        "https://essentia.upf.edu/models/classification-heads/mood_relaxed/mood_relaxed-msd-musicnn-1.pb" && \
-    curl -L --progress-bar -o /app/models/mood_aggressive-msd-musicnn-1.pb \
-        "https://essentia.upf.edu/models/classification-heads/mood_aggressive/mood_aggressive-msd-musicnn-1.pb" && \
-    curl -L --progress-bar -o /app/models/mood_party-msd-musicnn-1.pb \
-        "https://essentia.upf.edu/models/classification-heads/mood_party/mood_party-msd-musicnn-1.pb" && \
-    curl -L --progress-bar -o /app/models/mood_acoustic-msd-musicnn-1.pb \
-        "https://essentia.upf.edu/models/classification-heads/mood_acoustic/mood_acoustic-msd-musicnn-1.pb" && \
-    curl -L --progress-bar -o /app/models/mood_electronic-msd-musicnn-1.pb \
-        "https://essentia.upf.edu/models/classification-heads/mood_electronic/mood_electronic-msd-musicnn-1.pb" && \
-    # Other classification heads
-    curl -L --progress-bar -o /app/models/danceability-msd-musicnn-1.pb \
-        "https://essentia.upf.edu/models/classification-heads/danceability/danceability-msd-musicnn-1.pb" && \
-    curl -L --progress-bar -o /app/models/voice_instrumental-msd-musicnn-1.pb \
-        "https://essentia.upf.edu/models/classification-heads/voice_instrumental/voice_instrumental-msd-musicnn-1.pb" && \
-    echo "ML models downloaded successfully" && \
-    ls -lh /app/models/
-
-# Copy audio analyzer script
-COPY services/audio-analyzer/analyzer.py /app/audio-analyzer/
-
-# ============================================
-# CLAP ANALYZER SETUP (Vibe Similarity)
-# ============================================
-WORKDIR /app/audio-analyzer-clap
-
-# Install CLAP Python dependencies
-# Note: torch is large (~2GB) but required for CLAP embeddings
-RUN pip3 install --no-cache-dir --break-system-packages \
-    'laion-clap>=1.1.4' \
-    'torch>=2.0.0' \
-    'torchaudio>=2.0.0' \
-    'torchvision>=0.15.0' \
-    'librosa>=0.10.0' \
-    'transformers>=4.30.0' \
-    'pgvector>=0.2.0' \
-    'python-dotenv>=1.0.0' \
-    'requests>=2.31.0'
-
-# Copy CLAP analyzer script
-COPY services/audio-analyzer-clap/analyzer.py /app/audio-analyzer-clap/
-
-# Pre-download CLAP model (~600MB) during build to avoid runtime download
-# The analyzer expects the model at /app/models/music_audioset_epoch_15_esc_90.14.pt
-RUN echo "Downloading CLAP model for vibe similarity..." && \
-    curl -L --progress-bar -o /app/models/music_audioset_epoch_15_esc_90.14.pt \
-        "https://huggingface.co/lukewys/laion_clap/resolve/main/music_audioset_epoch_15_esc_90.14.pt" && \
-    echo "CLAP model downloaded successfully" && \
-    ls -lh /app/models/music_audioset_epoch_15_esc_90.14.pt
 
 # Create database readiness check script (outer heredoc so BuildKit parses as one RUN)
 RUN <<'OUTER'
@@ -201,9 +121,8 @@ RUN curl -L --progress-bar -o /usr/local/bin/yt-dlp \
 # ============================================
 # SECURITY HARDENING
 # ============================================
-# Remove dangerous tools and build dependencies AFTER all builds are complete
-# Keep: bash (supervisor), gosu (postgres user switching), python3 (audio analyzer)
-RUN apt-get purge -y --auto-remove build-essential python3-dev 2>/dev/null || true && \
+# Remove dangerous tools AFTER all builds are complete
+RUN \
     rm -f /usr/bin/wget /bin/wget 2>/dev/null || true && \
     rm -f /usr/bin/curl /bin/curl 2>/dev/null || true && \
     rm -f /usr/bin/nc /bin/nc /usr/bin/ncat /usr/bin/netcat 2>/dev/null || true && \
@@ -286,32 +205,6 @@ stderr_logfile=/dev/stderr
 stderr_logfile_maxbytes=0
 environment=NODE_ENV="production",BACKEND_URL="http://localhost:3006",PORT="3030"
 priority=40
-
-[program:audio-analyzer]
-command=/bin/bash -c "/app/wait-for-db.sh 120 && cd /app/audio-analyzer && python3 analyzer.py"
-autostart=true
-autorestart=unexpected
-startretries=3
-startsecs=10
-stdout_logfile=/dev/stdout
-stdout_logfile_maxbytes=0
-stderr_logfile=/dev/stderr
-stderr_logfile_maxbytes=0
-environment=DATABASE_URL="postgresql://lidify:lidify@localhost:5432/lidify",REDIS_URL="redis://localhost:6379",MUSIC_PATH="/music",BATCH_SIZE="10",SLEEP_INTERVAL="5",MAX_ANALYZE_SECONDS="90",BRPOP_TIMEOUT="30",MODEL_IDLE_TIMEOUT="300",NUM_WORKERS="2",THREADS_PER_WORKER="1",CUDA_VISIBLE_DEVICES=""
-priority=50
-
-[program:audio-analyzer-clap]
-command=/bin/bash -c "/app/wait-for-db.sh 120 && cd /app/audio-analyzer-clap && python3 analyzer.py"
-autostart=true
-autorestart=unexpected
-startretries=3
-startsecs=30
-stdout_logfile=/dev/stdout
-stdout_logfile_maxbytes=0
-stderr_logfile=/dev/stderr
-stderr_logfile_maxbytes=0
-environment=DATABASE_URL="postgresql://lidify:lidify@localhost:5432/lidify",REDIS_URL="redis://localhost:6379",MUSIC_PATH="/music",BACKEND_URL="http://localhost:3006",SLEEP_INTERVAL="5",NUM_WORKERS="1",MODEL_IDLE_TIMEOUT="300",INTERNAL_API_SECRET="lidify-internal-aio"
-priority=60
 INNER
 sed -i 's/\r$//' /etc/supervisor/conf.d/lidify.conf
 OUTER
@@ -328,12 +221,12 @@ set -e
 
 echo ""
 echo "============================================================"
-echo "  Lidify - Premium Self-Hosted Music Server"
+echo "  Lidifin - Jellyfin Music Client"
 echo ""
 echo "  Features:"
-echo "    - AI-Powered Vibe Matching (Essentia ML)"
-echo "    - Smart Playlists & Mood Detection"
-echo "    - High-Quality Audio Streaming"
+echo "    - Jellyfin library integration"
+echo "    - Smart playlists & favorites"
+echo "    - High-quality audio streaming"
 echo ""
 echo "  Security:"
 echo "    - Hardened container (no wget/curl/nc)"
@@ -501,10 +394,10 @@ TRANSCODE_CACHE_PATH=/data/cache/transcodes
 SESSION_SECRET=$SESSION_SECRET
 SETTINGS_ENCRYPTION_KEY=$SETTINGS_ENCRYPTION_KEY
 ENVEOF
-# INTERNAL_API_SECRET: backend must accept CLAP vibe/failure and vibe/success calls (same container)
+# INTERNAL_API_SECRET: used by internal backend endpoints (optional for Jellyfin-only)
 echo "INTERNAL_API_SECRET=\${INTERNAL_API_SECRET:-lidify-internal-aio}" >> /app/backend/.env
 
-echo "Starting Lidify..."
+echo "Starting Lidifin..."
 exec env \
     NODE_ENV=production \
     DATABASE_URL="postgresql://lidify:lidify@localhost:5432/lidify" \

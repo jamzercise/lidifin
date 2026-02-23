@@ -508,6 +508,9 @@ router.get("/artists", async (req, res) => {
         if (await isJellyfinMusicSource()) {
             const cfg = await getJellyfinConfig();
             if (!cfg) {
+                logger.warn(
+                    "[Library] Jellyfin is music source but config is null (missing URL, API key, or User ID?)"
+                );
                 return res.status(503).json({
                     error: JELLYFIN_UNREACHABLE_MESSAGE,
                     jellyfin: true,
@@ -519,6 +522,9 @@ router.get("/artists", async (req, res) => {
                     offset,
                     search: (query as string) || undefined,
                 });
+                logger.info(
+                    `[Library] Jellyfin artists: returned ${artists.length} of ${total}`
+                );
                 return res.json({
                     artists: artists.map((a) => ({
                         id: a.id,
@@ -808,6 +814,9 @@ router.get("/artists/:id", async (req, res) => {
             }
             const cfg = await getJellyfinConfig();
             if (!cfg) {
+                logger.warn(
+                    "[Library] Jellyfin artist detail: config null (missing URL, API key, or User ID?)"
+                );
                 return res.status(503).json({
                     error: JELLYFIN_UNREACHABLE_MESSAGE,
                     jellyfin: true,
@@ -1526,6 +1535,9 @@ router.get("/albums", async (req, res) => {
         if (await isJellyfinMusicSource()) {
             const cfg = await getJellyfinConfig();
             if (!cfg) {
+                logger.warn(
+                    "[Library] Jellyfin albums: config null (missing URL, API key, or User ID?)"
+                );
                 return res.status(503).json({
                     error: JELLYFIN_UNREACHABLE_MESSAGE,
                     jellyfin: true,
@@ -1550,6 +1562,9 @@ router.get("/albums", async (req, res) => {
                     offset,
                     limit,
                 });
+                logger.info(
+                    `[Library] Jellyfin albums: returned ${albums.length} of ${total}`
+                );
             } catch (err: any) {
                 logger.warn("[Library] Jellyfin albums error:", err?.message);
                 return res.status(503).json({

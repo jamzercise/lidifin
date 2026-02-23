@@ -232,6 +232,11 @@ Open **http://YOUR_SERVER_IP:31013** (or the port you set). Create the first use
 
 ## Troubleshooting
 
+- **Library (artists/albums) not loading when using Jellyfin** – The pre-built image `jamzercise/lidifin:latest` may not include the latest fixes. **Build from source** to get them:
+  ```bash
+  docker compose -f docker-compose.build.yml up -d --build
+  ```
+  Or with Dockge: use `docker-compose.build.yml` and enable **Build** before deploy. Set `LOG_LEVEL=info` to see Library logs; if you see `config null`, check Settings → Jellyfin (Music).
 - **Container exits or won’t start** – Check logs (`docker compose logs` or Dockge logs). Common causes: permission errors on the `/data` or music volume; fix with `chmod`/`chown` on the host paths.
 - **Can’t reach Lidify** – Ensure the host port (e.g. 31013) is not in use and not blocked by a firewall.
 - **Lidarr webhooks fail** – Ensure `LIDIFY_CALLBACK_URL` matches the URL Lidarr uses to reach your host (same IP/hostname and port). On Linux, keep `extra_hosts: host.docker.internal:host-gateway` in the compose file when using `host.docker.internal` in the callback URL.
