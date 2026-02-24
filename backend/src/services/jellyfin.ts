@@ -39,6 +39,8 @@ export interface ResolvedAlbum {
     coverArt: string | null;
     artist?: { id: string; name: string };
     year?: number;
+    /** MusicBrainz release group ID when available from Jellyfin ProviderIds */
+    rgMbid?: string;
 }
 
 /** Jellyfin API item (minimal shape we use) */
@@ -53,6 +55,19 @@ interface JellyfinItem {
     ImageTags?: { Primary?: string };
     ProductionYear?: number;
     ParentId?: string;
+    ProviderIds?: Record<string, string | null>;
+}
+
+/** Extract MusicBrainz release group ID from Jellyfin ProviderIds. Exported for use in routes. */
+export function extractRgMbid(providerIds?: Record<string, string | null>): string | undefined {
+    if (!providerIds) return undefined;
+    const val =
+        providerIds.MusicbrainzReleaseGroup ??
+        providerIds.MusicBrainzReleaseGroup ??
+        providerIds.MusicBrainzAlbum;
+    return val && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val)
+        ? val
+        : undefined;
 }
 
 function runTimeTicksToSeconds(ticks: number | undefined): number {
@@ -241,7 +256,7 @@ export async function getJellyfinAlbums(
         Recursive: "true",
         Limit: options?.limit ?? 100,
         StartIndex: options?.offset ?? 0,
-        Fields: "Id,Name,ProductionYear,AlbumArtists,ParentId,ImageTags",
+        Fields: "Id,Name,ProductionYear,AlbumArtists,ParentId,ImageTags,ProviderIds",
         EnableTotalRecordCount: true,
     };
     if (options?.artistId) {
@@ -264,11 +279,50 @@ export async function getJellyfinAlbums(
             ? { id: `${JELLYFIN_PREFIX}${a.AlbumArtists[0].Id}`, name: a.AlbumArtists[0].Name }
             : undefined,
         year: a.ProductionYear ?? undefined,
+        rgMbid: extractRgMbid(a.ProviderIds),
     }));
     return { albums, total };
 }
 
 const ALBUMS_PAGE_SIZE = 200;
+
+/**
+ * Find a Jellyfin album by MusicBrainz release group ID.
+ * Searches through albums (paginated) until one with matching ProviderIds is found.
+ * Returns null if not found within limit (avoids scanning huge libraries).
+ */
+export async function getJellyfinAlbumByRgMbid(
+    cfg: JellyfinConfig,
+    rgMbid: string
+): Promise<JellyfinItem | null> {
+    const token = getEffectiveToken(cfg);
+    const userId = getEffectiveUserId(cfg);
+    const client = createClient(cfg.url, token);
+    const path = userId ? `/Users/${userId}/Items` : "/Items";
+    const maxToSearch = 2000;
+    let offset = 0;
+
+    while (offset < maxToSearch) {
+        const res = await client.get<{ Items: JellyfinItem[]; TotalRecordCount?: number }>(path, {
+            params: {
+                IncludeItemTypes: "MusicAlbum",
+                Recursive: "true",
+                Limit: 100,
+                StartIndex: offset,
+                Fields: "Id,Name,ProductionYear,AlbumArtists,ParentId,ImageTags,ProviderIds",
+            },
+        });
+        const items = res.data?.Items ?? [];
+        if (items.length === 0) break;
+
+        for (const item of items) {
+            const found = extractRgMbid(item.ProviderIds);
+            if (found === rgMbid) return item;
+        }
+        offset += items.length;
+    }
+    return null;
+}
 
 /**
  * Fetch all albums for an artist, paginating through Jellyfin until complete.
@@ -397,6 +451,33 @@ export async function getJellyfinTracks(
  * Get a single item by id (raw Jellyfin id, no prefix).
  * Uses effective token (session or API key) and user-scoped path when available.
  */
+/**
+ * Get a Jellyfin MusicArtist by name. Uses GET /Artists/{name}.
+ * Returns null if not found.
+ */
+export async function getJellyfinArtistByName(
+    cfg: JellyfinConfig,
+    artistName: string
+): Promise<JellyfinItem | null> {
+    const token = getEffectiveToken(cfg);
+    const userId = getEffectiveUserId(cfg);
+    const client = createClient(cfg.url, token);
+    const encodedName = encodeURIComponent(artistName);
+    const path = `/Artists/${encodedName}`;
+    try {
+        const res = await client.get<JellyfinItem>(path, {
+            params: userId ? { userId } : undefined,
+        });
+        const item = res.data;
+        if (!item || item.Type !== "MusicArtist") return null;
+        return item;
+    } catch (err: any) {
+        if (err.response?.status === 404) return null;
+        logger.warn("[Jellyfin] getArtistByName failed:", artistName, err.message);
+        throw err;
+    }
+}
+
 export async function getJellyfinItem(
     cfg: JellyfinConfig,
     itemId: string,

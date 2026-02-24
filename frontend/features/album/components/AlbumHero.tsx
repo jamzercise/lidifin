@@ -2,6 +2,7 @@
 
 import { Disc3 } from "lucide-react";
 import Link from "next/link";
+import { toArtistRouteId } from "@/lib/route-ids";
 import Image from "next/image";
 import { Album, AlbumSource } from "../types";
 import { ReactNode, lazy, Suspense } from "react";
@@ -143,9 +144,7 @@ export function AlbumHero({
                         <div className="flex flex-wrap items-center gap-1 text-sm text-white/70 mb-1">
                             {album.artist && (
                                 <Link
-                                    href={`/artist/${
-                                        album.artist.mbid || album.artist.id
-                                    }`}
+                                    href={`/artist/${encodeURIComponent(toArtistRouteId(album.artist))}`}
                                     className="font-medium text-white hover:underline"
                                 >
                                     {album.artist.name}

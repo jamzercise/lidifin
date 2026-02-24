@@ -13,6 +13,7 @@ export interface Album {
     title: string;
     coverUrl?: string;
     albumId?: string;
+    rgMbid?: string;
     artist?: {
         name: string;
     };
@@ -56,6 +57,7 @@ export interface LibraryTrack {
         id: string;
         title: string;
         coverUrl?: string | null;
+        rgMbid?: string;
         artist: {
             id: string;
             mbid?: string;

@@ -4,6 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { Music } from "lucide-react";
 import { api } from "@/lib/api";
+import { toArtistRouteId } from "@/lib/route-ids";
 import { memo } from "react";
 import { HorizontalCarousel, CarouselItem } from "@/components/ui/HorizontalCarousel";
 
@@ -39,7 +40,7 @@ const ArtistCard = memo(
         return (
             <CarouselItem>
                 <Link
-                    href={`/artist/${artist.mbid || artist.id}`}
+                    href={`/artist/${encodeURIComponent(toArtistRouteId(artist))}`}
                     data-tv-card
                     data-tv-card-index={index}
                     tabIndex={0}

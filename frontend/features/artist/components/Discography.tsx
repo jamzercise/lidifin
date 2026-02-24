@@ -3,6 +3,7 @@
 import { PlayableCard } from "@/components/ui/PlayableCard";
 import { Disc3 } from "lucide-react";
 import { api } from "@/lib/api";
+import { toAlbumRouteId } from "@/lib/route-ids";
 import type { Album } from "../types";
 import type { ColorPalette } from "@/hooks/useImageColor";
 
@@ -56,7 +57,7 @@ export function Discography({
                     return (
                         <PlayableCard
                             key={album.id}
-                            href={`/album/${encodeURIComponent(album.id)}`}
+                            href={`/album/${encodeURIComponent(toAlbumRouteId(album))}`}
                             coverArt={
                                 album.coverArt
                                     ? api.getCoverArtUrl(album.coverArt, 300)

@@ -57,4 +57,5 @@ export interface SimilarAlbum {
     year?: number;
     owned?: boolean;
     mbid?: string;
+    rgMbid?: string;
 }

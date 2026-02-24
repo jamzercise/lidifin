@@ -4,6 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { Music, Disc, BookOpen } from "lucide-react";
 import { api } from "@/lib/api";
+import { toArtistRouteId } from "@/lib/route-ids";
 import { HorizontalCarousel, CarouselItem } from "@/components/ui/HorizontalCarousel";
 import { memo } from "react";
 
@@ -78,7 +79,7 @@ const ContinueListeningCard = memo(function ContinueListeningCard({
         ? `/podcasts/${item.id}`
         : isAudiobook
         ? `/audiobooks/${item.id}`
-        : `/artist/${item.mbid || item.id}`;
+        : `/artist/${encodeURIComponent(toArtistRouteId(item))}`;
     const hasProgress =
         (isPodcast || isAudiobook) &&
         item.progress &&

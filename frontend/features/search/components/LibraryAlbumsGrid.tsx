@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Disc3 } from "lucide-react";
 import Image from "next/image";
 import { api } from "@/lib/api";
+import { toAlbumRouteId } from "@/lib/route-ids";
 import { Album } from "../types";
 
 interface LibraryAlbumsGridProps {
@@ -14,7 +15,7 @@ export function LibraryAlbumsGrid({ albums }: LibraryAlbumsGridProps) {
             {albums.slice(0, 6).map((album, index) => (
                 <Link
                     key={album.id}
-                    href={`/album/${encodeURIComponent(album.id)}`}
+                    href={`/album/${encodeURIComponent(toAlbumRouteId(album))}`}
                     data-tv-card
                     data-tv-card-index={index}
                     tabIndex={0}

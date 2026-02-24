@@ -51,10 +51,13 @@ import {
     getJellyfinArtists,
     getJellyfinAlbums,
     getJellyfinAlbumsAllForArtist,
+    getJellyfinAlbumByRgMbid,
     getJellyfinTracks,
     getJellyfinTracksAllForAlbum,
     getJellyfinItem,
+    getJellyfinArtistByName,
     getJellyfinImageUrl,
+    extractRgMbid,
     resolveTrackReference,
     resolveTrackReferences,
     getJellyfinStreamUrl,
@@ -65,6 +68,17 @@ import {
 
 const JELLYFIN_UNREACHABLE_MESSAGE =
     "Jellyfin is slow or unreachable. Check your Jellyfin instance.";
+
+/** Jellyfin item IDs are 32 hex chars. Raw UUIDs in URLs map to jellyfin:uuid. */
+const JELLYFIN_UUID_REGEX = /^[a-f0-9]{32}$/i;
+/** MusicBrainz UUID format (8-4-4-4-12) */
+const MBID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function resolveIdForJellyfin(idParam: string): string {
+    if (idParam.startsWith("jellyfin:")) return idParam;
+    if (JELLYFIN_UUID_REGEX.test(idParam)) return `jellyfin:${idParam}`;
+    return idParam;
+}
 
 const router = Router();
 
@@ -803,85 +817,11 @@ router.post("/backfill-genres", async (req, res) => {
 });
 
 // GET /library/artists/:id
+// Resolves by: Prisma (id, name, mbid) or Jellyfin by name (e.g. /artist/Lucero).
+// Artist URLs use /artist/{mbid} or /artist/{artist_name} — not Jellyfin UUID.
 router.get("/artists/:id", async (req, res) => {
     try {
-        const idParam = req.params.id;
-
-        // Jellyfin artist (jellyfin:uuid)
-        if (idParam.startsWith("jellyfin:")) {
-            if (!(await isJellyfinMusicSource())) {
-                return res.status(404).json({ error: "Artist not found" });
-            }
-            const cfg = await getJellyfinConfig();
-            if (!cfg) {
-                logger.warn(
-                    "[Library] Jellyfin artist detail: config null (missing URL, API key, or User ID?)"
-                );
-                return res.status(503).json({
-                    error: JELLYFIN_UNREACHABLE_MESSAGE,
-                    jellyfin: true,
-                });
-            }
-            const rawId = idParam.slice("jellyfin:".length);
-            const artistItem = await getJellyfinItem(cfg, rawId);
-            if (!artistItem || artistItem.Type !== "MusicArtist") {
-                return res.status(404).json({ error: "Artist not found" });
-            }
-            const [albums, topTracksResult] = await Promise.all([
-                getJellyfinAlbumsAllForArtist(cfg, idParam),
-                getJellyfinTracks(cfg, { artistId: idParam, limit: 10 }),
-            ]);
-            const topTracks = topTracksResult.tracks;
-            // Artist name: Jellyfin may return Name empty or use different casing.
-            // Never use idParam (jellyfin:uuid) as display name.
-            const rawName = (artistItem as any).Name ?? (artistItem as any).name;
-            const artistName =
-                rawName && rawName !== artistItem.Id && !rawName.startsWith("jellyfin:")
-                    ? rawName
-                    : albums[0]?.artist?.name ?? "Unknown Artist";
-            // Cover: use artist image if available, else first album's cover
-            let coverArt = artistItem.ImageTags?.Primary
-                ? getJellyfinImageUrl(
-                      cfg.url,
-                      artistItem.Id,
-                      artistItem.ImageTags.Primary,
-                      cfg.apiKey,
-                      cfg.userId
-                  )
-                : undefined;
-            if (!coverArt && albums[0]?.coverArt) {
-                coverArt = albums[0].coverArt;
-            }
-            return res.json({
-                id: idParam,
-                name: artistName,
-                coverArt: coverArt ?? undefined,
-                heroUrl: coverArt ?? undefined,
-                image: coverArt ?? undefined,
-                bio: null,
-                genres: [],
-                albums: albums.map((a) => ({
-                    id: a.id,
-                    title: a.title,
-                    coverArt: a.coverArt,
-                    coverUrl: a.coverArt,
-                    artist: a.artist,
-                    year: a.year,
-                    owned: true,
-                    source: "database" as const,
-                    tracks: [],
-                })),
-                topTracks: topTracks.map((t) => ({
-                    id: t.id,
-                    title: t.title,
-                    duration: t.duration,
-                    artist: t.artist,
-                    album: t.album,
-                })),
-                similarArtists: [],
-            });
-        }
-
+        const idParam = decodeURIComponent(req.params.id);
         const artistInclude = {
             albums: {
                 orderBy: { year: Prisma.SortOrder.desc },
@@ -909,7 +849,7 @@ router.get("/artists/:id", async (req, res) => {
         // Single query with OR to find artist by ID, name, or MBID
         const decodedName = decodeURIComponent(idParam);
         const isMbidFormat = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idParam);
-        const artist = await prisma.artist.findFirst({
+        let artist = await prisma.artist.findFirst({
             where: {
                 OR: [
                     { id: idParam },
@@ -919,6 +859,66 @@ router.get("/artists/:id", async (req, res) => {
             },
             include: artistInclude,
         });
+
+        // If not in Prisma and Jellyfin mode: try artist by name (e.g. /artist/Lucero)
+        if (!artist && (await isJellyfinMusicSource())) {
+            const cfg = await getJellyfinConfig();
+            if (cfg) {
+                const artistItem = await getJellyfinArtistByName(cfg, decodedName);
+                if (artistItem && artistItem.Type === "MusicArtist") {
+                    const resolvedId = `jellyfin:${artistItem.Id}`;
+                    const [albums, topTracksResult] = await Promise.all([
+                        getJellyfinAlbumsAllForArtist(cfg, resolvedId),
+                        getJellyfinTracks(cfg, { artistId: resolvedId, limit: 10 }),
+                    ]);
+                    const topTracks = topTracksResult.tracks;
+                    const rawName = (artistItem as any).Name ?? (artistItem as any).name;
+                    const artistName =
+                        rawName && rawName !== artistItem.Id && !rawName.startsWith("jellyfin:")
+                            ? rawName
+                            : albums[0]?.artist?.name ?? "Unknown Artist";
+                    let coverArt = artistItem.ImageTags?.Primary
+                        ? getJellyfinImageUrl(
+                              cfg.url,
+                              artistItem.Id,
+                              artistItem.ImageTags.Primary,
+                              cfg.apiKey,
+                              cfg.userId
+                          )
+                        : undefined;
+                    if (!coverArt && albums[0]?.coverArt) coverArt = albums[0].coverArt;
+                    return res.json({
+                        id: resolvedId,
+                        name: artistName,
+                        coverArt: coverArt ?? undefined,
+                        heroUrl: coverArt ?? undefined,
+                        image: coverArt ?? undefined,
+                        bio: null,
+                        genres: [],
+                        albums: albums.map((a) => ({
+                            id: a.id,
+                            title: a.title,
+                            coverArt: a.coverArt,
+                            coverUrl: a.coverArt,
+                            artist: a.artist,
+                            year: a.year,
+                            rgMbid: a.rgMbid,
+                            owned: true,
+                            source: "database" as const,
+                            tracks: [],
+                        })),
+                        topTracks: topTracks.map((t) => ({
+                            id: t.id,
+                            title: t.title,
+                            duration: t.duration,
+                            artist: t.artist,
+                            album: t.album,
+                        })),
+                        similarArtists: [],
+                    });
+                }
+            }
+        }
 
         if (!artist) {
             return res.status(404).json({ error: "Artist not found" });
@@ -1570,6 +1570,7 @@ router.get("/albums", async (req, res) => {
                         coverUrl: a.coverArt,
                         artist: a.artist,
                         year: a.year,
+                        rgMbid: a.rgMbid,
                     })),
                     total,
                     offset,
@@ -1732,10 +1733,11 @@ router.get("/albums", async (req, res) => {
 // GET /library/albums/:id
 router.get("/albums/:id", async (req, res) => {
     try {
-        const idParam = req.params.id;
+        const idParam = decodeURIComponent(req.params.id);
+        const resolvedId = resolveIdForJellyfin(idParam);
 
-        // Jellyfin album by id (jellyfin:uuid) – return album + tracks from Jellyfin
-        if (idParam.startsWith("jellyfin:")) {
+        // Jellyfin album (jellyfin:uuid or raw 32-char UUID from URL)
+        if (resolvedId.startsWith("jellyfin:")) {
             if (!(await isJellyfinMusicSource())) {
                 return res.status(404).json({ error: "Album not found" });
             }
@@ -1746,12 +1748,12 @@ router.get("/albums/:id", async (req, res) => {
                     jellyfin: true,
                 });
             }
-            const rawId = idParam.slice("jellyfin:".length);
+            const rawId = resolvedId.slice("jellyfin:".length);
             const albumItem = await getJellyfinItem(cfg, rawId, "MusicAlbum");
             if (!albumItem || albumItem.Type !== "MusicAlbum") {
                 return res.status(404).json({ error: "Album not found" });
             }
-            const tracks = await getJellyfinTracksAllForAlbum(cfg, idParam);
+            const tracks = await getJellyfinTracksAllForAlbum(cfg, resolvedId);
             const artist = albumItem.AlbumArtists?.[0]
                 ? {
                       id: `jellyfin:${albumItem.AlbumArtists[0].Id}`,
@@ -1766,19 +1768,21 @@ router.get("/albums/:id", async (req, res) => {
                 cfg.apiKey,
                 cfg.userId
             );
+            const rgMbid = extractRgMbid(albumItem.ProviderIds);
             return res.json({
-                id: idParam,
+                id: resolvedId,
                 title: albumItem.Name,
                 artist,
                 tracks,
                 owned: true,
                 coverArt,
                 coverUrl: coverArt,
+                rgMbid: rgMbid ?? undefined,
             });
         }
 
         // Find album by ID or rgMbid (for discovery albums) in single query
-        const album = await prisma.album.findFirst({
+        let album = await prisma.album.findFirst({
             where: {
                 OR: [
                     { id: idParam },
@@ -1798,6 +1802,42 @@ router.get("/albums/:id", async (req, res) => {
                 },
             },
         });
+
+        // If not in Prisma and Jellyfin mode: try album by MusicBrainz rgMbid when idParam is MBID format
+        if (!album && MBID_REGEX.test(idParam) && (await isJellyfinMusicSource())) {
+            const cfg = await getJellyfinConfig();
+            if (cfg) {
+                const albumItem = await getJellyfinAlbumByRgMbid(cfg, idParam);
+                if (albumItem && albumItem.Type === "MusicAlbum") {
+                    const resolvedId = `jellyfin:${albumItem.Id}`;
+                    const tracks = await getJellyfinTracksAllForAlbum(cfg, resolvedId);
+                    const artist = albumItem.AlbumArtists?.[0]
+                        ? {
+                              id: `jellyfin:${albumItem.AlbumArtists[0].Id}`,
+                              name: albumItem.AlbumArtists[0].Name,
+                              mbid: null as string | null,
+                          }
+                        : { id: "", name: "Unknown Artist", mbid: null as string | null };
+                    const coverArt = getJellyfinImageUrl(
+                        cfg.url,
+                        albumItem.Id,
+                        albumItem.ImageTags?.Primary,
+                        cfg.apiKey,
+                        cfg.userId
+                    );
+                    return res.json({
+                        id: resolvedId,
+                        title: albumItem.Name,
+                        artist,
+                        tracks,
+                        owned: true,
+                        coverArt,
+                        coverUrl: coverArt,
+                        rgMbid: idParam,
+                    });
+                }
+            }
+        }
 
         if (!album) {
             return res.status(404).json({ error: "Album not found" });

@@ -2,6 +2,7 @@ import React, { memo, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { Album } from "../types";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { toAlbumRouteId } from "@/lib/route-ids";
 import { GradientSpinner } from "@/components/ui/GradientSpinner";
 import { CachedImage } from "@/components/ui/CachedImage";
 import { Disc3, Play, Trash2 } from "lucide-react";
@@ -52,7 +53,7 @@ const AlbumCardItem = memo(
 
         return (
             <Link
-                href={`/album/${encodeURIComponent(album.id)}`}
+                href={`/album/${encodeURIComponent(toAlbumRouteId(album))}`}
                 prefetch={false}
                 data-tv-card
                 data-tv-card-index={index}

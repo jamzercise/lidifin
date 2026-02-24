@@ -7,6 +7,7 @@ import { useAudioState } from "@/lib/audio-state-context";
 import { useAudioPlayback } from "@/lib/audio-playback-context";
 import { useAudioControls } from "@/lib/audio-controls-context";
 import { api } from "@/lib/api";
+import { toArtistRouteId, toAlbumRouteId } from "@/lib/route-ids";
 import { cn } from "@/utils/cn";
 import { formatTime } from "@/utils/formatTime";
 import type { LibraryTrack } from "../types";
@@ -125,10 +126,7 @@ export function LibraryTracksList({ tracks }: LibraryTracksListProps) {
                             </p>
                             <p className="text-xs text-gray-400 truncate">
                                 <Link
-                                    href={`/artist/${
-                                        track.album.artist.mbid ||
-                                        track.album.artist.id
-                                    }`}
+                                    href={`/artist/${encodeURIComponent(toArtistRouteId(track.album.artist))}`}
                                     className="hover:underline hover:text-white"
                                     onClick={(e) => e.stopPropagation()}
                                 >
@@ -136,7 +134,7 @@ export function LibraryTracksList({ tracks }: LibraryTracksListProps) {
                                 </Link>
                                 <span className="mx-1">•</span>
                                 <Link
-                                    href={`/album/${encodeURIComponent(track.album.id)}`}
+                                    href={`/album/${encodeURIComponent(toAlbumRouteId(track.album))}`}
                                     className="hover:underline hover:text-white"
                                     onClick={(e) => e.stopPropagation()}
                                 >

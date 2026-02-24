@@ -564,7 +564,9 @@ class ApiClient {
     }
 
     async getAlbum(id: string) {
-        return this.request<ApiData>(`/library/albums/${id}`);
+        return this.request<ApiData>(
+            `/library/albums/${encodeURIComponent(id)}`
+        );
     }
 
     async getTracks(params?: {

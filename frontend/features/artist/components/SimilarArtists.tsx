@@ -4,6 +4,7 @@ import Image from "next/image";
 import { SimilarArtist } from "../types";
 import { Music, Library } from "lucide-react";
 import { api } from "@/lib/api";
+import { toArtistRouteId } from "@/lib/route-ids";
 
 interface SimilarArtistsProps {
     similarArtists: SimilarArtist[];
@@ -34,10 +35,8 @@ export function SimilarArtists({
                         ? Math.round(artist.weight * 100)
                         : null;
 
-                    // For library artists, use the library ID; otherwise use mbid or name
-                    const navigationId = artist.inLibrary
-                        ? artist.id
-                        : artist.mbid || artist.id;
+                    // Use route ID: mbid for discovery, name for Jellyfin library, id for native
+                    const routeId = toArtistRouteId(artist);
 
                     return (
                         <div
@@ -45,11 +44,11 @@ export function SimilarArtists({
                             data-tv-card
                             data-tv-card-index={index}
                             tabIndex={0}
-                            onClick={() => onNavigate(navigationId)}
+                            onClick={() => onNavigate(routeId)}
                             onKeyDown={(e) => {
                                 if (e.key === "Enter") {
                                     e.preventDefault();
-                                    onNavigate(navigationId);
+                                    onNavigate(routeId);
                                 }
                             }}
                             className="bg-transparent hover:bg-white/5 transition-all p-3 rounded-md cursor-pointer group"

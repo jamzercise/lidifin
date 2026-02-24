@@ -14,6 +14,7 @@ export interface Album {
     title: string;
     coverArt?: string;
     year?: number;
+    rgMbid?: string;
     artist?: {
         id: string;
         mbid?: string;

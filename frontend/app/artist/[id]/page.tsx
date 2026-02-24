@@ -285,7 +285,7 @@ export default function ArtistPage() {
                             <SimilarArtists
                                 similarArtists={artist.similarArtists}
                                 onNavigate={(id) =>
-                                    router.push(`/artist/${id}`)
+                                    router.push(`/artist/${encodeURIComponent(id)}`)
                                 }
                             />
                         )}

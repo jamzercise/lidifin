@@ -2,6 +2,7 @@ import React from 'react';
 import { PlayableCard } from '@/components/ui/PlayableCard';
 import { Disc3 } from 'lucide-react';
 import { api } from '@/lib/api';
+import { toAlbumRouteId } from '@/lib/route-ids';
 import { SimilarAlbum } from '../types';
 import type { ColorPalette } from '@/hooks/useImageColor';
 
@@ -19,7 +20,7 @@ export function SimilarAlbums({ similarAlbums, colors, onNavigate }: SimilarAlbu
         {similarAlbums.map((album, index) => (
           <PlayableCard
             key={album.id}
-            href={`/album/${encodeURIComponent(album.id)}`}
+            href={`/album/${encodeURIComponent(toAlbumRouteId(album))}`}
             coverArt={album.coverArt ? api.getCoverArtUrl(album.coverArt, 300) : album.coverUrl}
             title={album.title}
             subtitle={album.artist?.name}
@@ -28,7 +29,7 @@ export function SimilarAlbums({ similarAlbums, colors, onNavigate }: SimilarAlbu
             badge={album.owned ? "owned" : undefined}
             colors={colors}
             showPlayButton={false}
-            onClick={() => onNavigate(album.id)}
+            onClick={() => onNavigate(toAlbumRouteId(album))}
             tvCardIndex={index}
           />
         ))}

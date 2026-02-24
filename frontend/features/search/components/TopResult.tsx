@@ -2,6 +2,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { Music } from "lucide-react";
 import { api } from "@/lib/api";
+import { toArtistRouteId } from "@/lib/route-ids";
 import { Artist, DiscoverResult } from "../types";
 interface TopResultProps {
     libraryArtist?: Artist;
@@ -19,9 +20,9 @@ export function TopResult({ libraryArtist, discoveryArtist }: TopResultProps) {
     // Get the display name
     const name = libraryArtist?.name || discoveryArtist?.name || "";
     
-    // Get the artist ID for linking - prefer MBID for consistent URLs
+    // Get the artist ID for linking - use route ID (raw UUID for Jellyfin, mbid/slug for others)
     const artistId = isLibrary
-        ? libraryArtist!.mbid || libraryArtist!.id
+        ? toArtistRouteId(libraryArtist!)
         : discoveryArtist?.mbid || encodeURIComponent(name);
 
     // Get the image URL
@@ -33,7 +34,7 @@ export function TopResult({ libraryArtist, discoveryArtist }: TopResultProps) {
         <section data-tv-section="search-top-result">
             <h2 className="text-2xl font-bold text-white mb-6">Top result</h2>
             <Link
-                href={`/artist/${artistId}`}
+                href={`/artist/${encodeURIComponent(artistId)}`}
                 className="bg-[#121212] hover:bg-[#181818] p-6 rounded-lg transition-all flex items-center gap-6 w-full sm:w-96"
                 data-tv-card
                 data-tv-card-index={0}

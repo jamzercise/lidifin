@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { useAudioState } from "@/lib/audio-context";
 import { api } from "@/lib/api";
+import { toAlbumRouteId, toArtistRouteId } from "@/lib/route-ids";
 
 export interface MediaInfo {
     title: string;
@@ -25,10 +26,10 @@ export function useMediaInfo(coverSize: number = 100): MediaInfo {
 
         if (playbackType === "track" && currentTrack) {
             const albumLink = currentTrack.album?.id
-                ? `/album/${currentTrack.album.id}`
+                ? `/album/${encodeURIComponent(toAlbumRouteId(currentTrack.album))}`
                 : null;
             const artistLink = currentTrack.artist?.id
-                ? `/artist/${currentTrack.artist.mbid || currentTrack.artist.id}`
+                ? `/artist/${encodeURIComponent(toArtistRouteId(currentTrack.artist))}`
                 : null;
             return {
                 title: currentTrack.title,

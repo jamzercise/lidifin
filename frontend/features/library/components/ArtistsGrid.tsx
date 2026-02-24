@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Music, Play, Trash2 } from "lucide-react";
 import { Artist } from "../types";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { toArtistRouteId } from "@/lib/route-ids";
 import { GradientSpinner } from "@/components/ui/GradientSpinner";
 import { CachedImage } from "@/components/ui/CachedImage";
 import { api } from "@/lib/api";
@@ -57,7 +58,7 @@ const ArtistCardItem = memo(
 
         return (
             <Link
-                href={`/artist/${artist.mbid || artist.id}`}
+                href={`/artist/${encodeURIComponent(toArtistRouteId(artist))}`}
                 prefetch={false}
                 data-tv-card
                 data-tv-card-index={index}
