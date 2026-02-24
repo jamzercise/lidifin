@@ -235,9 +235,13 @@ export async function getJellyfinArtists(
     });
     const items = res.data?.Items ?? [];
     const total = res.data?.TotalRecordCount ?? items.length;
-    const artists = items.map((a) => ({
+    const artists = items.map((a) => {
+        // Jellyfin uses PascalCase (Name); some configs may use camelCase (name)
+        const rawName = (a as { Name?: string; name?: string }).Name ?? (a as { Name?: string; name?: string }).name ?? "";
+        const name = (rawName && String(rawName).trim()) || "Unknown Artist";
+        return {
         id: `${JELLYFIN_PREFIX}${a.Id}`,
-        name: (a.Name && a.Name.trim()) || "Unknown Artist",
+        name,
         mbid: extractArtistMbid(a.ProviderIds),
         coverArt: a.ImageTags?.Primary
             ? getJellyfinImageUrl(
@@ -248,7 +252,8 @@ export async function getJellyfinArtists(
                   cfg.userId
               )
             : undefined,
-    }));
+    };
+    });
     return { artists, total };
 }
 
