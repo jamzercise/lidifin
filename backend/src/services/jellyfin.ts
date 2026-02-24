@@ -31,6 +31,8 @@ export interface ResolvedArtist {
     id: string;
     name: string;
     coverArt?: string;
+    /** MusicBrainz artist ID when available from Jellyfin ProviderIds */
+    mbid?: string;
 }
 
 export interface ResolvedAlbum {
@@ -58,6 +60,8 @@ interface JellyfinItem {
     ProviderIds?: Record<string, string | null>;
 }
 
+const MBID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /** Extract MusicBrainz release group ID from Jellyfin ProviderIds. Exported for use in routes. */
 export function extractRgMbid(providerIds?: Record<string, string | null>): string | undefined {
     if (!providerIds) return undefined;
@@ -65,9 +69,17 @@ export function extractRgMbid(providerIds?: Record<string, string | null>): stri
         providerIds.MusicbrainzReleaseGroup ??
         providerIds.MusicBrainzReleaseGroup ??
         providerIds.MusicBrainzAlbum;
-    return val && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val)
-        ? val
-        : undefined;
+    return val && MBID_REGEX.test(val) ? val : undefined;
+}
+
+/** Extract MusicBrainz artist ID from Jellyfin ProviderIds. */
+function extractArtistMbid(providerIds?: Record<string, string | null>): string | undefined {
+    if (!providerIds) return undefined;
+    const val =
+        providerIds.MusicbrainzArtist ??
+        providerIds.MusicBrainzArtist ??
+        providerIds.MusicBrainz;
+    return val && MBID_REGEX.test(val) ? val : undefined;
 }
 
 function runTimeTicksToSeconds(ticks: number | undefined): number {
@@ -214,7 +226,7 @@ export async function getJellyfinArtists(
         Recursive: "true",
         Limit: options?.limit ?? 100,
         StartIndex: options?.offset ?? 0,
-        Fields: "Id,Name,ImageTags",
+        Fields: "Id,Name,ImageTags,ProviderIds",
         EnableTotalRecordCount: true,
     };
     if (options?.search) params.SearchTerm = options.search;
@@ -225,7 +237,8 @@ export async function getJellyfinArtists(
     const total = res.data?.TotalRecordCount ?? items.length;
     const artists = items.map((a) => ({
         id: `${JELLYFIN_PREFIX}${a.Id}`,
-        name: a.Name,
+        name: (a.Name && a.Name.trim()) || "Unknown Artist",
+        mbid: extractArtistMbid(a.ProviderIds),
         coverArt: a.ImageTags?.Primary
             ? getJellyfinImageUrl(
                   cfg.url,

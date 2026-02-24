@@ -29,8 +29,9 @@ export function toArtistRouteId(artist: {
     name?: string;
 }): string {
     if (artist.mbid) return artist.mbid;
-    if (artist.id?.startsWith(JELLYFIN_PREFIX) && artist.name) {
-        return artist.name;
+    const name = artist.name?.trim();
+    if (artist.id?.startsWith(JELLYFIN_PREFIX) && name) {
+        return name;
     }
     return artist.id ?? "";
 }

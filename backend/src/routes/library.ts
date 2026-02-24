@@ -543,6 +543,7 @@ router.get("/artists", async (req, res) => {
                     artists: artists.map((a) => ({
                         id: a.id,
                         name: a.name,
+                        mbid: a.mbid ?? null,
                         heroUrl: a.coverArt ?? null,
                         coverArt: a.coverArt ?? null,
                         albumCount: 0,
@@ -860,11 +861,19 @@ router.get("/artists/:id", async (req, res) => {
             include: artistInclude,
         });
 
-        // If not in Prisma and Jellyfin mode: try artist by name (e.g. /artist/Lucero)
+        // If not in Prisma and Jellyfin mode: try artist by jellyfin:uuid or by name (e.g. /artist/Lucero)
         if (!artist && (await isJellyfinMusicSource())) {
             const cfg = await getJellyfinConfig();
             if (cfg) {
-                const artistItem = await getJellyfinArtistByName(cfg, decodedName);
+                let artistItem: Awaited<ReturnType<typeof getJellyfinArtistByName>> = null;
+                if (idParam.startsWith("jellyfin:")) {
+                    const rawId = idParam.slice("jellyfin:".length);
+                    const item = await getJellyfinItem(cfg, rawId);
+                    if (item?.Type === "MusicArtist") artistItem = item;
+                }
+                if (!artistItem) {
+                    artistItem = await getJellyfinArtistByName(cfg, decodedName);
+                }
                 if (artistItem && artistItem.Type === "MusicArtist") {
                     const resolvedId = `jellyfin:${artistItem.Id}`;
                     const [albums, topTracksResult] = await Promise.all([
