@@ -25,8 +25,9 @@ export function useMediaInfo(coverSize: number = 100): MediaInfo {
         const hasMedia = !!(currentTrack || currentAudiobook || currentPodcast);
 
         if (playbackType === "track" && currentTrack) {
-            const albumLink = currentTrack.album?.id
-                ? `/album/${encodeURIComponent(toAlbumRouteId(currentTrack.album))}`
+            const album = currentTrack.album;
+            const albumLink = album?.id
+                ? `/album/${encodeURIComponent(toAlbumRouteId({ id: album.id, rgMbid: (album as { rgMbid?: string }).rgMbid }))}`
                 : null;
             const artistLink = currentTrack.artist?.id
                 ? `/artist/${encodeURIComponent(toArtistRouteId(currentTrack.artist))}`
