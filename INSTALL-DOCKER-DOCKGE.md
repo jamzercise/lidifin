@@ -232,6 +232,7 @@ Open **http://YOUR_SERVER_IP:31013** (or the port you set). Create the first use
 
 ## Troubleshooting
 
+- **Artist/album cover art not loading** – Cover art is proxied from Jellyfin. The Lidifin container must be able to reach your Jellyfin URL. If you use `http://localhost:8096`, the container cannot reach it (localhost = the container). Use your host IP (e.g. `http://192.168.1.10:8096`) or Docker service name if Jellyfin is in the same compose.
 - **Library (artists/albums) not loading when using Jellyfin** – The pre-built image `jamzercise/lidifin:latest` may not include the latest fixes. **Build from source** to get them:
   ```bash
   docker compose -f docker-compose.build.yml up -d --build

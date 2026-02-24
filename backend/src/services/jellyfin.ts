@@ -163,19 +163,18 @@ function mapJellyfinItemToTrack(
 
 /**
  * Get image URL for a Jellyfin item (cover art).
- * Uses user-scoped path when userId is provided (required for user libraries on many Jellyfin servers).
+ * Per Jellyfin API: /Items/{itemId}/Images/{imageType} — no Users prefix for images.
+ * See https://api.jellyfin.org (paths /Items/{itemId}/Images/{imageType}).
  */
 export function getJellyfinImageUrl(
     baseUrl: string,
     itemId: string,
     tag?: string,
     apiKey?: string,
-    userId?: string
+    _userId?: string
 ): string {
     const base = baseUrl.replace(/\/$/, "");
-    const path = userId
-        ? `/Users/${userId}/Items/${itemId}/Images/Primary`
-        : `/Items/${itemId}/Images/Primary`;
+    const path = `/Items/${itemId}/Images/Primary`;
     const params = new URLSearchParams();
     if (tag) params.set("tag", tag);
     if (apiKey) params.set("api_key", apiKey);

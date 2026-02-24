@@ -832,7 +832,15 @@ router.get("/artists/:id", async (req, res) => {
                 getJellyfinTracks(cfg, { artistId: idParam, limit: 10 }),
             ]);
             const topTracks = topTracksResult.tracks;
-            const coverArt = artistItem.ImageTags?.Primary
+            // Artist name: Jellyfin may return Name empty or use different casing.
+            // Never use idParam (jellyfin:uuid) as display name.
+            const rawName = (artistItem as any).Name ?? (artistItem as any).name;
+            const artistName =
+                rawName && rawName !== artistItem.Id && !rawName.startsWith("jellyfin:")
+                    ? rawName
+                    : albums[0]?.artist?.name ?? "Unknown Artist";
+            // Cover: use artist image if available, else first album's cover
+            let coverArt = artistItem.ImageTags?.Primary
                 ? getJellyfinImageUrl(
                       cfg.url,
                       artistItem.Id,
@@ -841,10 +849,15 @@ router.get("/artists/:id", async (req, res) => {
                       cfg.userId
                   )
                 : undefined;
+            if (!coverArt && albums[0]?.coverArt) {
+                coverArt = albums[0].coverArt;
+            }
             return res.json({
                 id: idParam,
-                name: artistItem.Name,
+                name: artistName,
                 coverArt: coverArt ?? undefined,
+                heroUrl: coverArt ?? undefined,
+                image: coverArt ?? undefined,
                 bio: null,
                 genres: [],
                 albums: albums.map((a) => ({
@@ -1760,6 +1773,7 @@ router.get("/albums/:id", async (req, res) => {
                 tracks,
                 owned: true,
                 coverArt,
+                coverUrl: coverArt,
             });
         }
 
