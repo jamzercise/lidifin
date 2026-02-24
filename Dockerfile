@@ -16,11 +16,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install system dependencies (no Python/ML - Jellyfin-only deployment)
 RUN apt-get install -y --no-install-recommends \
     postgresql-16 \
-    postgresql-contrib-16 \
     postgresql-16-pgvector \
     redis-server \
     supervisor \
-    ffmpeg \
     tini \
     openssl \
     bash \
