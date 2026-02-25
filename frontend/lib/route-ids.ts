@@ -19,20 +19,19 @@ export function toRouteId(id: string | undefined | null): string {
 
 /**
  * Get the artist route ID for links.
- * - Prefers MusicBrainz mbid when available (discovery/enriched).
- * - For Jellyfin artists (no mbid): use artist name so URL is /artist/Lucero.
- * - For native library: use id (cuid) as fallback.
+ * Always prefers artist name when available so URLs are /artist/ArtistName.
+ * This ensures all artist pages resolve correctly (library + discovery) and
+ * avoids blank pages when mbid URLs fail to resolve in Jellyfin-only mode.
+ * Falls back to mbid or id only when name is unavailable.
  */
 export function toArtistRouteId(artist: {
     mbid?: string | null;
     id?: string;
     name?: string;
 }): string {
-    if (artist.mbid) return artist.mbid;
     const name = artist.name?.trim();
-    if (artist.id?.startsWith(JELLYFIN_PREFIX) && name) {
-        return name;
-    }
+    if (name) return name;
+    if (artist.mbid) return artist.mbid;
     return artist.id ?? "";
 }
 
@@ -41,9 +40,9 @@ export function toArtistRouteId(artist: {
  * Prefers MusicBrainz rgMbid when available (for /album/{mbid} URLs).
  * Falls back to id (Jellyfin UUID or native) when no rgMbid.
  */
-export function toAlbumRouteId(album: string | { id: string; rgMbid?: string | null }): string {
+export function toAlbumRouteId(album: string | { id?: string; rgMbid?: string | null }): string {
     const id = typeof album === "string" ? album : album.id;
     const rgMbid = typeof album === "string" ? undefined : album.rgMbid;
     if (rgMbid) return rgMbid;
-    return toRouteId(id);
+    return toRouteId(id ?? "");
 }

@@ -58,6 +58,7 @@ import {
     getJellyfinArtistByName,
     getJellyfinImageUrl,
     extractRgMbid,
+    extractArtistMbid,
     resolveTrackReference,
     resolveTrackReferences,
     getJellyfinStreamUrl,
@@ -65,6 +66,7 @@ import {
     removeJellyfinFavorite,
     getJellyfinFavorites,
 } from "../services/jellyfin";
+import { enrichJellyfinArtist } from "../services/jellyfinArtistEnrichment";
 
 const JELLYFIN_UNREACHABLE_MESSAGE =
     "Jellyfin is slow or unreachable. Check your Jellyfin instance.";
@@ -896,34 +898,70 @@ router.get("/artists/:id", async (req, res) => {
                           )
                         : undefined;
                     if (!coverArt && albums[0]?.coverArt) coverArt = albums[0].coverArt;
-                    return res.json({
-                        id: resolvedId,
-                        name: artistName,
-                        coverArt: coverArt ?? undefined,
-                        heroUrl: coverArt ?? undefined,
-                        image: coverArt ?? undefined,
-                        bio: null,
-                        genres: [],
-                        albums: albums.map((a) => ({
-                            id: a.id,
-                            title: a.title,
-                            coverArt: a.coverArt,
-                            coverUrl: a.coverArt,
-                            artist: a.artist,
-                            year: a.year,
-                            rgMbid: a.rgMbid,
-                            owned: true,
-                            source: "database" as const,
-                            tracks: [],
-                        })),
-                        topTracks: topTracks.map((t) => ({
+                    const mbid = extractArtistMbid((artistItem as any).ProviderIds);
+                    const enrichment = await enrichJellyfinArtist(artistName, {
+                        mbid: mbid ?? undefined,
+                        existingCoverArt: coverArt ?? undefined,
+                    });
+                    const ownedRgMbids = new Set(
+                        albums.map((a) => a.rgMbid).filter(Boolean)
+                    );
+                    const ownedAlbums = albums.map((a) => ({
+                        id: a.id,
+                        title: a.title,
+                        coverArt: a.coverArt,
+                        coverUrl: a.coverArt,
+                        artist: a.artist,
+                        year: a.year,
+                        rgMbid: a.rgMbid,
+                        owned: true,
+                        source: "database" as const,
+                        tracks: [],
+                    }));
+                    const discoveryAlbums = (
+                        enrichment?.discoveryAlbums?.filter(
+                            (d) => !ownedRgMbids.has(d.rgMbid)
+                        ) ?? []
+                    ).map((d) => ({
+                        id: d.id,
+                        title: d.title,
+                        coverArt: d.coverUrl,
+                        coverUrl: d.coverUrl,
+                        artist: { name: artistName },
+                        year: d.year,
+                        rgMbid: d.rgMbid,
+                        owned: false,
+                        source: "database" as const,
+                        tracks: [],
+                    }));
+                    const mergedAlbums = [...ownedAlbums, ...discoveryAlbums].sort(
+                        (a, b) => {
+                            const ya = a.year ?? 0;
+                            const yb = b.year ?? 0;
+                            return yb - ya;
+                        }
+                    );
+                    const effectiveTopTracks =
+                        enrichment?.topTracks?.length ? enrichment.topTracks : topTracks.map((t) => ({
                             id: t.id,
                             title: t.title,
                             duration: t.duration,
                             artist: t.artist,
                             album: t.album,
-                        })),
-                        similarArtists: [],
+                        }));
+                    return res.json({
+                        id: resolvedId,
+                        name: artistName,
+                        coverArt: (enrichment?.image ?? coverArt) ?? undefined,
+                        heroUrl: (enrichment?.image ?? coverArt) ?? undefined,
+                        image: (enrichment?.image ?? coverArt) ?? undefined,
+                        bio: enrichment?.bio ?? null,
+                        genres: enrichment?.genres ?? [],
+                        listeners: enrichment?.listeners ?? undefined,
+                        playcount: enrichment?.playcount ?? undefined,
+                        albums: mergedAlbums,
+                        topTracks: effectiveTopTracks,
+                        similarArtists: enrichment?.similarArtists ?? [],
                     });
                 }
             }

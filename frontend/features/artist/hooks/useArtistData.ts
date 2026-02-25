@@ -1,13 +1,15 @@
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { queryKeys } from "@/hooks/useQueries";
 import { api } from "@/lib/api";
 import { useDownloadContext } from "@/lib/download-context";
+import { toArtistRouteId } from "@/lib/route-ids";
 import { ArtistSource } from "../types";
 import { useMemo, useEffect, useRef, useState } from "react";
 
 export function useArtistData() {
     const params = useParams();
+    const router = useRouter();
     const id = params.id as string;
     const { downloadStatus } = useDownloadContext();
     const prevActiveCountRef = useRef(downloadStatus.activeDownloads.length);
@@ -50,6 +52,18 @@ export function useArtistData() {
         }
         prevActiveCountRef.current = currentActiveCount;
     }, [downloadStatus.activeDownloads.length, refetch]);
+
+    // Canonicalize URL: if we landed on /artist/{mbid} and have artist data,
+    // replace URL with /artist/{name} so all artist pages use name-based URLs
+    useEffect(() => {
+        if (!artist || !id) return;
+        const canonical = toArtistRouteId(artist);
+        if (canonical && canonical !== decodeURIComponent(id)) {
+            router.replace(`/artist/${encodeURIComponent(canonical)}`, {
+                scroll: false,
+            });
+        }
+    }, [artist, id, router]);
 
     // Determine source from the artist data (if it came from library or discovery)
     const source: ArtistSource | null = useMemo(() => {

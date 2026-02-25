@@ -72,8 +72,8 @@ export function extractRgMbid(providerIds?: Record<string, string | null>): stri
     return val && MBID_REGEX.test(val) ? val : undefined;
 }
 
-/** Extract MusicBrainz artist ID from Jellyfin ProviderIds. */
-function extractArtistMbid(providerIds?: Record<string, string | null>): string | undefined {
+/** Extract MusicBrainz artist ID from Jellyfin ProviderIds. Exported for use in routes. */
+export function extractArtistMbid(providerIds?: Record<string, string | null>): string | undefined {
     if (!providerIds) return undefined;
     const val =
         providerIds.MusicbrainzArtist ??

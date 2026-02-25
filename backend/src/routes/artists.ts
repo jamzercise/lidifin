@@ -337,6 +337,7 @@ router.get("/discover/:nameOrMbid", async (req, res) => {
             .filter(Boolean);
 
         const response = {
+            id: mbid || artistName,
             mbid,
             name: artistName,
             image,
