@@ -21,6 +21,7 @@ import {
     RotateCcw,
     RotateCw,
     RefreshCw,
+    Heart,
 } from "lucide-react";
 import { formatTime, clampTime, formatTimeRemaining } from "@/utils/formatTime";
 import { cn } from "@/utils/cn";
@@ -31,6 +32,7 @@ import { SleepTimerButton } from "./SleepTimerButton";
 import { PlaybackSpeedButton } from "./PlaybackSpeedButton";
 import { useQueuePanel } from "@/lib/queue-panel-context";
 import { useFeatures } from "@/lib/features-context";
+import { useFavorites } from "@/hooks/useFavorites";
 
 export function OverlayPlayer() {
     const {
@@ -67,6 +69,7 @@ export function OverlayPlayer() {
         duration: playbackDuration,
     } = useAudio();
     const { openQueue } = useQueuePanel();
+    const { favoriteIds, addFavorite, removeFavorite } = useFavorites();
 
     const isMobile = useIsMobile();
     const isTablet = useIsTablet();
@@ -212,7 +215,26 @@ export function OverlayPlayer() {
                 <span className="text-xs text-gray-500 uppercase tracking-widest font-medium">
                     Now Playing
                 </span>
-                <div className="w-11 flex justify-end">
+                <div className="flex items-center gap-1">
+                    {playbackType === "track" && currentTrack?.id?.startsWith("jellyfin:") && (
+                        <button
+                            type="button"
+                            onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                const isFav = favoriteIds.has(currentTrack.id);
+                                if (isFav) removeFavorite(currentTrack.id);
+                                else addFavorite(currentTrack.id);
+                            }}
+                            className="text-gray-400 hover:text-white transition-colors p-2 rounded-full hover:bg-white/10"
+                            aria-label={favoriteIds.has(currentTrack.id) ? "Remove from Favorites" : "Add to Favorites"}
+                            title={favoriteIds.has(currentTrack.id) ? "Remove from Favorites" : "Add to Favorites"}
+                        >
+                            <Heart
+                                className={cn("w-5 h-5", favoriteIds.has(currentTrack.id) && "fill-current text-red-400")}
+                            />
+                        </button>
+                    )}
                     <button
                         type="button"
                         onClick={openQueue}

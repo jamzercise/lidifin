@@ -108,6 +108,43 @@ router.post("/audiomuse/instant", async (req, res) => {
 });
 
 /**
+ * POST /mixes/audiomuse/test
+ * Test AudioMuse-AI connection with a URL (from form, before save).
+ * Allows testing with current form values without saving first.
+ */
+router.post("/audiomuse/test", async (req, res) => {
+    try {
+        const { url } = req.body as { url?: string };
+        const testUrl = (url || "").trim().replace(/\/$/, "");
+        if (!testUrl) {
+            return res.status(400).json({
+                enabled: false,
+                available: false,
+                message: "URL is required",
+            });
+        }
+        try {
+            const axios = (await import("axios")).default;
+            await axios.get(`${testUrl}/`, { timeout: 5000 });
+            return res.json({
+                enabled: true,
+                available: true,
+                message: "Connected",
+            });
+        } catch {
+            return res.json({
+                enabled: true,
+                available: false,
+                message: "URL provided but instance not reachable",
+            });
+        }
+    } catch (error) {
+        logger.error("AudioMuse test error:", error);
+        res.status(500).json({ error: "Failed to test AudioMuse connection" });
+    }
+});
+
+/**
  * GET /mixes/audiomuse/status
  * Check if AudioMuse-AI is configured and available.
  */

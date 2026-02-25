@@ -176,7 +176,7 @@ export function LibraryTracksList({ tracks, favoriteIds, onToggleFavorite }: Lib
                             <button
                                 onClick={(e) => {
                                     e.stopPropagation();
-                                    onToggleFavorite(track.id, isFavorite);
+                                    onToggleFavorite(track.id, !isFavorite);
                                 }}
                                 className={cn(
                                     "p-1.5 rounded-full opacity-0 group-hover:opacity-100 hover:bg-white/10 transition-all flex-shrink-0",

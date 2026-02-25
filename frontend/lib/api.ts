@@ -1625,6 +1625,18 @@ class ApiClient {
         }>("/mixes/audiomuse/status");
     }
 
+    /** Test AudioMuse-AI connection with URL (from form, before save) */
+    async testAudioMuse(url: string) {
+        return this.request<{
+            enabled: boolean;
+            available: boolean;
+            message?: string;
+        }>("/mixes/audiomuse/test", {
+            method: "POST",
+            body: JSON.stringify({ url: url?.trim() || "" }),
+        });
+    }
+
     async getAudioMuseInstantPlaylist(params: {
         mood?: MoodType;
         userInput?: string;

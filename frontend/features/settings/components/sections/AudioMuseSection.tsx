@@ -27,13 +27,27 @@ export function AudioMuseSection({ settings, onUpdate, isTesting }: AudioMuseSec
         setTestStatus("loading");
         setTestMessage("Checking...");
         try {
+            // Try test with current form URL first (works before save)
+            const url = settings.audiomuseUrl?.trim();
+            if (url) {
+                const result = await api.testAudioMuse(url);
+                if (result?.available) {
+                    setTestStatus("success");
+                    setTestMessage(result?.message || "Connected");
+                } else {
+                    setTestStatus("error");
+                    setTestMessage(result?.message || "Not reachable");
+                }
+                return;
+            }
+            // Fallback: check saved config (requires save first)
             const result = await api.getAudioMuseStatus();
             if (result?.enabled && result?.available) {
                 setTestStatus("success");
                 setTestMessage(`Connected (${result.aiProvider || "OLLAMA"})`);
             } else {
                 setTestStatus("error");
-                setTestMessage(result?.message || "Not reachable");
+                setTestMessage(result?.message || "Not configured. Enter URL and save, or test with URL above.");
             }
         } catch {
             setTestStatus("error");

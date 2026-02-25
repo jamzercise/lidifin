@@ -263,12 +263,20 @@ export default function PlaylistDetailPage() {
         }
     };
 
+    // Playable tracks (filter out items with null/unresolved track)
+    const playableTracks = useMemo(() => {
+        if (!playlist?.items) return [];
+        return playlist.items.filter(
+            (item: PlaylistItem) => item.track?.album?.artist
+        );
+    }, [playlist?.items]);
+
     // Check if this playlist is currently playing
     const playlistTrackIds = useMemo(() => {
         return new Set(
-            playlist?.items?.map((item: PlaylistItem) => item.track.id) || []
+            playableTracks.map((item: PlaylistItem) => item.track.id)
         );
-    }, [playlist?.items]);
+    }, [playableTracks]);
 
     const isThisPlaylistPlaying = useMemo(() => {
         if (!isPlaying || !currentTrack || !playlist?.items?.length)
@@ -282,7 +290,7 @@ export default function PlaylistDetailPage() {
         if (!playlist?.items) return 0;
         return playlist.items.reduce(
             (sum: number, item: PlaylistItem) =>
-                sum + (item.track.duration || 0),
+                sum + (item.track?.duration || 0),
             0
         );
     }, [playlist?.items]);
@@ -309,55 +317,56 @@ export default function PlaylistDetailPage() {
             return;
         }
 
-        const tracks = playlist.items.map((item: PlaylistItem) => ({
+        const tracks = playableTracks.map((item: PlaylistItem) => ({
             id: item.track.id,
             title: item.track.title,
             artist: {
-                name: item.track.album.artist.name,
-                id: item.track.album.artist.id,
+                name: item.track.album.artist?.name ?? "Unknown",
+                id: item.track.album.artist?.id,
             },
             album: {
-                title: item.track.album.title,
-                coverArt: item.track.album.coverArt,
-                id: item.track.album.id,
+                title: item.track.album?.title ?? "Unknown",
+                coverArt: item.track.album?.coverArt,
+                id: item.track.album?.id,
             },
             duration: item.track.duration,
         }));
         playTracks(tracks, 0);
     };
 
-    const handlePlayTrack = (index: number) => {
-        if (!playlist?.items || playlist.items.length === 0) return;
+    const handlePlayTrack = (indexInPlayable: number) => {
+        if (playableTracks.length === 0) return;
 
-        const tracks = playlist.items.map((item: PlaylistItem) => ({
-            id: item.track.id,
-            title: item.track.title,
-            artist: {
-                name: item.track.album.artist.name,
-                id: item.track.album.artist.id,
-            },
-            album: {
-                title: item.track.album.title,
-                coverArt: item.track.album.coverArt,
-                id: item.track.album.id,
-            },
-            duration: item.track.duration,
-        }));
-        playTracks(tracks, index);
+        const tracks = playableTracks.map((item: PlaylistItem) => ({
+                id: item.track.id,
+                title: item.track.title,
+                artist: {
+                    name: item.track.album.artist?.name ?? "Unknown",
+                    id: item.track.album.artist?.id,
+                },
+                album: {
+                    title: item.track.album?.title ?? "Unknown",
+                    coverArt: item.track.album?.coverArt,
+                    id: item.track.album?.id,
+                },
+                duration: item.track.duration,
+            }));
+        playTracks(tracks, indexInPlayable);
     };
 
     const handleAddToQueue = (track: Track) => {
+        if (!track?.album?.artist) return;
         const formattedTrack = {
             id: track.id,
             title: track.title,
             artist: {
-                name: track.album.artist.name,
-                id: track.album.artist.id,
+                name: track.album.artist?.name ?? "Unknown",
+                id: track.album.artist?.id,
             },
             album: {
-                title: track.album.title,
-                coverArt: track.album.coverArt,
-                id: track.album.id,
+                title: track.album?.title ?? "Unknown",
+                coverArt: track.album?.coverArt,
+                id: track.album?.id,
             },
             duration: track.duration,
         };
@@ -490,18 +499,18 @@ export default function PlaylistDetailPage() {
                                     playlist.items.length === 0
                                 )
                                     return;
-                                const tracks: AudioTrack[] = playlist.items.map(
+                                const tracks: AudioTrack[] = playableTracks.map(
                                     (item: PlaylistItem) => ({
                                         id: item.track.id,
                                         title: item.track.title,
                                         artist: {
-                                            name: item.track.album.artist.name,
-                                            id: item.track.album.artist.id,
+                                            name: item.track.album.artist?.name ?? "Unknown",
+                                            id: item.track.album.artist?.id,
                                         },
                                         album: {
-                                            title: item.track.album.title,
-                                            coverArt: item.track.album.coverArt,
-                                            id: item.track.album.id,
+                                            title: item.track.album?.title ?? "Unknown",
+                                            coverArt: item.track.album?.coverArt,
+                                            id: item.track.album?.id,
                                         },
                                         duration: item.track.duration,
                                     })
@@ -701,15 +710,17 @@ export default function PlaylistDetailPage() {
 
                                     // Handle regular tracks
                                     const playlistItem = item as PlaylistItem;
+                                    if (!playlistItem.track?.album?.artist) return null;
                                     const isCurrentlyPlaying =
                                         currentTrack?.id ===
                                         playlistItem.track.id;
-                                    // Calculate the index for playback (only count actual tracks)
+                                    // Index in playable tracks (for correct playback order)
                                     const trackIndex =
-                                        playlist.items?.findIndex(
+                                        playableTracks.findIndex(
                                             (i: PlaylistItem) =>
                                                 i.id === playlistItem.id
-                                        ) ?? index;
+                                        );
+                                    if (trackIndex < 0) return null;
 
                                     return (
                                         <div
@@ -787,8 +798,8 @@ export default function PlaylistDetailPage() {
                                                     <p className="text-xs text-gray-400 truncate">
                                                         {
                                                             playlistItem.track
-                                                                .album.artist
-                                                                .name
+                                                                ?.album?.artist
+                                                                ?.name ?? "Unknown"
                                                         }
                                                     </p>
                                                 </div>
@@ -796,7 +807,7 @@ export default function PlaylistDetailPage() {
 
                                             {/* Album (hidden on mobile) */}
                                             <p className="hidden md:flex items-center text-sm text-gray-400 truncate">
-                                                {playlistItem.track.album.title}
+                                                {playlistItem.track?.album?.title ?? "Unknown"}
                                             </p>
 
                                             {/* Duration + Actions */}

@@ -1837,11 +1837,13 @@ router.get("/albums/:id", async (req, res) => {
                 });
             }
             const rawId = resolvedId.slice("jellyfin:".length);
-            const albumItem = await getJellyfinItem(cfg, rawId, "MusicAlbum");
+            const [albumItem, tracks] = await Promise.all([
+                getJellyfinItem(cfg, rawId, "MusicAlbum"),
+                getJellyfinTracksAllForAlbum(cfg, resolvedId),
+            ]);
             if (!albumItem || albumItem.Type !== "MusicAlbum") {
                 return res.status(404).json({ error: "Album not found" });
             }
-            const tracks = await getJellyfinTracksAllForAlbum(cfg, resolvedId);
             const artist = albumItem.AlbumArtists?.[0]
                 ? {
                       id: `jellyfin:${albumItem.AlbumArtists[0].Id}`,
