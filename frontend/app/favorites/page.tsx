@@ -29,7 +29,7 @@ function mapFavoritesToTrack(
 }
 
 export default function FavoritesPage() {
-    const { tracks, isLoading, error, favoriteIds, removeFavorite, refetch } = useFavorites();
+    const { tracks, isLoading, error, favoriteIds, addFavorite, removeFavorite, refetch } = useFavorites();
     const [isRefreshing, setIsRefreshing] = useState(false);
     const { playTracks, addToQueue } = useAudioControls();
 
