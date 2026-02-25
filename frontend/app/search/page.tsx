@@ -5,6 +5,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { SearchIcon } from "lucide-react";
 import { useSearchData } from "@/features/search/hooks/useSearchData";
 import { useSoulseekSearch } from "@/features/search/hooks/useSoulseekSearch";
+import { useFavorites } from "@/hooks/useFavorites";
 import { SearchFilters } from "@/features/search/components/SearchFilters";
 import { TopResult } from "@/features/search/components/TopResult";
 import { EmptyState } from "@/features/search/components/EmptyState";
@@ -42,6 +43,7 @@ export default function SearchPage() {
         downloadingFiles,
         handleDownload,
     } = useSoulseekSearch({ query });
+    const { favoriteIds, addFavorite, removeFavorite } = useFavorites();
 
     // Sync query from URL params on navigation (render-time adjustment)
     const urlQuery = searchParams.get("q") ?? "";
@@ -227,6 +229,11 @@ export default function SearchPage() {
                               libraryResults?.tracks?.length > 0 ? (
                                 <LibraryTracksList
                                     tracks={libraryResults.tracks}
+                                    favoriteIds={favoriteIds}
+                                    onToggleFavorite={(trackId, isFavorite) => {
+                                        if (isFavorite) removeFavorite(trackId);
+                                        else addFavorite(trackId);
+                                    }}
                                 />
                             ) : null}
                         </div>
@@ -299,6 +306,11 @@ export default function SearchPage() {
                                     </h2>
                                     <LibraryTracksList
                                         tracks={libraryResults.tracks}
+                                        favoriteIds={favoriteIds}
+                                        onToggleFavorite={(trackId, isFavorite) => {
+                                            if (isFavorite) removeFavorite(trackId);
+                                            else addFavorite(trackId);
+                                        }}
                                     />
                                 </section>
                             )}

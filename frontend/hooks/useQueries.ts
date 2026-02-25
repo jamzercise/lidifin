@@ -193,24 +193,39 @@ export function useArtistDiscoveryQuery(nameOrMbid: string | undefined) {
  * @example
  * const { data: album, isLoading, error } = useAlbumQuery("album-123");
  */
+const albumQueryFn = async (id: string) => {
+    if (!id) throw new Error("Album ID is required");
+    try {
+        return await api.getAlbum(id);
+    } catch {
+        return await api.getAlbumDiscovery(id);
+    }
+};
+
 export function useAlbumQuery(id: string | undefined) {
     return useQuery({
         queryKey: queryKeys.album(id || ""),
-        queryFn: async () => {
-            if (!id) throw new Error("Album ID is required");
-
-            // Try library first
-            try {
-                return await api.getAlbum(id);
-            } catch {
-                // Fallback to discovery
-                return await api.getAlbumDiscovery(id);
-            }
-        },
+        queryFn: () => albumQueryFn(id!),
         enabled: !!id,
         staleTime: 10 * 60 * 1000, // 10 minutes
         retry: 1,
     });
+}
+
+/**
+ * Prefetch album data on hover for faster navigation.
+ * Call prefetchAlbum(id) from onMouseEnter on album links.
+ */
+export function usePrefetchAlbum() {
+    const queryClient = useQueryClient();
+    return (albumId: string) => {
+        if (!albumId) return;
+        queryClient.prefetchQuery({
+            queryKey: queryKeys.album(albumId),
+            queryFn: () => albumQueryFn(albumId),
+            staleTime: 10 * 60 * 1000,
+        });
+    };
 }
 
 /**

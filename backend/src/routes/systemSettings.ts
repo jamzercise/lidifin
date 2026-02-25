@@ -61,6 +61,12 @@ const systemSettingsSchema = z.object({
     jellyfinPassword: z.string().nullable().optional(),
     jellyfinUserId: z.string().nullable().optional(),
 
+    // AudioMuse-AI (instant playlist from mood/vibe)
+    audiomuseEnabled: z.boolean().optional(),
+    audiomuseUrl: z.string().nullable().optional(),
+    audiomuseAiProvider: z.string().nullable().optional(),
+    audiomuseApiKey: z.string().nullable().optional(),
+
     // Soulseek (direct connection via slsk-client)
     soulseekUsername: z.string().nullable().optional(),
     soulseekPassword: z.string().nullable().optional(),

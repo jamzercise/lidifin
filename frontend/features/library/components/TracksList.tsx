@@ -6,11 +6,12 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { PlaylistSelector } from "@/components/ui/PlaylistSelector";
 import { GradientSpinner } from "@/components/ui/GradientSpinner";
 import { CachedImage } from "@/components/ui/CachedImage";
-import { AudioLines, Heart, ListPlus, Plus, Trash2, Play } from "lucide-react";
+import { AudioLines, Heart, ListPlus, Plus, Trash2, Play, Sparkles } from "lucide-react";
 import { cn } from "@/utils/cn";
 import { formatTime } from "@/utils/formatTime";
 import { api } from "@/lib/api";
 import { useAudioState } from "@/lib/audio-state-context";
+import { FindSimilarModal } from "@/components/AudioMuse/FindSimilarModal";
 
 interface TracksListProps {
     tracks: Track[];
@@ -24,6 +25,8 @@ interface TracksListProps {
     onToggleFavorite?: (trackId: string, isFavorite: boolean) => void;
     /** Hide delete button (e.g. on Favorites page). */
     hideDelete?: boolean;
+    /** Show "Find similar" for Jellyfin tracks (AudioMuse-AI). Default true. */
+    showFindSimilar?: boolean;
 }
 
 interface TrackRowProps {
@@ -33,6 +36,7 @@ interface TrackRowProps {
     onPlayTrack: () => void;
     onAddToQueue: (track: Track) => void;
     onShowAddToPlaylist: (trackId: string) => void;
+    onFindSimilar?: (trackId: string, trackTitle: string, artistName?: string) => void;
     onDelete: (trackId: string, trackTitle: string) => void;
     favoriteIds?: Set<string>;
     onToggleFavorite?: (trackId: string, isFavorite: boolean) => void;
@@ -47,6 +51,7 @@ const TrackRow = memo(
         onPlayTrack,
         onAddToQueue,
         onShowAddToPlaylist,
+        onFindSimilar,
         onDelete,
         favoriteIds,
         onToggleFavorite,
@@ -154,6 +159,18 @@ const TrackRow = memo(
                     >
                         <ListPlus className="w-4 h-4" />
                     </button>
+                    {isJellyfin && onFindSimilar && (
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                onFindSimilar(track.id, track.displayTitle ?? track.title, track.album?.artist?.name);
+                            }}
+                            className="w-8 h-8 rounded-full flex items-center justify-center text-gray-400 hover:text-purple-400 hover:bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity"
+                            title="Find similar"
+                        >
+                            <Sparkles className="w-4 h-4" />
+                        </button>
+                    )}
                     <button
                         onClick={(e) => {
                             e.stopPropagation();
@@ -190,7 +207,8 @@ const TrackRow = memo(
             prevProps.index === nextProps.index &&
             prevProps.favoriteIds?.has(prevProps.track.id) ===
                 nextProps.favoriteIds?.has(nextProps.track.id) &&
-            prevProps.hideDelete === nextProps.hideDelete
+            prevProps.hideDelete === nextProps.hideDelete &&
+            prevProps.onFindSimilar === nextProps.onFindSimilar
         );
     },
 );
@@ -205,11 +223,17 @@ export function TracksList({
     favoriteIds,
     onToggleFavorite,
     hideDelete,
+    showFindSimilar = true,
 }: TracksListProps) {
     const { currentTrack } = useAudioState();
     const currentTrackId = currentTrack?.id;
     const [showPlaylistSelector, setShowPlaylistSelector] = useState(false);
     const [selectedTrackId, setSelectedTrackId] = useState<string | null>(null);
+    const [findSimilarTrack, setFindSimilarTrack] = useState<{
+        id: string;
+        title: string;
+        artist?: string;
+    } | null>(null);
 
     const handleShowAddToPlaylist = useCallback((trackId: string) => {
         setSelectedTrackId(trackId);
@@ -224,6 +248,13 @@ export function TracksList({
             setSelectedTrackId(null);
         },
         [selectedTrackId, onAddToPlaylist],
+    );
+
+    const handleFindSimilar = useCallback(
+        (trackId: string, trackTitle: string, artistName?: string) => {
+            setFindSimilarTrack({ id: trackId, title: trackTitle, artist: artistName });
+        },
+        [],
     );
 
     if (isLoading) {
@@ -266,6 +297,7 @@ export function TracksList({
                             onPlayTrack={() => onPlay(tracks, index)}
                             onAddToQueue={onAddToQueue}
                             onShowAddToPlaylist={handleShowAddToPlaylist}
+                            onFindSimilar={showFindSimilar ? handleFindSimilar : undefined}
                             onDelete={onDelete}
                             favoriteIds={favoriteIds}
                             onToggleFavorite={onToggleFavorite}
@@ -283,6 +315,15 @@ export function TracksList({
                 }}
                 onSelectPlaylist={handleAddToPlaylist}
             />
+            {findSimilarTrack && (
+                <FindSimilarModal
+                    isOpen={!!findSimilarTrack}
+                    onClose={() => setFindSimilarTrack(null)}
+                    trackId={findSimilarTrack.id}
+                    trackTitle={findSimilarTrack.title}
+                    artistName={findSimilarTrack.artist}
+                />
+            )}
         </>
     );
 }

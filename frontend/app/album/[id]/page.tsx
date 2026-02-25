@@ -3,11 +3,12 @@
 import { use, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAudioState, useAudioPlayback, useAudioControls } from "@/lib/audio-context";
-import { LoadingScreen } from "@/components/ui/LoadingScreen";
+import { AlbumPageSkeleton } from "@/features/album/components/AlbumPageSkeleton";
 import { useImageColor } from "@/hooks/useImageColor";
 import { api } from "@/lib/api";
 import { PlaylistSelector } from "@/components/ui/PlaylistSelector";
 import { useDownloadContext } from "@/lib/download-context";
+import { useFavorites } from "@/hooks/useFavorites";
 
 // Custom hooks
 import { useAlbumData } from "@/features/album/hooks/useAlbumData";
@@ -47,6 +48,7 @@ export default function AlbumPage({ params }: AlbumPageProps) {
         useAlbumActions();
     const { isPendingByMbid } = useDownloadContext();
     const { previewTrack, previewPlaying, handlePreview } = useTrackPreview();
+    const { favoriteIds, addFavorite, removeFavorite } = useFavorites();
 
     // Get cover URL for display and color extraction
     // Proxy through API to handle native: URLs and CORS
@@ -65,9 +67,9 @@ export default function AlbumPage({ params }: AlbumPageProps) {
     // Extract colors
     const { colors } = useImageColor(colorExtractionUrl);
 
-    // Loading and error states
+    // Loading state - skeleton for faster perceived load
     if (loading) {
-        return <LoadingScreen />;
+        return <AlbumPageSkeleton />;
     }
 
     if (!album) {
@@ -201,6 +203,11 @@ export default function AlbumPage({ params }: AlbumPageProps) {
                                     e
                                 )
                             }
+                            favoriteIds={favoriteIds}
+                            onToggleFavorite={(trackId, isFavorite) => {
+                                if (isFavorite) removeFavorite(trackId);
+                                else addFavorite(trackId);
+                            }}
                         />
                     )}
 

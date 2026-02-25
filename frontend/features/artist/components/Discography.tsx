@@ -4,6 +4,7 @@ import { PlayableCard } from "@/components/ui/PlayableCard";
 import { Disc3 } from "lucide-react";
 import { api } from "@/lib/api";
 import { toAlbumRouteId } from "@/lib/route-ids";
+import { usePrefetchAlbum } from "@/hooks/useQueries";
 import type { Album } from "../types";
 import type { ColorPalette } from "@/hooks/useImageColor";
 
@@ -22,6 +23,7 @@ export function Discography({
     sortBy,
     onSortChange,
 }: DiscographyProps) {
+    const prefetchAlbum = usePrefetchAlbum();
     if (!albums || albums.length === 0) {
         return null;
     }
@@ -58,6 +60,7 @@ export function Discography({
                         <PlayableCard
                             key={album.id}
                             href={`/album/${encodeURIComponent(toAlbumRouteId(album))}`}
+                            onMouseEnter={() => prefetchAlbum(toAlbumRouteId(album))}
                             coverArt={
                                 album.coverArt
                                     ? api.getCoverArtUrl(album.coverArt, 300)

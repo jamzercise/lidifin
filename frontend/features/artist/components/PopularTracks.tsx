@@ -1,5 +1,5 @@
-import React from "react";
-import { Play, Pause, Volume2, Music, Download } from "lucide-react";
+import React, { useState, useCallback } from "react";
+import { Play, Pause, Volume2, Music, Download, Heart, Sparkles } from "lucide-react";
 import { cn } from "@/utils/cn";
 import Image from "next/image";
 import { api } from "@/lib/api";
@@ -7,6 +7,7 @@ import type { Track, Artist } from "../types";
 import type { ColorPalette } from "@/hooks/useImageColor";
 import { formatTime } from "@/utils/formatTime";
 import { formatNumber } from "@/utils/formatNumber";
+import { FindSimilarModal } from "@/components/AudioMuse/FindSimilarModal";
 
 interface PopularTracksProps {
     tracks: Track[];
@@ -21,6 +22,11 @@ interface PopularTracksProps {
     onDownloadTrack?: (track: Track, e: React.MouseEvent) => void;
     soulseekEnabled?: boolean;
     downloadingTrackId?: string | null;
+    /** Jellyfin favorites - show heart for Jellyfin tracks */
+    favoriteIds?: Set<string>;
+    onToggleFavorite?: (trackId: string, isFavorite: boolean) => void;
+    /** Show "Find similar" for Jellyfin tracks. Default true. */
+    showFindSimilar?: boolean;
 }
 
 export const PopularTracks: React.FC<PopularTracksProps> = ({
@@ -35,7 +41,22 @@ export const PopularTracks: React.FC<PopularTracksProps> = ({
     onDownloadTrack,
     soulseekEnabled = false,
     downloadingTrackId = null,
+    favoriteIds,
+    onToggleFavorite,
+    showFindSimilar = true,
 }) => {
+    const [findSimilarTrack, setFindSimilarTrack] = useState<{
+        id: string;
+        title: string;
+        artist?: string;
+    } | null>(null);
+
+    const handleFindSimilar = useCallback(
+        (trackId: string, trackTitle: string, artistName?: string) => {
+            setFindSimilarTrack({ id: trackId, title: trackTitle, artist: artistName });
+        },
+        [],
+    );
 
 
     return (
@@ -46,6 +67,8 @@ export const PopularTracks: React.FC<PopularTracksProps> = ({
                     const isPlaying = currentTrackId === track.id;
                     const isPreviewPlaying =
                         previewTrack === track.id && previewPlaying;
+                    const isJellyfin = track.id.startsWith("jellyfin:");
+                    const isFavorite = favoriteIds?.has(track.id) ?? false;
                     const isUnowned =
                         !track.album?.id ||
                         !track.album?.title ||
@@ -145,8 +168,45 @@ export const PopularTracks: React.FC<PopularTracksProps> = ({
                                     )}
                             </div>
 
-                            {/* Duration + Preview + Download */}
+                            {/* Duration + Find Similar + Favorite + Preview + Download */}
                             <div className="flex items-center justify-end gap-2">
+                                {isJellyfin && showFindSimilar && !isUnowned && (
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleFindSimilar(
+                                                track.id,
+                                                track.displayTitle ?? track.title,
+                                                artist.name
+                                            );
+                                        }}
+                                        className="p-1.5 rounded-full opacity-0 group-hover:opacity-100 hover:bg-white/10 text-gray-400 hover:text-purple-400 transition-all"
+                                        title="Find similar"
+                                        aria-label="Find similar"
+                                    >
+                                        <Sparkles className="w-4 h-4" />
+                                    </button>
+                                )}
+                                {isJellyfin && onToggleFavorite && (
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            onToggleFavorite(track.id, !isFavorite);
+                                        }}
+                                        className={cn(
+                                            "p-1.5 rounded-full opacity-0 group-hover:opacity-100 hover:bg-white/10 transition-all",
+                                            isFavorite
+                                                ? "text-red-400 hover:text-red-300"
+                                                : "text-gray-400 hover:text-white"
+                                        )}
+                                        title={isFavorite ? "Remove from Favorites" : "Add to Favorites"}
+                                        aria-label={isFavorite ? "Remove from Favorites" : "Add to Favorites"}
+                                    >
+                                        <Heart
+                                            className={cn("w-4 h-4", isFavorite && "fill-current")}
+                                        />
+                                    </button>
+                                )}
                                 {isUnowned && soulseekEnabled && onDownloadTrack && (
                                     <button
                                         onClick={(e) => {
@@ -186,6 +246,15 @@ export const PopularTracks: React.FC<PopularTracksProps> = ({
                     );
                 })}
             </div>
+            {findSimilarTrack && (
+                <FindSimilarModal
+                    isOpen={!!findSimilarTrack}
+                    onClose={() => setFindSimilarTrack(null)}
+                    trackId={findSimilarTrack.id}
+                    trackTitle={findSimilarTrack.title}
+                    artistName={findSimilarTrack.artist}
+                />
+            )}
         </section>
     );
 };

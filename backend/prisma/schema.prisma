@@ -112,6 +112,11 @@ model SystemSettings {
   jellyfinUsername            String?  // optional: use AuthenticateByName for token + User.Id
   jellyfinPassword            String?  // encrypted
   jellyfinUserId              String?  // optional: provide directly so API key + userId work without login
+  // AudioMuse-AI: instant playlist generation from mood/vibe text
+  audiomuseEnabled            Boolean  @default(false)
+  audiomuseUrl                String?  @default("http://localhost:8000")
+  audiomuseAiProvider         String?  // OLLAMA, GEMINI, OPENAI, MISTRAL
+  audiomuseApiKey             String?  // optional API key for cloud providers
 }
 
 model Artist {
@@ -314,6 +319,7 @@ model Playlist {
   @@unique([userId, mixId])
   @@index([userId])
   @@index([spotifyPlaylistId])
+  @@index([jellyfinPlaylistId])
 }
 
 model HiddenPlaylist {

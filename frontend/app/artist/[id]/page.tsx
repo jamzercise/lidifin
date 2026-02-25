@@ -7,7 +7,8 @@ import {
     useAudioControls,
 } from "@/lib/audio-context";
 import { useDownloadContext } from "@/lib/download-context";
-import { LoadingScreen } from "@/components/ui/LoadingScreen";
+import { useFavorites } from "@/hooks/useFavorites";
+import { ArtistPageSkeleton } from "@/features/artist/components/ArtistPageSkeleton";
 import { useImageColor } from "@/hooks/useImageColor";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
@@ -28,6 +29,7 @@ import { PopularTracks } from "@/features/artist/components/PopularTracks";
 import { Discography } from "@/features/artist/components/Discography";
 import { AvailableAlbums } from "@/features/artist/components/AvailableAlbums";
 import { SimilarArtists } from "@/features/artist/components/SimilarArtists";
+import { SongsFromSimilarArtists } from "@/features/artist/components/SongsFromSimilarArtists";
 
 export default function ArtistPage() {
     const router = useRouter();
@@ -58,6 +60,7 @@ export default function ArtistPage() {
         soulseekEnabled,
         downloadingTrackId,
     } = useSingleTrackDownload();
+    const { favoriteIds, addFavorite, removeFavorite } = useFavorites();
 
     // Separate owned and available albums
     const ownedAlbums = albums.filter((a) => a.owned);
@@ -154,9 +157,9 @@ export default function ArtistPage() {
         }
     }
 
-    // Loading state
+    // Loading state - skeleton for faster perceived load
     if (loading) {
-        return <LoadingScreen message="Loading artist..." />;
+        return <ArtistPageSkeleton />;
     }
 
     // Error or not found state
@@ -257,6 +260,11 @@ export default function ArtistPage() {
                             }}
                             soulseekEnabled={soulseekEnabled}
                             downloadingTrackId={downloadingTrackId}
+                            favoriteIds={favoriteIds}
+                            onToggleFavorite={(trackId, isFavorite) => {
+                                if (isFavorite) removeFavorite(trackId);
+                                else addFavorite(trackId);
+                            }}
                         />
                     )}
 
@@ -278,6 +286,14 @@ export default function ArtistPage() {
                         onDownloadAlbum={handleDownloadAlbum}
                         isPendingDownload={isPendingByMbid}
                     />
+
+                    {/* Songs from similar artists (AudioMuse-AI) */}
+                    {artist.id?.startsWith("jellyfin:") && (
+                        <SongsFromSimilarArtists
+                            artistId={artist.id}
+                            artistName={artist.name}
+                        />
+                    )}
 
                     {/* Similar Artists */}
                     {artist.similarArtists &&

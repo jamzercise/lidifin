@@ -442,7 +442,7 @@ export function Sidebar() {
 
             {/* Desktop Sidebar */}
             {!isMobileOrTablet && (
-                <aside className="w-72 bg-[#0f0f0f] rounded-lg flex flex-col overflow-hidden relative z-10 border border-white/[0.03]">
+                <aside className="w-72 bg-theme-secondary rounded-lg flex flex-col overflow-hidden relative z-10 border border-white/[0.03]">
                     {sidebarContent}
                 </aside>
             )}

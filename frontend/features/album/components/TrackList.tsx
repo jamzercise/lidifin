@@ -1,11 +1,12 @@
-import React, { memo, useCallback } from "react";
+import React, { memo, useCallback, useState } from "react";
 import { Card } from "@/components/ui/Card";
-import { Play, Pause, Volume2, ListPlus, Plus } from "lucide-react";
+import { Play, Pause, Volume2, ListPlus, Plus, Heart, Sparkles } from "lucide-react";
 import { cn } from "@/utils/cn";
 import type { Track, Album, AlbumSource } from "../types";
 import type { ColorPalette } from "@/hooks/useImageColor";
 import { formatTime } from "@/utils/formatTime";
 import { formatNumber } from "@/utils/formatNumber";
+import { FindSimilarModal } from "@/components/AudioMuse/FindSimilarModal";
 
 interface TrackListProps {
     tracks: Track[];
@@ -19,6 +20,11 @@ interface TrackListProps {
     previewTrack: string | null;
     previewPlaying: boolean;
     onPreview: (track: Track, e: React.MouseEvent) => void;
+    /** Jellyfin favorites - show heart for Jellyfin tracks */
+    favoriteIds?: Set<string>;
+    onToggleFavorite?: (trackId: string, isFavorite: boolean) => void;
+    /** Show "Find similar" for Jellyfin tracks. Default true. */
+    showFindSimilar?: boolean;
 }
 
 interface TrackRowProps {
@@ -32,7 +38,10 @@ interface TrackRowProps {
     onPlayTrack: (track: Track, index: number) => void;
     onAddToQueue: (track: Track) => void;
     onAddToPlaylist: (trackId: string) => void;
+    onFindSimilar?: (trackId: string, trackTitle: string, artistName?: string) => void;
     onPreview: (track: Track, e: React.MouseEvent) => void;
+    favoriteIds?: Set<string>;
+    onToggleFavorite?: (trackId: string, isFavorite: boolean) => void;
 }
 
 
@@ -49,9 +58,14 @@ const TrackRow = memo(
         onPlayTrack,
         onAddToQueue,
         onAddToPlaylist,
+        onFindSimilar,
         onPreview,
+        favoriteIds,
+        onToggleFavorite,
     }: TrackRowProps) {
         const isPreviewOnly = !isOwned;
+        const isJellyfin = track.id.startsWith("jellyfin:");
+        const isFavorite = favoriteIds?.has(track.id) ?? false;
 
         const handleAddToQueue = useCallback(
             (e: React.MouseEvent) => {
@@ -172,6 +186,26 @@ const TrackRow = memo(
 
                 {isOwned && (
                     <>
+                        {isJellyfin && onToggleFavorite && (
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onToggleFavorite(track.id, !isFavorite);
+                                }}
+                                className={cn(
+                                    "opacity-100 sm:opacity-0 sm:group-hover:opacity-100 p-2 hover:bg-[#2a2a2a] rounded-full transition-all",
+                                    isFavorite
+                                        ? "text-red-400 hover:text-red-300"
+                                        : "text-gray-400 hover:text-white"
+                                )}
+                                aria-label={isFavorite ? "Remove from Favorites" : "Add to Favorites"}
+                                title={isFavorite ? "Remove from Favorites" : "Add to Favorites"}
+                            >
+                                <Heart
+                                    className={cn("w-4 h-4", isFavorite && "fill-current")}
+                                />
+                            </button>
+                        )}
                         <button
                             onClick={handleAddToQueue}
                             className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 p-2 hover:bg-[#2a2a2a] rounded-full transition-all text-gray-400 hover:text-white"
@@ -180,6 +214,23 @@ const TrackRow = memo(
                         >
                             <ListPlus className="w-4 h-4" />
                         </button>
+                        {isJellyfin && onFindSimilar && (
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onFindSimilar(
+                                        track.id,
+                                        track.displayTitle ?? track.title,
+                                        track.artist?.name ?? album.artist?.name
+                                    );
+                                }}
+                                className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 p-2 hover:bg-[#2a2a2a] rounded-full transition-all text-gray-400 hover:text-purple-400"
+                                aria-label="Find similar"
+                                title="Find similar"
+                            >
+                                <Sparkles className="w-4 h-4" />
+                            </button>
+                        )}
                         <button
                             onClick={handleAddToPlaylist}
                             className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 p-2 hover:bg-[#2a2a2a] rounded-full transition-all text-gray-400 hover:text-white"
@@ -221,7 +272,10 @@ const TrackRow = memo(
             prevProps.isPlaying === nextProps.isPlaying &&
             prevProps.isPreviewPlaying === nextProps.isPreviewPlaying &&
             prevProps.index === nextProps.index &&
-            prevProps.isOwned === nextProps.isOwned
+            prevProps.isOwned === nextProps.isOwned &&
+            prevProps.favoriteIds?.has(prevProps.track.id) ===
+                nextProps.favoriteIds?.has(nextProps.track.id) &&
+            prevProps.onFindSimilar === nextProps.onFindSimilar
         );
     }
 );
@@ -238,8 +292,23 @@ export const TrackList = memo(function TrackList({
     previewTrack,
     previewPlaying,
     onPreview,
+    favoriteIds,
+    onToggleFavorite,
+    showFindSimilar = true,
 }: TrackListProps) {
     const isOwned = source === "library";
+    const [findSimilarTrack, setFindSimilarTrack] = useState<{
+        id: string;
+        title: string;
+        artist?: string;
+    } | null>(null);
+
+    const handleFindSimilar = useCallback(
+        (trackId: string, trackTitle: string, artistName?: string) => {
+            setFindSimilarTrack({ id: trackId, title: trackTitle, artist: artistName });
+        },
+        [],
+    );
 
     return (
         <section>
@@ -266,12 +335,24 @@ export const TrackList = memo(function TrackList({
                                 onPlayTrack={onPlayTrack}
                                 onAddToQueue={onAddToQueue}
                                 onAddToPlaylist={onAddToPlaylist}
+                                onFindSimilar={showFindSimilar && isOwned ? handleFindSimilar : undefined}
                                 onPreview={onPreview}
+                                favoriteIds={favoriteIds}
+                                onToggleFavorite={onToggleFavorite}
                             />
                         );
                     })}
                 </div>
             </Card>
+            {findSimilarTrack && (
+                <FindSimilarModal
+                    isOpen={!!findSimilarTrack}
+                    onClose={() => setFindSimilarTrack(null)}
+                    trackId={findSimilarTrack.id}
+                    trackTitle={findSimilarTrack.title}
+                    artistName={findSimilarTrack.artist}
+                />
+            )}
         </section>
     );
 });

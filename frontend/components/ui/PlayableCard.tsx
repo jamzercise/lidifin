@@ -20,6 +20,7 @@ export interface PlayableCardProps extends Omit<CardProps, "onPlay"> {
     isPlaying?: boolean;
     onPlay?: (e: React.MouseEvent) => void;
     onDownload?: (e: React.MouseEvent) => void;
+    onMouseEnter?: () => void;
     showPlayButton?: boolean;
     circular?: boolean;
     badge?: "owned" | "download" | null;
@@ -37,6 +38,7 @@ const PlayableCard = memo(function PlayableCard({
     isPlaying = false,
     onPlay,
     onDownload,
+    onMouseEnter,
     showPlayButton = true,
     circular = false,
     badge = null,
@@ -183,7 +185,7 @@ const PlayableCard = memo(function PlayableCard({
 
     if (href) {
         return (
-            <Link href={href} onClick={handleLinkClick} prefetch={false} {...tvNavProps}>
+            <Link href={href} onClick={handleLinkClick} onMouseEnter={onMouseEnter} prefetch={false} {...tvNavProps}>
                 <Card variant={variant} className={cardClassName} {...props}>
                     {cardContent}
                 </Card>

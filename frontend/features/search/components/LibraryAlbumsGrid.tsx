@@ -1,8 +1,11 @@
+"use client";
+
 import Link from "next/link";
 import { Disc3 } from "lucide-react";
 import Image from "next/image";
 import { api } from "@/lib/api";
 import { toAlbumRouteId } from "@/lib/route-ids";
+import { usePrefetchAlbum } from "@/hooks/useQueries";
 import { Album } from "../types";
 
 interface LibraryAlbumsGridProps {
@@ -10,12 +13,14 @@ interface LibraryAlbumsGridProps {
 }
 
 export function LibraryAlbumsGrid({ albums }: LibraryAlbumsGridProps) {
+    const prefetchAlbum = usePrefetchAlbum();
     return (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8 3xl:grid-cols-10 gap-4" data-tv-section="search-results-albums">
             {albums.slice(0, 6).map((album, index) => (
                 <Link
                     key={album.id}
                     href={`/album/${encodeURIComponent(toAlbumRouteId(album))}`}
+                    onMouseEnter={() => prefetchAlbum(toAlbumRouteId(album))}
                     data-tv-card
                     data-tv-card-index={index}
                     tabIndex={0}

@@ -775,9 +775,97 @@ interface JellyfinUser {
     Name?: string;
 }
 
+/** Jellyfin playlist summary from Items API */
+export interface JellyfinPlaylistSummary {
+    id: string;
+    name: string;
+}
+
 /** Get Jellyfin user id for API requests (from config; User ID is required when Jellyfin is enabled). */
 export function getJellyfinUserId(cfg: JellyfinConfig): string {
     return getEffectiveUserId(cfg);
+}
+
+/**
+ * Fetch all playlists from Jellyfin for the configured user.
+ * Uses /Users/{userId}/Items?IncludeItemTypes=Playlist.
+ */
+export async function getJellyfinPlaylists(
+    cfg: JellyfinConfig
+): Promise<JellyfinPlaylistSummary[]> {
+    const userId = getJellyfinUserId(cfg);
+    if (!userId) return [];
+    const token = getEffectiveToken(cfg);
+    const client = createClient(cfg.url, token);
+    const playlists: JellyfinPlaylistSummary[] = [];
+    let offset = 0;
+    const limit = 100;
+
+    try {
+        while (true) {
+            const res = await client.get<{
+                Items?: { Id: string; Name?: string }[];
+                TotalRecordCount?: number;
+            }>(`/Users/${userId}/Items`, {
+                params: {
+                    IncludeItemTypes: "Playlist",
+                    Recursive: "true",
+                    Limit: limit,
+                    StartIndex: offset,
+                    Fields: "Id,Name",
+                },
+            });
+            const items = res.data?.Items ?? [];
+            for (const it of items) {
+                playlists.push({
+                    id: it.Id,
+                    name: it.Name ?? "Untitled Playlist",
+                });
+            }
+            if (items.length < limit) break;
+            offset += items.length;
+        }
+    } catch (err: any) {
+        logger.warn("[Jellyfin] getPlaylists failed:", err.message);
+    }
+    return playlists;
+}
+
+/**
+ * Update a Jellyfin playlist's name. Returns true on success.
+ */
+export async function updateJellyfinPlaylistName(
+    cfg: JellyfinConfig,
+    playlistId: string,
+    name: string
+): Promise<boolean> {
+    const token = getEffectiveToken(cfg);
+    const client = createClient(cfg.url, token);
+    try {
+        await client.post(`/Playlists/${playlistId}`, { Name: name });
+        return true;
+    } catch (err: any) {
+        logger.warn("[Jellyfin] updatePlaylistName failed:", playlistId, err.message);
+        return false;
+    }
+}
+
+/**
+ * Delete a playlist from Jellyfin. Playlists are Items; use DELETE /Items/{id}.
+ */
+export async function deleteJellyfinPlaylist(
+    cfg: JellyfinConfig,
+    playlistId: string
+): Promise<boolean> {
+    const token = getEffectiveToken(cfg);
+    const client = createClient(cfg.url, token);
+    try {
+        await client.delete(`/Items/${playlistId}`);
+        return true;
+    } catch (err: any) {
+        logger.warn("[Jellyfin] deletePlaylist failed:", playlistId, err.message);
+        return false;
+    }
 }
 
 /**

@@ -69,7 +69,7 @@ export function MobileSidebar({ isOpen, onClose }: MobileSidebarProps) {
 
             {/* Sidebar Drawer */}
             <div
-                className="fixed inset-y-0 left-0 w-[280px] bg-[#0a0a0a] z-50 flex flex-col overflow-hidden transform transition-transform border-r border-white/[0.06] z-100"
+                className="fixed inset-y-0 left-0 w-[280px] bg-theme-primary z-50 flex flex-col overflow-hidden transform transition-transform border-r border-white/[0.06] z-100"
                 style={{
                     paddingTop: "env(safe-area-inset-top)",
                 }}

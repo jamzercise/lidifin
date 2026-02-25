@@ -3,6 +3,7 @@ import { PlayableCard } from '@/components/ui/PlayableCard';
 import { Disc3 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { toAlbumRouteId } from '@/lib/route-ids';
+import { usePrefetchAlbum } from '@/hooks/useQueries';
 import { SimilarAlbum } from '../types';
 import type { ColorPalette } from '@/hooks/useImageColor';
 
@@ -13,6 +14,7 @@ interface SimilarAlbumsProps {
 }
 
 export function SimilarAlbums({ similarAlbums, colors, onNavigate }: SimilarAlbumsProps) {
+  const prefetchAlbum = usePrefetchAlbum();
   return (
     <section>
       <h2 className="text-xl font-bold mb-4">More Like This</h2>
@@ -21,6 +23,7 @@ export function SimilarAlbums({ similarAlbums, colors, onNavigate }: SimilarAlbu
           <PlayableCard
             key={album.id}
             href={`/album/${encodeURIComponent(toAlbumRouteId(album))}`}
+            onMouseEnter={() => prefetchAlbum(toAlbumRouteId(album))}
             coverArt={album.coverArt ? api.getCoverArtUrl(album.coverArt, 300) : album.coverUrl}
             title={album.title}
             subtitle={album.artist?.name}

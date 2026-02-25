@@ -7,6 +7,7 @@ import { PlayableCard } from "@/components/ui/PlayableCard";
 import { Disc3 } from "lucide-react";
 import { api } from "@/lib/api";
 import { toAlbumRouteId } from "@/lib/route-ids";
+import { usePrefetchAlbum } from "@/hooks/useQueries";
 
 interface AvailableAlbumsProps {
     albums: Album[];
@@ -24,6 +25,7 @@ function LazyAlbumCard({
     colors,
     onDownloadAlbum,
     isPendingDownload,
+    onPrefetch,
     index,
 }: {
     album: Album;
@@ -31,6 +33,7 @@ function LazyAlbumCard({
     colors: ColorPalette | null;
     onDownloadAlbum: (album: Album, e: React.MouseEvent) => void;
     isPendingDownload: (mbid: string) => boolean;
+    onPrefetch?: () => void;
     index: number;
 }) {
     const [coverArt, setCoverArt] = useState<string | null>(() => {
@@ -86,6 +89,7 @@ function LazyAlbumCard({
         <PlayableCard
             key={album.id}
             href={`/album/${encodeURIComponent(toAlbumRouteId(album))}`}
+            onMouseEnter={onPrefetch}
             coverArt={coverArt}
             title={album.title}
             subtitle={subtitle}
@@ -109,7 +113,8 @@ function AlbumGrid({
     colors,
     onDownloadAlbum,
     isPendingDownload,
-}: Omit<AvailableAlbumsProps, "artistName">) {
+    prefetchAlbum,
+}: Omit<AvailableAlbumsProps, "artistName"> & { prefetchAlbum: (id: string) => void }) {
     return (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
             {albums.map((album, index) => (
@@ -120,6 +125,7 @@ function AlbumGrid({
                     colors={colors}
                     onDownloadAlbum={onDownloadAlbum}
                     isPendingDownload={isPendingDownload}
+                    onPrefetch={() => prefetchAlbum(toAlbumRouteId(album))}
                     index={index}
                 />
             ))}
@@ -135,6 +141,7 @@ export function AvailableAlbums({
     onDownloadAlbum,
     isPendingDownload,
 }: AvailableAlbumsProps) {
+    const prefetchAlbum = usePrefetchAlbum();
     if (!albums || albums.length === 0) {
         return null;
     }
@@ -162,6 +169,7 @@ export function AvailableAlbums({
                             colors={colors}
                             onDownloadAlbum={onDownloadAlbum}
                             isPendingDownload={isPendingDownload}
+                            prefetchAlbum={prefetchAlbum}
                         />
                     </div>
                 </section>
@@ -180,6 +188,7 @@ export function AvailableAlbums({
                             colors={colors}
                             onDownloadAlbum={onDownloadAlbum}
                             isPendingDownload={isPendingDownload}
+                            prefetchAlbum={prefetchAlbum}
                         />
                     </div>
                 </section>

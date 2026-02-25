@@ -65,7 +65,7 @@ export function AuthenticatedLayout({ children }: { children: ReactNode }) {
     // Show loading state only on protected pages
     if (!isPublicPage && isLoading) {
         return (
-            <div className="min-h-screen flex items-center justify-center bg-black">
+            <div className="min-h-screen flex items-center justify-center bg-theme-primary">
                 <div className="flex flex-col items-center gap-4">
                     <GradientSpinner size="lg" />
                     <p className="text-white/60 text-sm">Loading...</p>
@@ -107,7 +107,7 @@ export function AuthenticatedLayout({ children }: { children: ReactNode }) {
                     >
                         Skip to main content
                     </a>
-                    <div className="h-screen bg-black overflow-hidden flex flex-col">
+                    <div className="h-screen bg-theme-primary overflow-hidden flex flex-col">
                         <MediaControlsHandler />
                         <TopBar />
 
@@ -127,7 +127,7 @@ export function AuthenticatedLayout({ children }: { children: ReactNode }) {
                             <main
                                 id="main-content"
                                 tabIndex={-1}
-                                className="flex-1 bg-gradient-to-b from-[#1a1a1a] via-black to-black mx-2 mb-2 rounded-lg overflow-y-auto relative focus:outline-none"
+                                className="flex-1 bg-gradient-to-b from-theme-hover via-theme-primary to-theme-primary mx-2 mb-2 rounded-lg overflow-y-auto relative focus:outline-none"
                                 style={{
                                     marginTop: "calc(58px + env(safe-area-inset-top, 0px))",
                                     marginBottom:
@@ -161,7 +161,7 @@ export function AuthenticatedLayout({ children }: { children: ReactNode }) {
                     Skip to main content
                 </a>
                 <div
-                    className="h-screen bg-black overflow-hidden flex flex-col"
+                    className="h-screen bg-theme-primary overflow-hidden flex flex-col"
                     style={{ paddingTop: "64px" }}
                 >
                     <MediaControlsHandler />
@@ -171,7 +171,7 @@ export function AuthenticatedLayout({ children }: { children: ReactNode }) {
                         <main
                             id="main-content"
                             tabIndex={-1}
-                            className="flex-1 bg-gradient-to-b from-[#1a1a1a] via-black to-black rounded-lg overflow-y-auto relative focus:outline-none"
+                            className="flex-1 bg-gradient-to-b from-theme-hover via-theme-primary to-theme-primary rounded-lg overflow-y-auto relative focus:outline-none"
                         >
                             <GalaxyBackground />
                             {children}
@@ -192,7 +192,7 @@ export function AuthenticatedLayout({ children }: { children: ReactNode }) {
 
     // If not authenticated on a protected page, auth context will redirect
     return (
-        <div className="min-h-screen flex items-center justify-center bg-black">
+        <div className="min-h-screen flex items-center justify-center bg-theme-primary">
             <div className="flex flex-col items-center gap-4">
                 <GradientSpinner size="lg" />
                 <p className="text-white/60 text-sm">Redirecting...</p>

@@ -9,6 +9,7 @@ import { useAudio } from "@/lib/audio-context";
 import { useAudioState } from "@/lib/audio-state-context";
 import Image from "next/image";
 import Link from "next/link";
+import Link from "next/link";
 import {
     Loader2,
     RefreshCw,
@@ -19,6 +20,7 @@ import {
     Shuffle,
     X,
     AudioWaveform,
+    Sparkles,
 } from "lucide-react";
 
 interface TrackFeatures {
@@ -912,6 +914,14 @@ function VibePageContent() {
                     <div className="flex items-center justify-between mb-1">
                         <h1 className="text-2xl font-semibold text-white tracking-tight">Vibe</h1>
                         <div className="flex items-center gap-1">
+                            <Link
+                                href="/vibe/alchemy"
+                                className="flex items-center gap-2 px-3 py-1.5 text-sm text-purple-400 hover:text-purple-300 hover:bg-purple-500/10 rounded-md transition-colors"
+                                title="Song Alchemy - mix songs and artists"
+                            >
+                                <Sparkles className="w-4 h-4" />
+                                <span className="hidden sm:inline">Song Alchemy</span>
+                            </Link>
                             {/* Use Current Track button - only show when something is playing */}
                             {currentTrack && (
                                 <button

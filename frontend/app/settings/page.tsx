@@ -15,11 +15,13 @@ import {
 
 // Section components
 import { AccountSection } from "@/features/settings/components/sections/AccountSection";
+import { AppearanceSection } from "@/features/settings/components/sections/AppearanceSection";
 import { PlaybackSection } from "@/features/settings/components/sections/PlaybackSection";
 import { DownloadPreferencesSection } from "@/features/settings/components/sections/DownloadPreferencesSection";
 import { LidarrSection } from "@/features/settings/components/sections/LidarrSection";
 import { AudiobookshelfSection } from "@/features/settings/components/sections/AudiobookshelfSection";
 import { JellyfinSection } from "@/features/settings/components/sections/JellyfinSection";
+import { AudioMuseSection } from "@/features/settings/components/sections/AudioMuseSection";
 import { SoulseekSection } from "@/features/settings/components/sections/SoulseekSection";
 import { AIServicesSection } from "@/features/settings/components/sections/AIServicesSection";
 import { StoragePathsSection } from "@/features/settings/components/sections/StoragePathsSection";
@@ -29,11 +31,13 @@ import { UserManagementSection } from "@/features/settings/components/sections/U
 // Define sidebar items
 const sidebarItems: SidebarItem[] = [
     { id: "account", label: "Account" },
+    { id: "appearance", label: "Appearance" },
     { id: "playback", label: "Playback" },
     { id: "download-preferences", label: "Download Preferences", adminOnly: true },
     { id: "lidarr", label: "Download Services", adminOnly: true },
     { id: "audiobookshelf", label: "Media Servers", adminOnly: true },
     { id: "jellyfin", label: "Jellyfin (Music)", adminOnly: true },
+    { id: "audiomuse", label: "AudioMuse-AI", adminOnly: true },
     { id: "soulseek", label: "P2P Networks", adminOnly: true },
     { id: "ai-services", label: "Artwork", adminOnly: true },
     { id: "storage", label: "Storage", adminOnly: true },
@@ -138,7 +142,7 @@ export default function SettingsPage() {
 
     if (authLoading) {
         return (
-            <div className="flex items-center justify-center min-h-screen bg-[#0a0a0a]">
+            <div className="flex items-center justify-center min-h-screen bg-theme-primary">
                 <GradientSpinner size="md" />
             </div>
         );
@@ -153,6 +157,9 @@ export default function SettingsPage() {
             <SettingsLayout sidebarItems={sidebarItems} isAdmin={isAdmin}>
                 {/* Account Section */}
                 <AccountSection />
+
+                {/* Appearance Section */}
+                <AppearanceSection />
 
                 {/* Playback Section */}
                 <PlaybackSection
@@ -193,6 +200,13 @@ export default function SettingsPage() {
                             isTesting={testingServices.jellyfin || false}
                         />
 
+                        {/* AudioMuse-AI - Instant mood playlists */}
+                        <AudioMuseSection
+                            settings={systemSettings}
+                            onUpdate={updateSystemSettings}
+                            isTesting={false}
+                        />
+
                         {/* P2P Networks - Soulseek */}
                         <SoulseekSection
                             settings={systemSettings}
@@ -229,7 +243,7 @@ export default function SettingsPage() {
                 )}
 
                 {/* Save Button - Fixed at bottom */}
-                <div className="sticky bottom-0 pt-8 pb-8 bg-[#0a0a0a]">
+                <div className="sticky bottom-0 pt-8 pb-8 bg-theme-primary">
                     <div className="relative">
                         <button
                             onClick={handleSaveAll}

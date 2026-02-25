@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Album } from "../types";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { toAlbumRouteId } from "@/lib/route-ids";
+import { usePrefetchAlbum } from "@/hooks/useQueries";
 import { GradientSpinner } from "@/components/ui/GradientSpinner";
 import { CachedImage } from "@/components/ui/CachedImage";
 import { Disc3, Play, Trash2 } from "lucide-react";
@@ -20,6 +21,7 @@ interface AlbumCardItemProps {
     index: number;
     onPlay: (albumId: string) => Promise<void>;
     onDelete: (albumId: string, albumTitle: string) => void;
+    onPrefetch: (albumId: string) => void;
 }
 
 const AlbumCardItem = memo(
@@ -28,6 +30,7 @@ const AlbumCardItem = memo(
         index,
         onPlay,
         onDelete,
+        onPrefetch,
     }: AlbumCardItemProps) {
         const handlePlay = useCallback(
             (e: React.MouseEvent) => {
@@ -51,9 +54,11 @@ const AlbumCardItem = memo(
             [album.coverArt],
         );
 
+        const routeId = toAlbumRouteId(album);
         return (
             <Link
-                href={`/album/${encodeURIComponent(toAlbumRouteId(album))}`}
+                href={`/album/${encodeURIComponent(routeId)}`}
+                onMouseEnter={() => onPrefetch(routeId)}
                 prefetch={false}
                 data-tv-card
                 data-tv-card-index={index}
@@ -112,6 +117,7 @@ const AlbumsGrid = memo(function AlbumsGrid({
     onDelete,
     isLoading = false,
 }: AlbumsGridProps) {
+    const prefetchAlbum = usePrefetchAlbum();
     if (isLoading) {
         return (
             <div className="flex items-center justify-center min-h-[400px]">
@@ -142,6 +148,7 @@ const AlbumsGrid = memo(function AlbumsGrid({
                     index={index}
                     onPlay={onPlay}
                     onDelete={onDelete}
+                    onPrefetch={prefetchAlbum}
                 />
             ))}
         </div>

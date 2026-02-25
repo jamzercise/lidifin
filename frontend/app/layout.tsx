@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Montserrat } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/lib/auth-context";
+import { ThemeProvider } from "@/lib/theme-context";
 import { FeaturesProvider } from "@/lib/features-context";
 import { ToastProvider } from "@/lib/toast-context";
 import { DownloadProvider } from "@/lib/download-context";
@@ -52,13 +53,21 @@ export default function RootLayout({
     children: React.ReactNode;
 }>) {
     return (
-        <html lang="en">
+        <html lang="en" suppressHydrationWarning>
+            <head>
+                <script
+                    dangerouslySetInnerHTML={{
+                        __html: `(function(){var t=localStorage.getItem("lidify-theme");var v=["dark","light","warm","cool","high-contrast"];if(t&&v.indexOf(t)!==-1){document.documentElement.setAttribute("data-theme",t)}else{var d=window.matchMedia("(prefers-color-scheme: dark)").matches;document.documentElement.setAttribute("data-theme",d?"dark":"light")}})();`,
+                    }}
+                />
+            </head>
             <body
                 className={`${montserrat.variable} antialiased`}
                 style={{ fontFamily: "var(--font-montserrat)" }}
             >
                 <GlobalErrorBoundary>
                     <ServiceWorkerRegistration />
+                    <ThemeProvider>
                     <AuthProvider>
                         <FeaturesProvider>
                             <QueryProvider>
@@ -74,6 +83,7 @@ export default function RootLayout({
                             </QueryProvider>
                         </FeaturesProvider>
                     </AuthProvider>
+                    </ThemeProvider>
                 </GlobalErrorBoundary>
             </body>
         </html>

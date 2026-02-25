@@ -1,7 +1,8 @@
 @import "tailwindcss";
 
-:root {
-    /* Lidify Design System - Dark Theme Only */
+:root,
+[data-theme="dark"] {
+    /* Lidify Design System - Dark Theme (default) */
 
     /* Background Layers */
     --bg-primary: #0a0a0a; /* Primary canvas */
@@ -32,6 +33,118 @@
     --color-warning: #f59e0b;
     --color-error: #ef4444;
     --color-info: #3b82f6;
+}
+
+/* Light Theme */
+[data-theme="light"] {
+    --bg-primary: #f5f5f5;
+    --bg-secondary: #ffffff;
+    --bg-tertiary: #fafafa;
+    --bg-hover: #f0f0f0;
+    --bg-active: #e5e5e5;
+
+    --border-subtle: #e5e5e5;
+    --border-interactive: #d4d4d4;
+    --border-focus: #a3a3a3;
+
+    --text-primary: #171717;
+    --text-body: #262626;
+    --text-secondary: #525252;
+    --text-muted: #737373;
+    --text-disabled: #a3a3a3;
+
+    --color-primary: #ca8a04;
+    --color-ai: #7c3aed;
+    --color-ai-dark: #6d28d9;
+
+    --color-success: #16a34a;
+    --color-warning: #d97706;
+    --color-error: #dc2626;
+    --color-info: #2563eb;
+}
+
+/* Warm Theme - amber/orange tones */
+[data-theme="warm"] {
+    --bg-primary: #1c1917;
+    --bg-secondary: #292524;
+    --bg-tertiary: #44403c;
+    --bg-hover: #57534e;
+    --bg-active: #78716c;
+
+    --border-subtle: #44403c;
+    --border-interactive: #57534e;
+    --border-focus: #78716c;
+
+    --text-primary: #fef3c7;
+    --text-body: #fde68a;
+    --text-secondary: #fcd34d;
+    --text-muted: #f59e0b;
+    --text-disabled: #d97706;
+
+    --color-primary: #f59e0b;
+    --color-ai: #d97706;
+    --color-ai-dark: #b45309;
+
+    --color-success: #22c55e;
+    --color-warning: #f59e0b;
+    --color-error: #ef4444;
+    --color-info: #3b82f6;
+}
+
+/* Cool Theme - blue/slate tones */
+[data-theme="cool"] {
+    --bg-primary: #0f172a;
+    --bg-secondary: #1e293b;
+    --bg-tertiary: #334155;
+    --bg-hover: #475569;
+    --bg-active: #64748b;
+
+    --border-subtle: #334155;
+    --border-interactive: #475569;
+    --border-focus: #64748b;
+
+    --text-primary: #f8fafc;
+    --text-body: #e2e8f0;
+    --text-secondary: #cbd5e1;
+    --text-muted: #94a3b8;
+    --text-disabled: #64748b;
+
+    --color-primary: #0ea5e9;
+    --color-ai: #6366f1;
+    --color-ai-dark: #4f46e5;
+
+    --color-success: #22c55e;
+    --color-warning: #f59e0b;
+    --color-error: #ef4444;
+    --color-info: #0ea5e9;
+}
+
+/* High Contrast Theme - accessibility */
+[data-theme="high-contrast"] {
+    --bg-primary: #000000;
+    --bg-secondary: #0a0a0a;
+    --bg-tertiary: #141414;
+    --bg-hover: #1a1a1a;
+    --bg-active: #262626;
+
+    --border-subtle: #404040;
+    --border-interactive: #525252;
+    --border-focus: #737373;
+
+    --text-primary: #ffffff;
+    --text-body: #ffffff;
+    --text-secondary: #e5e5e5;
+    --text-muted: #d4d4d4;
+    --text-disabled: #a3a3a3;
+
+    --color-primary: #facc15;
+    --color-ai: #c084fc;
+    --color-ai-dark: #a855f7;
+
+    --color-success: #4ade80;
+    --color-warning: #fbbf24;
+    --color-error: #f87171;
+    --color-info: #60a5fa;
 }
 
 * {

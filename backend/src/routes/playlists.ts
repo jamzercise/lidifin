@@ -12,6 +12,10 @@ import {
     addToJellyfinPlaylist,
     setJellyfinPlaylistItems,
     removeItemFromJellyfinPlaylistByItemId,
+    getJellyfinPlaylists,
+    getJellyfinPlaylistItems,
+    updateJellyfinPlaylistName,
+    deleteJellyfinPlaylist,
 } from "../services/jellyfin";
 
 const router = Router();
@@ -34,6 +38,50 @@ router.get("/", async (req, res) => {
             return res.status(401).json({ error: "Unauthorized" });
         }
         const userId = req.user.id;
+
+        // Sync Jellyfin playlists into DB when Jellyfin is enabled
+        const cfg = await getJellyfinConfig();
+        if (cfg) {
+            const jellyfinPlaylists = await getJellyfinPlaylists(cfg);
+            const existingByJellyfinId = await prisma.playlist.findMany({
+                where: {
+                    jellyfinPlaylistId: { in: jellyfinPlaylists.map((p) => p.id) },
+                },
+                select: { jellyfinPlaylistId: true },
+            });
+            const existingJellyfinIds = new Set(
+                existingByJellyfinId.map((p) => p.jellyfinPlaylistId).filter(Boolean) as string[]
+            );
+
+            for (const jp of jellyfinPlaylists) {
+                if (existingJellyfinIds.has(jp.id)) continue;
+
+                // Create Playlist record and sync items from Jellyfin
+                const playlist = await prisma.playlist.create({
+                    data: {
+                        userId,
+                        name: jp.name,
+                        jellyfinPlaylistId: jp.id,
+                    },
+                });
+
+                const items = await getJellyfinPlaylistItems(cfg, jp.id);
+                for (let i = 0; i < items.length; i++) {
+                    const trackId = `jellyfin:${items[i].itemId}`;
+                    await prisma.playlistItem.upsert({
+                        where: {
+                            playlistId_trackId: { playlistId: playlist.id, trackId },
+                        },
+                        create: {
+                            playlistId: playlist.id,
+                            trackId,
+                            sort: i,
+                        },
+                        update: { sort: i },
+                    });
+                }
+            }
+        }
 
         // Get user's hidden playlists
         const hiddenPlaylists = await prisma.hiddenPlaylist.findMany({
@@ -263,6 +311,16 @@ router.put("/:id", async (req, res) => {
             },
         });
 
+        // Sync name to Jellyfin when applicable
+        if (playlist.jellyfinPlaylistId && data.name) {
+            const cfg = await getJellyfinConfig();
+            if (cfg) {
+                updateJellyfinPlaylistName(cfg, playlist.jellyfinPlaylistId, data.name).catch(
+                    () => {}
+                );
+            }
+        }
+
         res.json(playlist);
     } catch (error) {
         if (error instanceof z.ZodError) {
@@ -354,6 +412,14 @@ router.delete("/:id", async (req, res) => {
 
         if (existing.userId !== userId) {
             return res.status(403).json({ error: "Access denied" });
+        }
+
+        // Delete from Jellyfin when applicable
+        if (existing.jellyfinPlaylistId) {
+            const cfg = await getJellyfinConfig();
+            if (cfg) {
+                deleteJellyfinPlaylist(cfg, existing.jellyfinPlaylistId).catch(() => {});
+            }
         }
 
         await prisma.playlist.delete({

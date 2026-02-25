@@ -1,6 +1,7 @@
 "use client";
 
-import { Play, Pause } from "lucide-react";
+import { useState } from "react";
+import { Play, Pause, Heart, Sparkles } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useAudioState } from "@/lib/audio-state-context";
@@ -11,13 +12,21 @@ import { toArtistRouteId, toAlbumRouteId } from "@/lib/route-ids";
 import { cn } from "@/utils/cn";
 import { formatTime } from "@/utils/formatTime";
 import type { LibraryTrack } from "../types";
+import { FindSimilarModal } from "@/components/AudioMuse/FindSimilarModal";
 
 interface LibraryTracksListProps {
     tracks: LibraryTrack[];
+    favoriteIds?: Set<string>;
+    onToggleFavorite?: (trackId: string, isFavorite: boolean) => void;
 }
 
-export function LibraryTracksList({ tracks }: LibraryTracksListProps) {
+export function LibraryTracksList({ tracks, favoriteIds, onToggleFavorite }: LibraryTracksListProps) {
     const { currentTrack } = useAudioState();
+    const [findSimilarTrack, setFindSimilarTrack] = useState<{
+        id: string;
+        title: string;
+        artist?: string;
+    } | null>(null);
     const { isPlaying } = useAudioPlayback();
     const { playTracks, pause, resume } = useAudioControls();
 
@@ -61,6 +70,8 @@ export function LibraryTracksList({ tracks }: LibraryTracksListProps) {
             {tracks.slice(0, 10).map((track, index) => {
                 const isCurrentTrack = currentTrack?.id === track.id;
                 const isPlayingThis = isCurrentTrack && isPlaying;
+                const isJellyfin = track.id.startsWith("jellyfin:");
+                const isFavorite = favoriteIds?.has(track.id) ?? false;
                 const coverUrl = track.album.coverUrl
                     ? api.getCoverArtUrl(track.album.coverUrl, 48)
                     : null;
@@ -143,13 +154,59 @@ export function LibraryTracksList({ tracks }: LibraryTracksListProps) {
                             </p>
                         </div>
 
-                        {/* Duration */}
+                        {/* Find Similar + Favorite + Duration */}
+                        {isJellyfin && (
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    setFindSimilarTrack({
+                                        id: track.id,
+                                        title: track.title,
+                                        artist: track.album.artist.name,
+                                    });
+                                }}
+                                className="p-1.5 rounded-full opacity-0 group-hover:opacity-100 hover:bg-white/10 text-gray-400 hover:text-purple-400 transition-all flex-shrink-0"
+                                title="Find similar"
+                                aria-label="Find similar"
+                            >
+                                <Sparkles className="w-4 h-4" />
+                            </button>
+                        )}
+                        {isJellyfin && onToggleFavorite && (
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onToggleFavorite(track.id, isFavorite);
+                                }}
+                                className={cn(
+                                    "p-1.5 rounded-full opacity-0 group-hover:opacity-100 hover:bg-white/10 transition-all flex-shrink-0",
+                                    isFavorite
+                                        ? "text-red-400 hover:text-red-300"
+                                        : "text-gray-400 hover:text-white"
+                                )}
+                                title={isFavorite ? "Remove from Favorites" : "Add to Favorites"}
+                                aria-label={isFavorite ? "Remove from Favorites" : "Add to Favorites"}
+                            >
+                                <Heart
+                                    className={cn("w-4 h-4", isFavorite && "fill-current")}
+                                />
+                            </button>
+                        )}
                         <span className="text-sm text-gray-400 flex-shrink-0">
                             {formatTime(track.duration)}
                         </span>
                     </div>
                 );
             })}
+            {findSimilarTrack && (
+                <FindSimilarModal
+                    isOpen={!!findSimilarTrack}
+                    onClose={() => setFindSimilarTrack(null)}
+                    trackId={findSimilarTrack.id}
+                    trackTitle={findSimilarTrack.title}
+                    artistName={findSimilarTrack.artist}
+                />
+            )}
         </div>
     );
 }

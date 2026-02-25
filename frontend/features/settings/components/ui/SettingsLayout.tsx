@@ -92,18 +92,18 @@ export function SettingsLayout({ children, sidebarItems, isAdmin }: SettingsLayo
     }, [sidebarItems, isAdmin]);
     
     return (
-        <div className="min-h-screen bg-[#0a0a0a] relative">
-            {/* Subtle grey gradient for systems page feel */}
+        <div className="min-h-screen bg-theme-primary relative">
+            {/* Subtle gradient for systems page feel */}
             <div 
                 className="absolute inset-0 pointer-events-none"
                 style={{
-                    backgroundImage: 'linear-gradient(to bottom, #1a1a1a 0%, #121212 15%, #0a0a0a 30%)'
+                    backgroundImage: 'linear-gradient(to bottom, var(--bg-hover) 0%, var(--bg-secondary) 15%, var(--bg-primary) 30%)'
                 }}
             />
             
             <div className="relative max-w-5xl mx-auto px-4 md:px-8 py-8">
                 {/* Header */}
-                <h1 className="text-2xl font-bold text-white mb-8">Settings</h1>
+                <h1 className="text-2xl font-bold text-theme-text-primary mb-8">Settings</h1>
                 
                 {/* Layout */}
                 <div className="flex gap-12">

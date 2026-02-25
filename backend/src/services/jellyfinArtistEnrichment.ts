@@ -94,7 +94,14 @@ export async function enrichJellyfinArtist(
         }
     }
 
-    const lastFmInfo = await lastFmService.getArtistInfo(resolvedName, mbid || undefined);
+    // Parallelize: Last.fm info + top tracks + images + MusicBrainz release groups
+    const [lastFmInfo, topTracksRaw, fanartImage, deezerImage, releaseGroupsRaw] = await Promise.all([
+        lastFmService.getArtistInfo(resolvedName, mbid || undefined),
+        lastFmService.getArtistTopTracks(mbid || "", resolvedName, 10).catch(() => []),
+        mbid ? fanartService.getArtistImage(mbid).catch(() => null) : Promise.resolve(null),
+        deezerService.getArtistImage(resolvedName).catch(() => null),
+        mbid ? musicBrainzService.getReleaseGroups(mbid).catch(() => []) : Promise.resolve([]),
+    ]);
 
     let bio = lastFmInfo?.bio?.summary || null;
     if (bio) {
@@ -110,37 +117,17 @@ export async function enrichJellyfinArtist(
         }
     }
 
-    let topTracks: JellyfinArtistEnrichment["topTracks"] = [];
-    try {
-        const raw = await lastFmService.getArtistTopTracks(mbid || "", resolvedName, 10);
-        topTracks = raw.map((t: any) => ({
-            id: `lastfm-${mbid || resolvedName}-${t.name}`,
-            title: t.name,
-            playCount: parseInt(t.playcount || "0"),
-            listeners: parseInt(t.listeners || "0"),
-            duration: parseInt(t.duration || "0"),
-            url: t.url,
-            album: { title: t.album?.["#text"] || "Unknown Album" },
-        }));
-    } catch (err) {
-        logger.debug(`[JellyfinEnrichment] Top tracks failed for ${resolvedName}:`, err);
-    }
+    const topTracks: JellyfinArtistEnrichment["topTracks"] = (Array.isArray(topTracksRaw) ? topTracksRaw : []).map((t: any) => ({
+        id: `lastfm-${mbid || resolvedName}-${t.name}`,
+        title: t.name,
+        playCount: parseInt(t.playcount || "0"),
+        listeners: parseInt(t.listeners || "0"),
+        duration: parseInt(t.duration || "0"),
+        url: t.url,
+        album: { title: t.album?.["#text"] || "Unknown Album" },
+    }));
 
-    let image: string | null = null;
-    if (mbid) {
-        try {
-            image = await fanartService.getArtistImage(mbid);
-        } catch {
-            // Ignore
-        }
-    }
-    if (!image) {
-        try {
-            image = await deezerService.getArtistImage(resolvedName);
-        } catch {
-            // Ignore
-        }
-    }
+    let image: string | null = fanartImage || deezerImage || null;
     if (!image && lastFmInfo?.image) {
         const images = normalizeToArray(lastFmInfo.image);
         const lastFmImage = lastFmService.getBestImage(images);
@@ -195,10 +182,9 @@ export async function enrichJellyfinArtist(
     );
 
     let discoveryAlbums: JellyfinArtistEnrichment["discoveryAlbums"] = [];
-    if (mbid) {
-        try {
-            const releaseGroups = await musicBrainzService.getReleaseGroups(mbid);
-            const filtered = releaseGroups.filter((rg: any) => {
+    const releaseGroups = Array.isArray(releaseGroupsRaw) ? releaseGroupsRaw : [];
+    if (releaseGroups.length > 0) {
+        const filtered = releaseGroups.filter((rg: any) => {
                 const isPrimary =
                     rg["primary-type"] === "Album" || rg["primary-type"] === "EP";
                 if (!isPrimary) return false;
@@ -240,15 +226,12 @@ export async function enrichJellyfinArtist(
                     };
                 })
             );
-            discoveryAlbums.sort((a, b) => {
-                if (a.year && b.year) return b.year - a.year;
-                if (a.year) return -1;
-                if (b.year) return 1;
-                return 0;
-            });
-        } catch (err) {
-            logger.debug(`[JellyfinEnrichment] Release groups failed for ${resolvedName}:`, err);
-        }
+        discoveryAlbums.sort((a, b) => {
+            if (a.year && b.year) return b.year - a.year;
+            if (a.year) return -1;
+            if (b.year) return 1;
+            return 0;
+        });
     }
 
     const result: JellyfinArtistEnrichment = {

@@ -1615,6 +1615,77 @@ class ApiClient {
         }>("/mixes/mood/buckets/backfill", { method: "POST" });
     }
 
+    // AudioMuse-AI: instant playlist from mood or text
+    async getAudioMuseStatus() {
+        return this.request<{
+            enabled: boolean;
+            available: boolean;
+            aiProvider?: string;
+            message?: string;
+        }>("/mixes/audiomuse/status");
+    }
+
+    async getAudioMuseInstantPlaylist(params: {
+        mood?: MoodType;
+        userInput?: string;
+    }) {
+        return this.request<{
+            tracks: ApiData[];
+            totalCount: number;
+            message?: string;
+        }>("/mixes/audiomuse/instant", {
+            method: "POST",
+            body: JSON.stringify(params),
+        });
+    }
+
+    async getAudioMuseSimilarTracks(trackId: string, n = 20) {
+        return this.request<{ tracks: ApiData[]; totalCount: number }>(
+            `/mixes/audiomuse/similar-tracks?trackId=${encodeURIComponent(trackId)}&n=${n}`
+        );
+    }
+
+    async getAudioMuseSimilarArtists(artistIdOrName: string, n = 10) {
+        const param = artistIdOrName.startsWith("jellyfin:")
+            ? `artistId=${encodeURIComponent(artistIdOrName)}`
+            : `artist=${encodeURIComponent(artistIdOrName)}`;
+        return this.request<{ artists: { id: string | null; name: string; divergence: number }[] }>(
+            `/mixes/audiomuse/similar-artists?${param}&n=${n}`
+        );
+    }
+
+    async getAudioMuseArtistTracks(artistIdOrName: string) {
+        const param = artistIdOrName.startsWith("jellyfin:")
+            ? `artistId=${encodeURIComponent(artistIdOrName)}`
+            : `artist=${encodeURIComponent(artistIdOrName)}`;
+        return this.request<{ tracks: ApiData[]; totalCount: number }>(
+            `/mixes/audiomuse/artist-tracks?${param}`
+        );
+    }
+
+    async getAudioMuseAlchemy(params: {
+        items: { id: string; op: "ADD" | "SUBTRACT"; type?: "song" | "artist" }[];
+        n?: number;
+    }) {
+        return this.request<{ tracks: ApiData[]; totalCount: number }>(
+            "/mixes/audiomuse/alchemy",
+            {
+                method: "POST",
+                body: JSON.stringify(params),
+            }
+        );
+    }
+
+    async saveAudioMusePlaylist(name: string, trackIds: string[]) {
+        return this.request<{ success: boolean; playlistId?: string }>(
+            "/mixes/audiomuse/save-playlist",
+            {
+                method: "POST",
+                body: JSON.stringify({ name, trackIds }),
+            }
+        );
+    }
+
     // Enrichment
     async getEnrichmentSettings() {
         return this.request<ApiData>("/enrichment/settings");

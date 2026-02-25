@@ -113,12 +113,14 @@ export function MoodMixer({ isOpen, onClose }: MoodMixerProps) {
     const [loading, setLoading] = useState(true);
     const [generating, setGenerating] = useState<MoodType | null>(null);
     const [isVisible, setIsVisible] = useState(false);
+    const [audioMuseAvailable, setAudioMuseAvailable] = useState(false);
 
     // Handle visibility animation
     useEffect(() => {
         if (isOpen) {
             setIsVisible(true);
             loadPresets();
+            loadAudioMuseStatus();
         } else {
             // Delay hiding to allow exit animation
             const timeout = setTimeout(() => setIsVisible(false), 200);
@@ -138,49 +140,85 @@ export function MoodMixer({ isOpen, onClose }: MoodMixerProps) {
         }
     };
 
+    const loadAudioMuseStatus = async () => {
+        try {
+            const status = await api.getAudioMuseStatus();
+            setAudioMuseAvailable(
+                Boolean(status?.enabled && status?.available)
+            );
+        } catch {
+            setAudioMuseAvailable(false);
+        }
+    };
+
+    const playTracksFromResult = (
+        tracks: Array<{
+            id: string;
+            title: string;
+            duration: number;
+            album?: {
+                id?: string;
+                title?: string;
+                coverUrl?: string | null;
+                artist?: { id?: string; name: string };
+            };
+        }>,
+        config: { label: string },
+        saveMoodMix?: MoodType
+    ) => {
+        const mapped: Track[] = tracks.map((t) => ({
+            id: t.id,
+            title: t.title,
+            artist: {
+                name: t.album?.artist?.name || "Unknown Artist",
+                id: t.album?.artist?.id,
+            },
+            album: {
+                title: t.album?.title || "Unknown Album",
+                coverArt: t.album?.coverUrl,
+                id: t.album?.id,
+            },
+            duration: t.duration,
+        }));
+        playTracks(mapped, 0);
+        toast.success(`${config.label} Mix`, {
+            description: `Playing ${mapped.length} tracks`,
+        });
+        if (saveMoodMix) {
+            api.saveMoodBucketMix(saveMoodMix).catch(() => {});
+            queryClient.refetchQueries({ queryKey: ["mixes"] });
+            window.dispatchEvent(new CustomEvent("mix-generated"));
+            window.dispatchEvent(new CustomEvent("mixes-updated"));
+        }
+        onClose();
+    };
+
     const generateMix = async (mood: MoodType) => {
         const config = MOOD_CONFIG[mood];
         setGenerating(mood);
 
         try {
-            // Get the mix from pre-computed bucket (instant!)
+            // Try AudioMuse-AI first when available (Jellyfin + AudioMuse)
+            if (audioMuseAvailable) {
+                try {
+                    const result = await api.getAudioMuseInstantPlaylist({
+                        mood,
+                    });
+                    if (result.tracks && result.tracks.length > 0) {
+                        playTracksFromResult(result.tracks, config);
+                        setGenerating(null);
+                        return;
+                    }
+                } catch {
+                    // Fall through to mood bucket
+                }
+            }
+
+            // Fallback: pre-computed mood bucket
             const mix = await api.getMoodBucketMix(mood);
 
             if (mix.tracks && mix.tracks.length > 0) {
-                const tracks: Track[] = mix.tracks.map((t) => ({
-                    id: t.id,
-                    title: t.title,
-                    artist: {
-                        name: t.album?.artist?.name || "Unknown Artist",
-                        id: t.album?.artist?.id,
-                    },
-                    album: {
-                        title: t.album?.title || "Unknown Album",
-                        coverArt: t.album?.coverUrl,
-                        id: t.albumId,
-                    },
-                    duration: t.duration,
-                }));
-
-                // Start playback
-                playTracks(tracks, 0);
-
-                // Save as user's active mood mix
-                await api.saveMoodBucketMix(mood);
-
-                toast.success(`${config.label} Mix`, {
-                    description: `Playing ${tracks.length} tracks`,
-                });
-
-                // Force immediate refetch of mixes on home page
-                // Using refetchQueries instead of invalidateQueries for immediate update
-                await queryClient.refetchQueries({ queryKey: ["mixes"] });
-
-                // Also dispatch events for any other listeners
-                window.dispatchEvent(new CustomEvent("mix-generated"));
-                window.dispatchEvent(new CustomEvent("mixes-updated"));
-
-                onClose();
+                playTracksFromResult(mix.tracks, config, mood);
             } else {
                 toast.error("Not enough tracks for this mood", {
                     description:
@@ -199,12 +237,15 @@ export function MoodMixer({ isOpen, onClose }: MoodMixerProps) {
         }
     };
 
-    // Get track count for a mood
+    // Get track count for a mood (only used when AudioMuse not available)
     const getTrackCount = (mood: MoodType): number => {
-        // MoodBucketPreset uses 'id' as the mood identifier
         const preset = presets.find((p) => p.id === mood);
         return preset?.trackCount || 0;
     };
+
+    // When AudioMuse is available, all moods are tryable; otherwise need 5+ tracks
+    const isMoodDisabled = (mood: MoodType) =>
+        !audioMuseAvailable && getTrackCount(mood) < 5;
 
     if (!isVisible && !isOpen) return null;
 
@@ -257,7 +298,7 @@ export function MoodMixer({ isOpen, onClose }: MoodMixerProps) {
                                 const config = MOOD_CONFIG[mood];
                                 const Icon = config.icon;
                                 const trackCount = getTrackCount(mood);
-                                const isDisabled = trackCount < 5;
+                                const isDisabled = isMoodDisabled(mood);
                                 const isGenerating = generating === mood;
 
                                 return (
@@ -277,7 +318,7 @@ export function MoodMixer({ isOpen, onClose }: MoodMixerProps) {
                                         `}
                                         title={
                                             isDisabled
-                                                ? `Need at least 5 tracks (have ${trackCount})`
+                                                ? `Need at least 5 tracks (have ${trackCount}). Configure AudioMuse-AI for instant playlists.`
                                                 : config.description
                                         }
                                     >

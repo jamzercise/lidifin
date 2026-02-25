@@ -34,6 +34,11 @@ export interface SystemSettings {
     jellyfinApiKey?: string | null;
     jellyfinApiKeyFromEnv?: boolean;
     jellyfinUserId?: string | null; // Optional: provide so user-scoped API paths work with API key
+    // AudioMuse-AI (instant playlist from mood/vibe)
+    audiomuseEnabled?: boolean;
+    audiomuseUrl?: string | null;
+    audiomuseAiProvider?: string | null;
+    audiomuseApiKey?: string | null;
     // Soulseek (direct connection via slsk-client)
     soulseekUsername: string;
     soulseekPassword: string;
