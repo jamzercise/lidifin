@@ -110,27 +110,40 @@ export const queryKeys = {
  * @example
  * const { data: artist, isLoading, error } = useArtistQuery("artist-123");
  */
+const artistQueryFn = async (id: string) => {
+    if (!id) throw new Error("Artist ID is required");
+    try {
+        return await api.getArtist(id);
+    } catch {
+        if (id.startsWith("jellyfin:")) throw new Error("Artist not found");
+        return await api.getArtistDiscovery(id);
+    }
+};
+
 export function useArtistQuery(id: string | undefined) {
     return useQuery({
         queryKey: queryKeys.artist(id || ""),
-        queryFn: async () => {
-            if (!id) throw new Error("Artist ID is required");
-
-            // Try library first
-            try {
-                return await api.getArtist(id);
-            } catch {
-                // Never fall back to discovery for Jellyfin IDs
-                if (id.startsWith("jellyfin:")) {
-                    throw new Error("Artist not found");
-                }
-                return await api.getArtistDiscovery(id);
-            }
-        },
+        queryFn: () => artistQueryFn(id!),
         enabled: !!id,
         staleTime: 10 * 60 * 1000, // 10 minutes
         retry: 1,
     });
+}
+
+/**
+ * Prefetch artist data on hover for faster navigation.
+ * Call prefetchArtist(id) from onMouseEnter on artist links.
+ */
+export function usePrefetchArtist() {
+    const queryClient = useQueryClient();
+    return (artistId: string) => {
+        if (!artistId) return;
+        queryClient.prefetchQuery({
+            queryKey: queryKeys.artist(artistId),
+            queryFn: () => artistQueryFn(artistId),
+            staleTime: 10 * 60 * 1000,
+        });
+    };
 }
 
 /**

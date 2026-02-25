@@ -61,6 +61,7 @@ export interface UseHomeDataReturn {
 
     // Actions
     handleRefreshMixes: () => Promise<void>;
+    handleRefreshHome: () => void;
 }
 
 /**
@@ -97,7 +98,10 @@ export function useHomeData(): UseHomeDataReturn {
     // Listen for library-updated event (fired when library scan completes)
     useEffect(() => {
         const unsubscribe = subscribeQueryEvent("library-updated", () => {
-            queryClient.refetchQueries({ queryKey: queryKeys.recentlyAdded() });
+            // Refresh all Home and Library data so new artists/albums appear
+            queryClient.refetchQueries({ queryKey: queryKeys.library() });
+            queryClient.refetchQueries({ queryKey: queryKeys.recommendations() });
+            queryClient.refetchQueries({ queryKey: queryKeys.popularArtists() });
         });
 
         return unsubscribe;
@@ -137,6 +141,16 @@ export function useHomeData(): UseHomeDataReturn {
         }
     };
 
+    /**
+     * Refresh all Home and Library data (recently listened, added, recommended, etc.)
+     */
+    const handleRefreshHome = () => {
+        queryClient.refetchQueries({ queryKey: queryKeys.library() });
+        queryClient.refetchQueries({ queryKey: queryKeys.recommendations() });
+        queryClient.refetchQueries({ queryKey: queryKeys.popularArtists() });
+        toast.success("Home refreshed");
+    };
+
     // Process recently listened data - can contain artists, podcasts, or audiobooks
     const items = recentlyListenedData?.items || [];
 
@@ -168,5 +182,6 @@ export function useHomeData(): UseHomeDataReturn {
         isRefreshingMixes,
         isBrowseLoading,
         handleRefreshMixes,
+        handleRefreshHome,
     };
 }

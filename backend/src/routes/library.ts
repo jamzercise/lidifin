@@ -52,6 +52,8 @@ import {
     getJellyfinAlbums,
     getJellyfinAlbumsAllForArtist,
     getJellyfinAlbumByRgMbid,
+    getJellyfinArtistAlbumCounts,
+    getJellyfinArtistImagesBatch,
     getJellyfinTracks,
     getJellyfinTracksAllForAlbum,
     getJellyfinItem,
@@ -392,27 +394,60 @@ router.get("/recently-listened", async (req, res) => {
         );
         const limitedItems = combined.slice(0, limitNum);
 
-        // Get album counts for artists
+        // Get album counts for artists (Prisma only - Jellyfin artists get 0)
         const artistIds = limitedItems
             .filter((item) => item.type === "artist")
             .map((item) => item.id);
-        const albumCounts = await prisma.ownedAlbum.groupBy({
-            by: ["artistId"],
-            where: { artistId: { in: artistIds } },
-            _count: { rgMbid: true },
-        });
+        const prismaArtistIds = artistIds.filter((id) => !id.startsWith("jellyfin:"));
+        const albumCounts = prismaArtistIds.length > 0
+            ? await prisma.ownedAlbum.groupBy({
+                  by: ["artistId"],
+                  where: { artistId: { in: prismaArtistIds } },
+                  _count: { rgMbid: true },
+              })
+            : [];
         const albumCountMap = new Map(
             albumCounts.map((ac) => [ac.artistId, ac._count.rgMbid])
         );
 
-        // Map results - no on-demand image fetching for performance
-        // Artists without images will show placeholders until enrichment completes
+        // Get artist images: DataCache for Prisma, Jellyfin batch for jellyfin: ids
+        let artistImageMap = new Map<string, string | null>();
+        const jellyfinArtistIds = artistIds.filter((id) => id.startsWith("jellyfin:"));
+        if (jellyfinArtistIds.length > 0) {
+            const cfg = await getJellyfinConfig();
+            if (cfg) {
+                const jellyfinImages = await getJellyfinArtistImagesBatch(
+                    cfg,
+                    jellyfinArtistIds
+                );
+                jellyfinImages.forEach((url, id) => artistImageMap.set(id, url));
+            }
+        }
+        if (prismaArtistIds.length > 0) {
+            const prismaArtists = await prisma.artist.findMany({
+                where: { id: { in: prismaArtistIds } },
+                select: { id: true, heroUrl: true, userHeroUrl: true },
+            });
+            const cacheImages = await dataCacheService.getArtistImagesBatch(
+                prismaArtists.map((a) => ({
+                    id: a.id,
+                    heroUrl: a.heroUrl,
+                    userHeroUrl: a.userHeroUrl,
+                }))
+            );
+            cacheImages.forEach((url, id) => artistImageMap.set(id, url));
+        }
+
+        // Map results with images and album counts
         const results = limitedItems.map((item) => {
             if (item.type === "audiobook" || item.type === "podcast") {
                 return item;
             } else {
-                // Use override pattern: userHeroUrl ?? heroUrl
-                const coverArt = item.userHeroUrl ?? item.heroUrl ?? null;
+                const coverArt =
+                    item.userHeroUrl ??
+                    item.heroUrl ??
+                    artistImageMap.get(item.id) ??
+                    null;
                 return {
                     ...item,
                     coverArt,
@@ -538,6 +573,12 @@ router.get("/artists", async (req, res) => {
                     offset,
                     search: (query as string) || undefined,
                 });
+                const artistIds = artists.map((a) => a.id);
+                const albumCountMap = await getJellyfinArtistAlbumCounts(
+                    cfg,
+                    artistIds,
+                    10
+                );
                 logger.info(
                     `[Library] Jellyfin artists: returned ${artists.length} of ${total}`
                 );
@@ -548,7 +589,7 @@ router.get("/artists", async (req, res) => {
                         mbid: a.mbid ?? null,
                         heroUrl: a.coverArt ?? null,
                         coverArt: a.coverArt ?? null,
-                        albumCount: 0,
+                        albumCount: albumCountMap.get(a.id) ?? 0,
                         trackCount: 0,
                     })),
                     total,

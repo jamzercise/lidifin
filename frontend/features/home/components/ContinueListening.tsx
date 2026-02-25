@@ -5,6 +5,7 @@ import Image from "next/image";
 import { Music, Disc, BookOpen } from "lucide-react";
 import { api } from "@/lib/api";
 import { toArtistRouteId } from "@/lib/route-ids";
+import { usePrefetchArtist } from "@/hooks/useQueries";
 import { HorizontalCarousel, CarouselItem } from "@/components/ui/HorizontalCarousel";
 import { memo } from "react";
 
@@ -14,6 +15,8 @@ interface ContinueListeningItem {
     name: string;
     type: "artist" | "podcast" | "audiobook";
     coverArt?: string;
+    heroUrl?: string;
+    image?: string;
     progress?: number;
     author?: string;
 }
@@ -35,8 +38,9 @@ const getImageForItem = (item: ContinueListeningItem) => {
         return api.getCoverArtUrl(`/audiobooks/${item.id}/cover`, 300);
     }
 
-    if (item.coverArt) {
-        return getArtistImageSrc(item.coverArt);
+    const artistImage = item.coverArt ?? item.heroUrl ?? item.image;
+    if (artistImage) {
+        return getArtistImageSrc(artistImage);
     }
 
     return null;
@@ -74,12 +78,14 @@ const ContinueListeningCard = memo(function ContinueListeningCard({
 }: ContinueListeningCardProps) {
     const isPodcast = item.type === "podcast";
     const isAudiobook = item.type === "audiobook";
+    const prefetchArtist = usePrefetchArtist();
     const imageSrc = getImageForItem(item);
+    const artistRouteId = !isPodcast && !isAudiobook ? toArtistRouteId(item) : null;
     const href = isPodcast
         ? `/podcasts/${item.id}`
         : isAudiobook
         ? `/audiobooks/${item.id}`
-        : `/artist/${encodeURIComponent(toArtistRouteId(item))}`;
+        : `/artist/${encodeURIComponent(artistRouteId || item.id)}`;
     const hasProgress =
         (isPodcast || isAudiobook) &&
         item.progress &&
@@ -89,6 +95,7 @@ const ContinueListeningCard = memo(function ContinueListeningCard({
         <CarouselItem>
             <Link
                 href={href}
+                onMouseEnter={() => artistRouteId && prefetchArtist(artistRouteId)}
                 data-tv-card
                 data-tv-card-index={index}
                 tabIndex={0}

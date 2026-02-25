@@ -49,6 +49,7 @@ export default function HomePage() {
         isRefreshingMixes,
         isBrowseLoading,
         handleRefreshMixes,
+        handleRefreshHome,
     } = useHomeData();
 
     if (isLoading) {
@@ -57,7 +58,7 @@ export default function HomePage() {
 
     return (
         <div className="relative">
-            <HomeHero />
+            <HomeHero onRefresh={handleRefreshHome} />
 
             <div className="relative max-w-[1800px] mx-auto px-4 sm:px-6 pb-8">
                 <div className="space-y-8">

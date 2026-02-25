@@ -1,5 +1,7 @@
 "use client";
 
+import { RefreshCw } from "lucide-react";
+
 const getGreeting = () => {
     const hour = new Date().getHours();
     if (hour < 12) return "Good morning";
@@ -7,7 +9,11 @@ const getGreeting = () => {
     return "Good evening";
 };
 
-export function HomeHero() {
+interface HomeHeroProps {
+    onRefresh?: () => void;
+}
+
+export function HomeHero({ onRefresh }: HomeHeroProps) {
     return (
         <div className="relative">
             {/* Quick gradient fade - yellow to purple */}
@@ -24,10 +30,19 @@ export function HomeHero() {
 
             {/* Hero Section - Compact */}
             <div className="relative">
-                <div className="relative max-w-[1800px] mx-auto px-4 pt-6 pb-4">
+                <div className="relative max-w-[1800px] mx-auto px-4 pt-6 pb-4 flex items-center justify-between gap-4">
                     <h1 className="text-2xl md:text-3xl font-bold text-white tracking-tight">
                         {getGreeting()}
                     </h1>
+                    {onRefresh && (
+                        <button
+                            onClick={onRefresh}
+                            className="p-2 rounded-full text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
+                            title="Refresh Home"
+                        >
+                            <RefreshCw className="w-5 h-5" />
+                        </button>
+                    )}
                 </div>
             </div>
         </div>

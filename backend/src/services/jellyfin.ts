@@ -305,6 +305,48 @@ export async function getJellyfinAlbums(
 const ALBUMS_PAGE_SIZE = 200;
 
 /**
+ * Get album count for a single Jellyfin artist (lightweight - Limit: 1, only needs TotalRecordCount).
+ */
+export async function getJellyfinArtistAlbumCount(
+    cfg: JellyfinConfig,
+    artistId: string
+): Promise<number> {
+    const { total } = await getJellyfinAlbums(cfg, {
+        artistId,
+        limit: 1,
+        offset: 0,
+    });
+    return total;
+}
+
+/**
+ * Get album counts for multiple Jellyfin artists in parallel (concurrency-limited).
+ * Returns Map<artistId, albumCount>.
+ */
+export async function getJellyfinArtistAlbumCounts(
+    cfg: JellyfinConfig,
+    artistIds: string[],
+    concurrency = 10
+): Promise<Map<string, number>> {
+    const pLimit = (await import("p-limit")).default;
+    const limit = pLimit(concurrency);
+    const results = await Promise.all(
+        artistIds.map((id) =>
+            limit(async () => {
+                try {
+                    const count = await getJellyfinArtistAlbumCount(cfg, id);
+                    return { id, count };
+                } catch (err) {
+                    logger.debug(`[Jellyfin] Album count failed for ${id}:`, err);
+                    return { id, count: 0 };
+                }
+            })
+        )
+    );
+    return new Map(results.map((r) => [r.id, r.count]));
+}
+
+/**
  * Find a Jellyfin album by MusicBrainz release group ID.
  * Searches through albums (paginated) until one with matching ProviderIds is found.
  * Returns null if not found within limit (avoids scanning huge libraries).
@@ -514,6 +556,51 @@ export async function getJellyfinItem(
         if (err.response?.status === 404) return null;
         logger.warn("[Jellyfin] getItem failed:", itemId, err.message);
         throw err;
+    }
+}
+
+/**
+ * Get cover art URLs for multiple Jellyfin artist IDs in one API call.
+ * Returns Map<artistId, coverArtUrl>. Artist IDs should be jellyfin:uuid format.
+ */
+export async function getJellyfinArtistImagesBatch(
+    cfg: JellyfinConfig,
+    artistIds: string[]
+): Promise<Map<string, string>> {
+    const jellyfinIds = artistIds
+        .filter((id) => id.startsWith(JELLYFIN_PREFIX))
+        .map((id) => id.slice(JELLYFIN_PREFIX.length));
+    if (jellyfinIds.length === 0) return new Map();
+
+    const token = getEffectiveToken(cfg);
+    const userId = getEffectiveUserId(cfg);
+    const client = createClient(cfg.url, token);
+    const path = userId ? `/Users/${userId}/Items` : "/Items";
+    try {
+        const res = await client.get<{ Items: JellyfinItem[] }>(path, {
+            params: {
+                Ids: jellyfinIds.join(","),
+                Fields: "Id,ImageTags",
+            },
+        });
+        const items = res.data?.Items ?? [];
+        const result = new Map<string, string>();
+        for (const item of items) {
+            if (item.ImageTags?.Primary) {
+                const url = getJellyfinImageUrl(
+                    cfg.url,
+                    item.Id,
+                    item.ImageTags.Primary,
+                    cfg.apiKey,
+                    cfg.userId
+                );
+                result.set(`${JELLYFIN_PREFIX}${item.Id}`, url);
+            }
+        }
+        return result;
+    } catch (err: any) {
+        logger.debug("[Jellyfin] getArtistImagesBatch failed:", err?.message);
+        return new Map();
     }
 }
 

@@ -5,6 +5,7 @@ import Image from "next/image";
 import { Music } from "lucide-react";
 import { api } from "@/lib/api";
 import { toArtistRouteId } from "@/lib/route-ids";
+import { usePrefetchArtist } from "@/hooks/useQueries";
 import { memo } from "react";
 import { HorizontalCarousel, CarouselItem } from "@/components/ui/HorizontalCarousel";
 
@@ -13,6 +14,8 @@ interface Artist {
     mbid?: string;
     name: string;
     coverArt?: string;
+    heroUrl?: string;
+    image?: string;
     albumCount?: number;
 }
 
@@ -20,12 +23,11 @@ interface ArtistsGridProps {
     artists: Artist[];
 }
 
-// Helper to get the correct image source
-const getArtistImageSrc = (coverArt: string | undefined) => {
-    if (!coverArt) {
-        return null;
-    }
-    return api.getCoverArtUrl(coverArt, 300);
+// Helper to get the correct image source (supports coverArt, heroUrl, image)
+const getArtistImageSrc = (artist: Artist) => {
+    const url = artist.coverArt ?? artist.heroUrl ?? artist.image;
+    if (!url) return null;
+    return api.getCoverArtUrl(url, 300);
 };
 
 interface ArtistCardProps {
@@ -35,19 +37,22 @@ interface ArtistCardProps {
 
 const ArtistCard = memo(
     function ArtistCard({ artist, index }: ArtistCardProps) {
-        const imageSrc = getArtistImageSrc(artist.coverArt);
+        const imageSrc = getArtistImageSrc(artist);
+        const prefetchArtist = usePrefetchArtist();
+        const routeId = toArtistRouteId(artist);
 
         return (
             <CarouselItem>
                 <Link
-                    href={`/artist/${encodeURIComponent(toArtistRouteId(artist))}`}
+                    href={`/artist/${encodeURIComponent(routeId)}`}
+                    onMouseEnter={() => prefetchArtist(routeId)}
                     data-tv-card
                     data-tv-card-index={index}
                     tabIndex={0}
                 >
                     <div className="p-3 rounded-md group cursor-pointer hover:bg-white/5 transition-colors">
                         <div className="aspect-square bg-[#282828] rounded-full mb-3 flex items-center justify-center overflow-hidden relative shadow-lg">
-                            {artist.coverArt && imageSrc ? (
+                            {imageSrc ? (
                                 <Image
                                     src={imageSrc}
                                     alt={artist.name}
