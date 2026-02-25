@@ -262,8 +262,8 @@ export default function ArtistPage() {
                             downloadingTrackId={downloadingTrackId}
                             favoriteIds={favoriteIds}
                             onToggleFavorite={(trackId, isFavorite) => {
-                                if (isFavorite) removeFavorite(trackId);
-                                else addFavorite(trackId);
+                                if (isFavorite) addFavorite(trackId);
+                                else removeFavorite(trackId);
                             }}
                         />
                     )}

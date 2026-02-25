@@ -306,6 +306,10 @@ export default function PlaylistDetailPage() {
 
     const handlePlayPlaylist = () => {
         if (!playlist?.items || playlist.items.length === 0) return;
+        if (playableTracks.length === 0) {
+            toast.error("No playable tracks in this playlist");
+            return;
+        }
 
         // If this playlist is playing, toggle pause/resume
         if (isThisPlaylistPlaying) {
@@ -480,7 +484,14 @@ export default function PlaylistDetailPage() {
                     {playlist.items && playlist.items.length > 0 && (
                         <button
                             onClick={handlePlayPlaylist}
-                            className="h-12 w-12 rounded-full bg-[#ecb200] hover:bg-[#d4a000] hover:scale-105 flex items-center justify-center shadow-lg transition-all"
+                            disabled={playableTracks.length === 0}
+                            title={playableTracks.length === 0 ? "No playable tracks" : "Play"}
+                            className={cn(
+                                "h-12 w-12 rounded-full flex items-center justify-center shadow-lg transition-all",
+                                playableTracks.length > 0
+                                    ? "bg-[#ecb200] hover:bg-[#d4a000] hover:scale-105"
+                                    : "bg-gray-600 cursor-not-allowed opacity-60"
+                            )}
                         >
                             {isThisPlaylistPlaying && isPlaying ? (
                                 <Pause className="w-5 h-5 fill-current text-black" />
@@ -708,9 +719,31 @@ export default function PlaylistDetailPage() {
                                         );
                                     }
 
-                                    // Handle regular tracks
+                                    // Handle regular tracks (or unresolved placeholder)
                                     const playlistItem = item as PlaylistItem;
-                                    if (!playlistItem.track?.album?.artist) return null;
+                                    if (!playlistItem.track?.album?.artist) {
+                                        return (
+                                            <div
+                                                key={playlistItem.id}
+                                                className="grid grid-cols-[40px_1fr_auto] md:grid-cols-[40px_minmax(200px,4fr)_minmax(100px,1fr)_80px] gap-4 px-4 py-2 rounded-md opacity-50"
+                                            >
+                                                <div className="flex items-center justify-center">
+                                                    <AlertCircle className="w-4 h-4 text-gray-500" />
+                                                </div>
+                                                <div className="flex items-center gap-3 min-w-0">
+                                                    <div className="w-10 h-10 bg-[#282828] rounded shrink-0 flex items-center justify-center">
+                                                        <Music className="w-5 h-5 text-gray-600" />
+                                                    </div>
+                                                    <div className="min-w-0">
+                                                        <p className="text-sm text-gray-500 truncate">Track unavailable</p>
+                                                        <p className="text-xs text-gray-600 truncate">May have been removed from library</p>
+                                                    </div>
+                                                </div>
+                                                <p className="hidden md:flex items-center text-sm text-gray-500">—</p>
+                                                <div />
+                                            </div>
+                                        );
+                                    }
                                     const isCurrentlyPlaying =
                                         currentTrack?.id ===
                                         playlistItem.track.id;

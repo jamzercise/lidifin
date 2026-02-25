@@ -32,7 +32,7 @@ export function SimilarArtistsGrid({
             >
                 {similarArtists.map((result, index) => {
                     const artistId =
-                        result.mbid || encodeURIComponent(result.name);
+                        (result.name ? encodeURIComponent(result.name) : result.mbid) || `artist-${index}`;
                     const imageUrl = getProxiedImageUrl(result.image);
 
                     return (

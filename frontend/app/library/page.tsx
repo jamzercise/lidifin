@@ -207,8 +207,8 @@ export default function LibraryPage() {
     }, [refreshLibraryAndFavorites]);
     const handleToggleFavorite = useCallback(
         (trackId: string, isFavorite: boolean) => {
-            if (isFavorite) removeFavorite(trackId);
-            else addFavorite(trackId);
+            if (isFavorite) addFavorite(trackId);
+            else removeFavorite(trackId);
         },
         [addFavorite, removeFavorite],
     );

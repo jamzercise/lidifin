@@ -699,30 +699,35 @@ export async function resolveTrackReferences(
     const result: (ResolvedTrack | null)[] = new Array(trackIds.length).fill(null);
 
     const cfg = await getJellyfinConfig();
+    const BATCH_SIZE = 100; // Jellyfin may limit Ids param length; batch to avoid failures
     if (cfg && jellyfinIds.length > 0) {
         try {
             const token = getEffectiveToken(cfg);
             const userId = getEffectiveUserId(cfg);
             const client = createClient(cfg.url, token);
             const path = userId ? `/Users/${userId}/Items` : "/Items";
-            const res = await client.get<{ Items: JellyfinItem[] }>(path, {
-                params: {
-                    Ids: jellyfinIds.join(","),
-                    Fields: "Id,Name,RunTimeTicks,AlbumId,AlbumArtist,AlbumArtists,ImageTags,ParentId",
-                },
-            });
-            const items = (res.data?.Items ?? []) as JellyfinItem[];
-            const byId = new Map(items.map((i) => [i.Id, i]));
-            for (let j = 0; j < jellyfinIds.length; j++) {
-                const item = byId.get(jellyfinIds[j]);
-                const idx = jellyfinIndexes[j];
-                if (item && item.Type === "Audio") {
-                    result[idx] = mapJellyfinItemToTrack(
-                        item,
-                        undefined,
-                        item.AlbumArtists?.[0]?.Name,
-                        item.AlbumArtists?.[0] ? `${JELLYFIN_PREFIX}${item.AlbumArtists[0].Id}` : undefined
-                    );
+            for (let batchStart = 0; batchStart < jellyfinIds.length; batchStart += BATCH_SIZE) {
+                const batchIds = jellyfinIds.slice(batchStart, batchStart + BATCH_SIZE);
+                const batchIndexes = jellyfinIndexes.slice(batchStart, batchStart + BATCH_SIZE);
+                const res = await client.get<{ Items: JellyfinItem[] }>(path, {
+                    params: {
+                        Ids: batchIds.join(","),
+                        Fields: "Id,Name,RunTimeTicks,AlbumId,AlbumArtist,AlbumArtists,ImageTags,ParentId",
+                    },
+                });
+                const items = (res.data?.Items ?? []) as JellyfinItem[];
+                const byId = new Map(items.map((i) => [i.Id, i]));
+                for (let j = 0; j < batchIds.length; j++) {
+                    const item = byId.get(batchIds[j]);
+                    const idx = batchIndexes[j];
+                    if (item && item.Type === "Audio") {
+                        result[idx] = mapJellyfinItemToTrack(
+                            item,
+                            undefined,
+                            item.AlbumArtists?.[0]?.Name,
+                            item.AlbumArtists?.[0] ? `${JELLYFIN_PREFIX}${item.AlbumArtists[0].Id}` : undefined
+                        );
+                    }
                 }
             }
         } catch (err: any) {

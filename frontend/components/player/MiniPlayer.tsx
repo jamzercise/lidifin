@@ -11,6 +11,7 @@ import {
     Maximize2,
     Music as MusicIcon,
     ListMusic,
+    Heart,
     SkipBack,
     SkipForward,
     Repeat,
@@ -37,6 +38,7 @@ import { SleepTimerButton } from "./SleepTimerButton";
 import { PlaybackSpeedButton } from "./PlaybackSpeedButton";
 import { useQueuePanel } from "@/lib/queue-panel-context";
 import { useFeatures } from "@/lib/features-context";
+import { useFavorites } from "@/hooks/useFavorites";
 
 const EnhancedVibeOverlay = lazy(() => import("./VibeOverlayEnhanced").then(mod => ({ default: mod.EnhancedVibeOverlay })));
 
@@ -77,6 +79,7 @@ export function MiniPlayer() {
         setPlaybackRate,
     } = useAudio();
     const { openQueue } = useQueuePanel();
+    const { favoriteIds, addFavorite, removeFavorite } = useFavorites();
     const isMobile = useIsMobile();
     const isTablet = useIsTablet();
     const isMobileOrTablet = isMobile || isTablet;
@@ -796,6 +799,29 @@ export function MiniPlayer() {
                             dropdownPlacement="top"
                             size="sm"
                         />
+
+                        {/* Jellyfin favorites - track only */}
+                        {playbackType === "track" && currentTrack?.id?.startsWith("jellyfin:") && (
+                            <button
+                                type="button"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    const isFav = favoriteIds.has(currentTrack.id);
+                                    if (isFav) removeFavorite(currentTrack.id);
+                                    else addFavorite(currentTrack.id);
+                                }}
+                                className={cn(
+                                    "transition-all duration-200 hover:scale-110",
+                                    "text-gray-400 hover:text-white"
+                                )}
+                                aria-label={favoriteIds.has(currentTrack.id) ? "Remove from Favorites" : "Add to Favorites"}
+                                title={favoriteIds.has(currentTrack.id) ? "Remove from Favorites" : "Add to Favorites"}
+                            >
+                                <Heart
+                                    className={cn("w-3.5 h-3.5", favoriteIds.has(currentTrack.id) && "fill-current text-red-400")}
+                                />
+                            </button>
+                        )}
 
                         {/* Now playing queue */}
                         <button

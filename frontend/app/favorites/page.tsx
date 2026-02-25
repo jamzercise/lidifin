@@ -82,9 +82,10 @@ export default function FavoritesPage() {
 
     const handleToggleFavorite = useCallback(
         (trackId: string, isFavorite: boolean) => {
-            if (isFavorite) removeFavorite(trackId);
+            if (isFavorite) addFavorite(trackId);
+            else removeFavorite(trackId);
         },
-        [removeFavorite],
+        [addFavorite, removeFavorite],
     );
 
     const noopDelete = useCallback(() => {}, []);
