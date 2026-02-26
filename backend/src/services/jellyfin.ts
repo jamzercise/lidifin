@@ -975,6 +975,55 @@ export async function removeFromJellyfinPlaylist(
 }
 
 /**
+ * Get playlist items from Jellyfin with full track metadata (Option A).
+ * Uses GET /Playlists/{id}/Items with Fields - single API call, no separate resolution.
+ * Returns items in playlist order with ResolvedTrack for display.
+ */
+export async function getJellyfinPlaylistItemsWithMetadata(
+    cfg: JellyfinConfig,
+    playlistId: string
+): Promise<{ entryId: string; itemId: string; track: ResolvedTrack }[]> {
+    const token = getEffectiveToken(cfg);
+    const client = createClient(cfg.url, token);
+    try {
+        const res = await client.get<{
+            Items?: (JellyfinItem & { PlaylistItemId?: string })[];
+        }>(`/Playlists/${playlistId}/Items`, {
+            params: {
+                UserId: getJellyfinUserId(cfg),
+                Fields: "Id,Name,RunTimeTicks,AlbumId,AlbumArtist,AlbumArtists,ImageTags,ParentId",
+            },
+        });
+        const items = (res.data?.Items ?? []) as (JellyfinItem & { PlaylistItemId?: string })[];
+        const result: { entryId: string; itemId: string; track: ResolvedTrack }[] = [];
+        for (const it of items) {
+            if (it.Type !== "Audio") continue;
+            const track = mapJellyfinItemToTrack(
+                it,
+                undefined,
+                it.AlbumArtists?.[0]?.Name,
+                it.AlbumArtists?.[0] ? `${JELLYFIN_PREFIX}${it.AlbumArtists[0].Id}` : undefined
+            );
+            const coverArt = it.ImageTags?.Primary
+                ? getJellyfinImageUrl(cfg.url, it.Id, it.ImageTags.Primary, cfg.apiKey, cfg.userId)
+                : null;
+            if (coverArt) {
+                track.album = { ...track.album, coverArt };
+            }
+            result.push({
+                entryId: it.PlaylistItemId ?? it.Id,
+                itemId: it.Id,
+                track,
+            });
+        }
+        return result;
+    } catch (err: any) {
+        logger.warn("[Jellyfin] getPlaylistItemsWithMetadata failed:", playlistId, err.message);
+        return [];
+    }
+}
+
+/**
  * Get playlist items from Jellyfin to obtain entry ids (for remove/reorder).
  * Returns array of { entryId, itemId } where itemId is the audio item id.
  */
