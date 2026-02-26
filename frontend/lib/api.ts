@@ -328,7 +328,9 @@ class ApiClient {
 
         // Client-side timeout so the UI doesn't hang when the backend is unresponsive (e.g. ECONNRESET / hung).
         // Slightly longer than typical backend request timeout (90s) so we usually get a proper 503 first.
-        const REQUEST_TIMEOUT_MS = 100 * 1000;
+        // AudioMuse instant playlist can take 2+ min (MCP workflow) - use 130s for that endpoint.
+        const REQUEST_TIMEOUT_MS =
+            endpoint.includes("/mixes/audiomuse/instant") ? 130 * 1000 : 100 * 1000;
         const isStream = endpoint.includes("/stream");
         let timeoutId: ReturnType<typeof setTimeout> | undefined;
         const controller =

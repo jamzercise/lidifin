@@ -117,6 +117,7 @@ model SystemSettings {
   audiomuseUrl                String?  @default("http://localhost:8000")
   audiomuseAiProvider         String?  // OLLAMA, GEMINI, OPENAI, MISTRAL
   audiomuseApiKey             String?  // optional API key for cloud providers
+  audiomuseAiModel            String?  // optional model override (e.g. gemini-1.5-flash-latest)
 }
 
 model Artist {

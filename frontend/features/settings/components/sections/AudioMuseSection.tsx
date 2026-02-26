@@ -105,6 +105,20 @@ export function AudioMuseSection({ settings, onUpdate, isTesting }: AudioMuseSec
                         </select>
                     </SettingsRow>
 
+                    <SettingsRow
+                        label="AI model"
+                        description="Optional. Leave blank to use AudioMuse-AI default (e.g. gemini-1.5-flash-latest, mistral:7b)"
+                    >
+                        <SettingsInput
+                            value={settings.audiomuseAiModel ?? ""}
+                            onChange={(v) =>
+                                onUpdate({ audiomuseAiModel: v || null })
+                            }
+                            placeholder="e.g. gemini-1.5-flash-latest"
+                            className="w-64"
+                        />
+                    </SettingsRow>
+
                     {(settings.audiomuseAiProvider === "GEMINI" ||
                         settings.audiomuseAiProvider === "OPENAI" ||
                         settings.audiomuseAiProvider === "MISTRAL") && (

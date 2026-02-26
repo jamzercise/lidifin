@@ -38,6 +38,7 @@ export interface SystemSettings {
     audiomuseEnabled?: boolean;
     audiomuseUrl?: string | null;
     audiomuseAiProvider?: string | null;
+    audiomuseAiModel?: string | null;
     audiomuseApiKey?: string | null;
     // Soulseek (direct connection via slsk-client)
     soulseekUsername: string;

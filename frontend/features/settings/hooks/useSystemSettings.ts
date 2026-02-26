@@ -23,6 +23,7 @@ const defaultSystemSettings: SystemSettings = {
     audiomuseEnabled: false,
     audiomuseUrl: "http://localhost:8000",
     audiomuseAiProvider: "OLLAMA",
+    audiomuseAiModel: null,
     audiomuseApiKey: "",
     soulseekUsername: "",
     soulseekPassword: "",

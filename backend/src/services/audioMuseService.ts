@@ -13,6 +13,7 @@ export interface AudioMuseConfig {
     url: string;
     aiProvider: string | null;
     apiKey: string | null;
+    aiModel: string | null;
 }
 
 /** Mood → natural language prompt for AudioMuse-AI */
@@ -36,12 +37,14 @@ export async function getAudioMuseConfig(): Promise<AudioMuseConfig | null> {
     const url = settings.audiomuseUrl.replace(/\/$/, "");
     const aiProvider = settings.audiomuseAiProvider?.trim() || null;
     const apiKey = settings.audiomuseApiKey?.trim() || null;
+    const aiModel = settings.audiomuseAiModel?.trim() || null;
 
     return {
         enabled: true,
         url,
         aiProvider,
         apiKey,
+        aiModel,
     };
 }
 
@@ -75,6 +78,27 @@ export async function generateInstantPlaylist(
         ai_provider: aiProvider,
     };
 
+    // Include ai_model: from settings, or fetch default from AudioMuse
+    let aiModel = config.aiModel;
+    if (!aiModel) {
+        try {
+            const defaults = await axios.get<{
+                default_ollama_model_name?: string;
+                default_gemini_model_name?: string;
+                default_openai_model_name?: string;
+                default_mistral_model_name?: string;
+            }>(`${config.url}/chat/api/config_defaults`, { timeout: 5000 });
+            const d = defaults.data;
+            if (aiProvider === "OLLAMA" && d?.default_ollama_model_name) aiModel = d.default_ollama_model_name;
+            else if (aiProvider === "GEMINI" && d?.default_gemini_model_name) aiModel = d.default_gemini_model_name;
+            else if (aiProvider === "OPENAI" && d?.default_openai_model_name) aiModel = d.default_openai_model_name;
+            else if (aiProvider === "MISTRAL" && d?.default_mistral_model_name) aiModel = d.default_mistral_model_name;
+        } catch {
+            // Use server default if fetch fails
+        }
+    }
+    if (aiModel) body.ai_model = aiModel;
+
     if (aiProvider === "OPENAI" && config.apiKey) {
         body.openai_api_key = config.apiKey;
     }
@@ -90,7 +114,7 @@ export async function generateInstantPlaylist(
             `${config.url}/chat/api/chatPlaylist`,
             body,
             {
-                timeout: 60000,
+                timeout: 120000, // 2 min - MCP workflow can take multiple AI iterations
                 headers: { "Content-Type": "application/json" },
                 validateStatus: () => true,
             }
