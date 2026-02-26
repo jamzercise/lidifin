@@ -252,7 +252,7 @@ router.get("/:id", async (req, res) => {
             return res.status(403).json({ error: "Access denied" });
         }
 
-        let formattedItems: Array<{
+        type FormattedItem = {
             id: string;
             playlistId: string;
             trackId: string;
@@ -265,7 +265,8 @@ router.get("/:id", async (req, res) => {
                 artist: { id: string; name: string };
                 album: { id: string; title: string; coverUrl: string | null; coverArt: string | null };
             } | null;
-        }[];
+        };
+        let formattedItems: FormattedItem[];
 
         // Option A: For Jellyfin playlists, fetch directly from Jellyfin with full metadata (single API call)
         const cfg = await getJellyfinConfig();
