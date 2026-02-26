@@ -103,7 +103,9 @@ router.post("/audiomuse/instant", async (req, res) => {
         });
     } catch (error) {
         logger.error("AudioMuse instant playlist error:", error);
-        res.status(500).json({ error: "Failed to generate instant playlist" });
+        if (!res.headersSent) {
+            res.status(500).json({ error: "Failed to generate instant playlist" });
+        }
     }
 });
 
