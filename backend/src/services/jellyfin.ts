@@ -699,7 +699,7 @@ export async function resolveTrackReferences(
     const result: (ResolvedTrack | null)[] = new Array(trackIds.length).fill(null);
 
     const cfg = await getJellyfinConfig();
-    const BATCH_SIZE = 100; // Jellyfin may limit Ids param length; batch to avoid failures
+    const BATCH_SIZE = 50; // Smaller batches to avoid URL length limits; Jellyfin may truncate long Ids
     if (cfg && jellyfinIds.length > 0) {
         try {
             const token = getEffectiveToken(cfg);
@@ -712,6 +712,7 @@ export async function resolveTrackReferences(
                 const res = await client.get<{ Items: JellyfinItem[] }>(path, {
                     params: {
                         Ids: batchIds.join(","),
+                        IncludeItemTypes: "Audio",
                         Fields: "Id,Name,RunTimeTicks,AlbumId,AlbumArtist,AlbumArtists,ImageTags,ParentId",
                     },
                 });
@@ -730,8 +731,33 @@ export async function resolveTrackReferences(
                     }
                 }
             }
+            const nullCount = jellyfinIndexes.filter((_, j) => result[jellyfinIndexes[j]] == null).length;
+            if (nullCount > 0) {
+                logger.debug(`[Jellyfin] resolveTrackReferences: ${nullCount}/${jellyfinIds.length} items unresolved from batch, trying per-item fallback`);
+                for (let k = 0; k < jellyfinIds.length; k++) {
+                    const idx = jellyfinIndexes[k];
+                    if (result[idx] != null) continue;
+                    const rawId = jellyfinIds[k];
+                    try {
+                        const single = await resolveTrackReference(`${JELLYFIN_PREFIX}${rawId}`);
+                        if (single) result[idx] = single;
+                    } catch {
+                        // ignore
+                    }
+                }
+            }
         } catch (err: any) {
-            logger.warn("[Jellyfin] batch get items failed:", err.message);
+            logger.warn("[Jellyfin] batch get items failed:", err.message, "— falling back to per-item");
+            for (let k = 0; k < jellyfinIds.length; k++) {
+                const idx = jellyfinIndexes[k];
+                const rawId = jellyfinIds[k];
+                try {
+                    const single = await resolveTrackReference(`${JELLYFIN_PREFIX}${rawId}`);
+                    if (single) result[idx] = single;
+                } catch {
+                    // ignore
+                }
+            }
         }
     }
 
@@ -746,7 +772,8 @@ export async function resolveTrackReferences(
                 },
             },
         });
-        const byId = new Map(nativeTracks.map((t) => [t.id, t]));
+        type NativeTrack = (typeof nativeTracks)[number];
+        const byId = new Map<string, NativeTrack>(nativeTracks.map((t: NativeTrack) => [t.id, t]));
         for (let n = 0; n < nativeIds.length; n++) {
             const track = byId.get(nativeIds[n]);
             const idx = nativeIndexes[n];
