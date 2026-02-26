@@ -209,7 +209,11 @@ export function MoodMixer({ isOpen, onClose }: MoodMixerProps) {
                         setGenerating(null);
                         return;
                     }
-                } catch {
+                } catch (err) {
+                    const msg = err instanceof Error ? err.message : "AudioMuse-AI request failed";
+                    toast.error("Instant Playlist unavailable", {
+                        description: msg,
+                    });
                     // Fall through to mood bucket
                 }
             }
@@ -284,6 +288,16 @@ export function MoodMixer({ isOpen, onClose }: MoodMixerProps) {
                         <X className="w-5 h-5 text-gray-400" />
                     </button>
                 </div>
+
+                {/* Generating indicator */}
+                {generating && (
+                    <div className="mx-4 mb-2 px-4 py-2 rounded-lg bg-[#ecb200]/20 border border-[#ecb200]/40 flex items-center gap-2 text-[#ecb200]">
+                        <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" />
+                        <span className="text-sm font-medium">
+                            Generating your mix… This may take up to a minute.
+                        </span>
+                    </div>
+                )}
 
                 {/* Content */}
                 <div className="p-6 overflow-y-auto max-h-[calc(85vh-100px)]">

@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { api } from "@/lib/api";
+import { useToast } from "@/lib/toast-context";
 
 export interface FavoritesState {
     tracks: Array<{
@@ -21,6 +22,7 @@ export interface FavoritesState {
 }
 
 export function useFavorites(): FavoritesState {
+    const { toast } = useToast();
     const [tracks, setTracks] = useState<FavoritesState["tracks"]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -47,26 +49,43 @@ export function useFavorites(): FavoritesState {
 
     const addFavorite = useCallback(
         async (trackId: string) => {
+            // Optimistic update: add to local state immediately
+            setTracks((prev) => {
+                if (prev.some((t) => t.id === trackId)) return prev;
+                return [...prev, { id: trackId, title: "", duration: 0 }];
+            });
             try {
                 await api.addFavorite(trackId);
                 await fetchFavorites();
-            } catch {
+            } catch (e) {
+                // Revert optimistic update on error
+                setTracks((prev) => prev.filter((t) => t.id !== trackId));
                 fetchFavorites();
+                const msg = e instanceof Error ? e.message : "Failed to add to favorites";
+                toast.error(msg);
             }
         },
-        [fetchFavorites]
+        [fetchFavorites, toast]
     );
+
+    const tracksRef = useRef(tracks);
+    tracksRef.current = tracks;
 
     const removeFavorite = useCallback(
         async (trackId: string) => {
+            const previous = [...tracksRef.current];
+            setTracks((prev) => prev.filter((t) => t.id !== trackId));
             try {
                 await api.removeFavorite(trackId);
-                setTracks((prev) => prev.filter((t) => t.id !== trackId));
-            } catch {
+                await fetchFavorites();
+            } catch (e) {
+                setTracks(previous);
                 fetchFavorites();
+                const msg = e instanceof Error ? e.message : "Failed to remove from favorites";
+                toast.error(msg);
             }
         },
-        [fetchFavorites]
+        [fetchFavorites, toast]
     );
 
     const isFavorite = useCallback(

@@ -1008,15 +1008,19 @@ export async function removeItemFromJellyfinPlaylistByItemId(
 // --- Favorites ---
 
 export async function addJellyfinFavorite(cfg: JellyfinConfig, itemId: string): Promise<void> {
+    const userId = getJellyfinUserId(cfg);
+    if (!userId) throw new Error("Jellyfin User ID required for favorites");
     const token = getEffectiveToken(cfg);
     const client = createClient(cfg.url, token);
-    await client.post(`/UserFavoriteItems/${itemId}`);
+    await client.post(`/Users/${userId}/FavoriteItems/${itemId}`);
 }
 
 export async function removeJellyfinFavorite(cfg: JellyfinConfig, itemId: string): Promise<void> {
+    const userId = getJellyfinUserId(cfg);
+    if (!userId) throw new Error("Jellyfin User ID required for favorites");
     const token = getEffectiveToken(cfg);
     const client = createClient(cfg.url, token);
-    await client.delete(`/UserFavoriteItems/${itemId}`);
+    await client.delete(`/Users/${userId}/FavoriteItems/${itemId}`);
 }
 
 export async function getJellyfinFavorites(cfg: JellyfinConfig): Promise<ResolvedTrack[]> {
