@@ -47,31 +47,6 @@ export function useArtistData() {
         staleTime: 10 * 60 * 1000,
     });
 
-    // Refetch when downloads complete (active count decreases)
-    useEffect(() => {
-        const currentActiveCount = downloadStatus.activeDownloads.length;
-        if (
-            prevActiveCountRef.current > 0 &&
-            currentActiveCount < prevActiveCountRef.current
-        ) {
-            queryClient.invalidateQueries({ queryKey: queryKeys.artist(id) });
-            queryClient.invalidateQueries({ queryKey: queryKeys.artistEnrichment(id) });
-        }
-        prevActiveCountRef.current = currentActiveCount;
-    }, [downloadStatus.activeDownloads.length, id, queryClient]);
-
-    // Canonicalize URL: if we landed on /artist/{mbid} and have artist data,
-    // replace URL with /artist/{name} so all artist pages use name-based URLs
-    useEffect(() => {
-        if (!mergedArtist || !id) return;
-        const canonical = toArtistRouteId(mergedArtist);
-        if (canonical && canonical !== decodeURIComponent(id)) {
-            router.replace(`/artist/${encodeURIComponent(canonical)}`, {
-                scroll: false,
-            });
-        }
-    }, [mergedArtist, id, router]);
-
     // Merge enrichment into artist when available (two-phase load)
     const mergedArtist = useMemo(() => {
         if (!artist) return null;
@@ -99,6 +74,31 @@ export function useArtistData() {
             albums: mergedAlbums,
         };
     }, [artist, enrichment]);
+
+    // Refetch when downloads complete (active count decreases)
+    useEffect(() => {
+        const currentActiveCount = downloadStatus.activeDownloads.length;
+        if (
+            prevActiveCountRef.current > 0 &&
+            currentActiveCount < prevActiveCountRef.current
+        ) {
+            queryClient.invalidateQueries({ queryKey: queryKeys.artist(id) });
+            queryClient.invalidateQueries({ queryKey: queryKeys.artistEnrichment(id) });
+        }
+        prevActiveCountRef.current = currentActiveCount;
+    }, [downloadStatus.activeDownloads.length, id, queryClient]);
+
+    // Canonicalize URL: if we landed on /artist/{mbid} and have artist data,
+    // replace URL with /artist/{name} so all artist pages use name-based URLs
+    useEffect(() => {
+        if (!mergedArtist || !id) return;
+        const canonical = toArtistRouteId(mergedArtist);
+        if (canonical && canonical !== decodeURIComponent(id)) {
+            router.replace(`/artist/${encodeURIComponent(canonical)}`, {
+                scroll: false,
+            });
+        }
+    }, [mergedArtist, id, router]);
 
     // Determine source from the artist data (if it came from library or discovery)
     const source: ArtistSource | null = useMemo(() => {
