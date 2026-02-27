@@ -40,6 +40,7 @@ export interface SystemSettings {
     audiomuseAiProvider?: string | null;
     audiomuseAiModel?: string | null;
     audiomuseApiKey?: string | null;
+    audiomuseOllamaUrl?: string | null;
     // Soulseek (direct connection via slsk-client)
     soulseekUsername: string;
     soulseekPassword: string;

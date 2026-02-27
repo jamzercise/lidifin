@@ -263,7 +263,7 @@ router.get("/:id", async (req, res) => {
                 title: string;
                 duration: number;
                 artist: { id: string; name: string };
-                album: { id: string; title: string; coverUrl: string | null; coverArt: string | null };
+                album: { id: string; title: string; coverUrl: string | null; coverArt: string | null; artist: { id: string; name: string } };
             } | null;
         };
         let formattedItems: FormattedItem[];
@@ -294,6 +294,7 @@ router.get("/:id", async (req, res) => {
                             title: jf.track.album.title,
                             coverUrl: jf.track.album.coverArt,
                             coverArt: jf.track.album.coverArt,
+                            artist: jf.track.artist,
                         },
                     },
                 };
@@ -322,6 +323,7 @@ router.get("/:id", async (req, res) => {
                                   title: track.album.title,
                                   coverUrl: track.album.coverArt,
                                   coverArt: track.album.coverArt,
+                                  artist: track.artist,
                               },
                           }
                         : null,
@@ -624,6 +626,7 @@ router.post("/:id/items", async (req, res) => {
                       album: {
                           ...resolvedTrack.album,
                           coverUrl: resolvedTrack.album.coverArt,
+                          artist: resolvedTrack.artist,
                       },
                   }
                 : null,

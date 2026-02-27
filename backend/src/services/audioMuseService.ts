@@ -14,19 +14,20 @@ export interface AudioMuseConfig {
     aiProvider: string | null;
     apiKey: string | null;
     aiModel: string | null;
+    ollamaUrl: string | null;
 }
 
-/** Mood → natural language prompt for AudioMuse-AI */
+/** Mood → natural language prompt for AudioMuse-AI. Shorter prompts favor faster single-iteration responses. */
 export const MOOD_TO_PROMPT: Record<string, string> = {
-    happy: "happy upbeat cheerful bright positive",
-    sad: "sad melancholic emotional nostalgic",
-    chill: "chill relaxed calm ambient peaceful mellow",
-    energetic: "energetic powerful intense driving upbeat",
-    party: "party danceable groovy upbeat fun",
-    focus: "instrumental calm focus concentration",
-    melancholy: "melancholic bittersweet reflective nostalgic",
-    aggressive: "aggressive intense powerful heavy",
-    acoustic: "acoustic organic unplugged guitar",
+    happy: "happy upbeat",
+    sad: "sad melancholic",
+    chill: "chill relaxed calm",
+    energetic: "energetic intense",
+    party: "party danceable",
+    focus: "instrumental focus",
+    melancholy: "melancholic reflective",
+    aggressive: "aggressive intense",
+    acoustic: "acoustic unplugged",
 };
 
 export async function getAudioMuseConfig(): Promise<AudioMuseConfig | null> {
@@ -38,6 +39,7 @@ export async function getAudioMuseConfig(): Promise<AudioMuseConfig | null> {
     const aiProvider = settings.audiomuseAiProvider?.trim() || null;
     const apiKey = settings.audiomuseApiKey?.trim() || null;
     const aiModel = settings.audiomuseAiModel?.trim() || null;
+    const ollamaUrl = settings.audiomuseOllamaUrl?.trim() || null;
 
     return {
         enabled: true,
@@ -45,6 +47,7 @@ export async function getAudioMuseConfig(): Promise<AudioMuseConfig | null> {
         aiProvider,
         apiKey,
         aiModel,
+        ollamaUrl,
     };
 }
 
@@ -78,26 +81,9 @@ export async function generateInstantPlaylist(
         ai_provider: aiProvider,
     };
 
-    // Include ai_model: from settings, or fetch default from AudioMuse
-    let aiModel = config.aiModel;
-    if (!aiModel) {
-        try {
-            const defaults = await axios.get<{
-                default_ollama_model_name?: string;
-                default_gemini_model_name?: string;
-                default_openai_model_name?: string;
-                default_mistral_model_name?: string;
-            }>(`${config.url}/chat/api/config_defaults`, { timeout: 5000 });
-            const d = defaults.data;
-            if (aiProvider === "OLLAMA" && d?.default_ollama_model_name) aiModel = d.default_ollama_model_name;
-            else if (aiProvider === "GEMINI" && d?.default_gemini_model_name) aiModel = d.default_gemini_model_name;
-            else if (aiProvider === "OPENAI" && d?.default_openai_model_name) aiModel = d.default_openai_model_name;
-            else if (aiProvider === "MISTRAL" && d?.default_mistral_model_name) aiModel = d.default_mistral_model_name;
-        } catch {
-            // Use server default if fetch fails
-        }
-    }
-    if (aiModel) body.ai_model = aiModel;
+    // Include ai_model from settings. Skip config_defaults fetch to avoid extra latency;
+    // AudioMuse uses its server default when ai_model is omitted.
+    if (config.aiModel) body.ai_model = config.aiModel;
 
     if (aiProvider === "OPENAI" && config.apiKey) {
         body.openai_api_key = config.apiKey;
@@ -108,13 +94,16 @@ export async function generateInstantPlaylist(
     if (aiProvider === "MISTRAL" && config.apiKey) {
         body.mistral_api_key = config.apiKey;
     }
+    if (aiProvider === "OLLAMA" && config.ollamaUrl) {
+        body.ollama_server_url = config.ollamaUrl;
+    }
 
     try {
         const res = await axios.post(
             `${config.url}/chat/api/chatPlaylist`,
             body,
             {
-                timeout: 120000, // 2 min - MCP workflow can take multiple AI iterations
+                timeout: 180000, // 3 min - MCP workflow can take multiple AI iterations; align with route timeout
                 headers: { "Content-Type": "application/json" },
                 validateStatus: () => true,
             }

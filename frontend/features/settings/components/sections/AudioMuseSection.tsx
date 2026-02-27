@@ -105,6 +105,22 @@ export function AudioMuseSection({ settings, onUpdate, isTesting }: AudioMuseSec
                         </select>
                     </SettingsRow>
 
+                    {settings.audiomuseAiProvider === "OLLAMA" && (
+                        <SettingsRow
+                            label="Ollama URL"
+                            description="Override if AudioMuse uses wrong default (e.g. in Docker use host.docker.internal:11434)"
+                        >
+                            <SettingsInput
+                                value={settings.audiomuseOllamaUrl ?? ""}
+                                onChange={(v) =>
+                                    onUpdate({ audiomuseOllamaUrl: v || null })
+                                }
+                                placeholder="http://localhost:11434/api/generate"
+                                className="w-64"
+                            />
+                        </SettingsRow>
+                    )}
+
                     <SettingsRow
                         label="AI model"
                         description="Optional. Leave blank to use AudioMuse-AI default (e.g. gemini-1.5-flash-latest, mistral:7b)"

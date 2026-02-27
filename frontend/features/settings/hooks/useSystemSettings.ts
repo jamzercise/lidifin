@@ -25,6 +25,7 @@ const defaultSystemSettings: SystemSettings = {
     audiomuseAiProvider: "OLLAMA",
     audiomuseAiModel: null,
     audiomuseApiKey: "",
+    audiomuseOllamaUrl: null,
     soulseekUsername: "",
     soulseekPassword: "",
     spotifyClientId: "",

@@ -67,6 +67,7 @@ const systemSettingsSchema = z.object({
     audiomuseAiProvider: z.string().nullable().optional(),
     audiomuseAiModel: z.string().nullable().optional(),
     audiomuseApiKey: z.string().nullable().optional(),
+    audiomuseOllamaUrl: z.string().nullable().optional(),
 
     // Soulseek (direct connection via slsk-client)
     soulseekUsername: z.string().nullable().optional(),
