@@ -753,9 +753,9 @@ export class SearchService {
             episodes,
         };
 
-        // Cache for 5 minutes (balance freshness vs performance)
+        // Cache for 15 minutes (external data changes infrequently)
         try {
-            await redisClient.setEx(cacheKey, 300, JSON.stringify(results));
+            await redisClient.setEx(cacheKey, 15 * 60, JSON.stringify(results));
         } catch (err) {
             logger.warn("[SEARCH] Redis cache write error:", err);
         }
@@ -856,9 +856,9 @@ export class SearchService {
                 break;
         }
 
-        // Cache for 2 minutes
+        // Cache for 15 minutes (external data changes infrequently)
         try {
-            await redisClient.setEx(cacheKey, 120, JSON.stringify(results));
+            await redisClient.setEx(cacheKey, 15 * 60, JSON.stringify(results));
         } catch (err) {
             logger.warn("[SEARCH] Redis write error:", err);
         }

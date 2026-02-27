@@ -23,6 +23,7 @@ import type { Artist, Album, Track } from "@/features/library/types";
 export const queryKeys = {
     // Artist queries
     artist: (id: string) => ["artist", id] as const,
+    artistEnrichment: (id: string) => ["artist", "enrichment", id] as const,
     artistLibrary: (id: string) => ["artist", "library", id] as const,
     artistDiscovery: (id: string) => ["artist", "discovery", id] as const,
 
@@ -132,17 +133,28 @@ export function useArtistQuery(id: string | undefined) {
 
 /**
  * Prefetch artist data on hover for faster navigation.
- * Call prefetchArtist(id) from onMouseEnter on artist links.
+ * For Jellyfin artists, also prefetches enrichment (bio, similar artists) in background.
+ * Call prefetchArtist(routeId) or prefetchArtist(routeId, artist) from onMouseEnter on artist links.
+ * @param routeId - Artist route ID (name, mbid, or jellyfin:uuid)
+ * @param artist - Optional artist object; when artist.id starts with "jellyfin:", also prefetches enrichment
  */
 export function usePrefetchArtist() {
     const queryClient = useQueryClient();
-    return (artistId: string) => {
-        if (!artistId) return;
+    return (routeId: string, artist?: { id?: string }) => {
+        if (!routeId) return;
         queryClient.prefetchQuery({
-            queryKey: queryKeys.artist(artistId),
-            queryFn: () => artistQueryFn(artistId),
+            queryKey: queryKeys.artist(routeId),
+            queryFn: () => artistQueryFn(routeId),
             staleTime: 10 * 60 * 1000,
         });
+        // Background enrichment prefetch for Jellyfin artists – artist page often cached on first visit
+        if (artist?.id?.startsWith("jellyfin:") || routeId.startsWith("jellyfin:")) {
+            queryClient.prefetchQuery({
+                queryKey: queryKeys.artistEnrichment(routeId),
+                queryFn: () => api.getArtistEnrichment(routeId),
+                staleTime: 10 * 60 * 1000,
+            });
+        }
     };
 }
 

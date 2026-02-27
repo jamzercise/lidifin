@@ -1,4 +1,5 @@
 import React, { memo, useCallback, useState } from "react";
+import { Virtuoso } from "react-virtuoso";
 import { Card } from "@/components/ui/Card";
 import { Play, Pause, Volume2, ListPlus, Plus, Heart, Sparkles } from "lucide-react";
 import { cn } from "@/utils/cn";
@@ -310,6 +311,9 @@ export const TrackList = memo(function TrackList({
         [],
     );
 
+    const VIRTUALIZE_THRESHOLD = 30;
+    const useVirtualization = tracks.length > VIRTUALIZE_THRESHOLD;
+
     return (
         <section>
             <Card>
@@ -317,31 +321,62 @@ export const TrackList = memo(function TrackList({
                     data-tv-section="tracks"
                     className="divide-y divide-[#1c1c1c]"
                 >
-                    {tracks.map((track, index) => {
-                        const isPlaying = currentTrackId === track.id;
-                        const isPreviewPlaying =
-                            previewTrack === track.id && previewPlaying;
-
-                        return (
-                            <TrackRow
-                                key={track.id}
-                                track={track}
-                                index={index}
-                                album={album}
-                                isOwned={isOwned}
-                                isPlaying={isPlaying}
-                                isPreviewPlaying={isPreviewPlaying}
-                                colors={colors}
-                                onPlayTrack={onPlayTrack}
-                                onAddToQueue={onAddToQueue}
-                                onAddToPlaylist={onAddToPlaylist}
-                                onFindSimilar={showFindSimilar && isOwned ? handleFindSimilar : undefined}
-                                onPreview={onPreview}
-                                favoriteIds={favoriteIds}
-                                onToggleFavorite={onToggleFavorite}
+                    {useVirtualization ? (
+                        <Virtuoso
+                            style={{ height: "50vh", minHeight: 400 }}
+                            data={tracks}
+                                itemContent={(index, track) => {
+                                    const isPlaying = currentTrackId === track.id;
+                                    const isPreviewPlaying =
+                                        previewTrack === track.id && previewPlaying;
+                                    return (
+                                        <TrackRow
+                                            key={track.id}
+                                            track={track}
+                                            index={index}
+                                            album={album}
+                                            isOwned={isOwned}
+                                            isPlaying={isPlaying}
+                                            isPreviewPlaying={isPreviewPlaying}
+                                            colors={colors}
+                                            onPlayTrack={onPlayTrack}
+                                            onAddToQueue={onAddToQueue}
+                                            onAddToPlaylist={onAddToPlaylist}
+                                            onFindSimilar={showFindSimilar && isOwned ? handleFindSimilar : undefined}
+                                            onPreview={onPreview}
+                                            favoriteIds={favoriteIds}
+                                            onToggleFavorite={onToggleFavorite}
+                                        />
+                                    );
+                                }}
                             />
-                        );
-                    })}
+                    ) : (
+                        tracks.map((track, index) => {
+                            const isPlaying = currentTrackId === track.id;
+                            const isPreviewPlaying =
+                                previewTrack === track.id && previewPlaying;
+
+                            return (
+                                <TrackRow
+                                    key={track.id}
+                                    track={track}
+                                    index={index}
+                                    album={album}
+                                    isOwned={isOwned}
+                                    isPlaying={isPlaying}
+                                    isPreviewPlaying={isPreviewPlaying}
+                                    colors={colors}
+                                    onPlayTrack={onPlayTrack}
+                                    onAddToQueue={onAddToQueue}
+                                    onAddToPlaylist={onAddToPlaylist}
+                                    onFindSimilar={showFindSimilar && isOwned ? handleFindSimilar : undefined}
+                                    onPreview={onPreview}
+                                    favoriteIds={favoriteIds}
+                                    onToggleFavorite={onToggleFavorite}
+                                />
+                            );
+                        })
+                    )}
                 </div>
             </Card>
             {findSimilarTrack && (

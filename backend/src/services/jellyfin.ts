@@ -8,8 +8,12 @@ import axios, { AxiosInstance } from "axios";
 import { getSystemSettings } from "../utils/systemSettings";
 import { prisma } from "../utils/db";
 import { logger } from "../utils/logger";
+import { redisClient } from "../utils/redis";
 
 const JELLYFIN_PREFIX = "jellyfin:";
+
+/** TTL for Jellyfin list/count caches (30 minutes). */
+const JF_CACHE_TTL = 30 * 60;
 
 export interface JellyfinConfig {
     enabled: boolean;
@@ -217,15 +221,31 @@ export async function getJellyfinArtists(
     cfg: JellyfinConfig,
     options?: { limit?: number; offset?: number; search?: string }
 ): Promise<{ artists: ResolvedArtist[]; total: number }> {
-    const token = getEffectiveToken(cfg);
     const userId = getEffectiveUserId(cfg);
+    const limit = options?.limit ?? 100;
+    const offset = options?.offset ?? 0;
+    const search = (options?.search ?? "").replace(/:/g, "_");
+    const cacheKey = userId ? `jf:artists:${userId}:${limit}:${offset}:${search}` : null;
+
+    if (cacheKey && redisClient.isReady) {
+        try {
+            const cached = await redisClient.get(cacheKey);
+            if (cached) {
+                return JSON.parse(cached) as { artists: ResolvedArtist[]; total: number };
+            }
+        } catch {
+            /* ignore Redis errors, fall through to Jellyfin */
+        }
+    }
+
+    const token = getEffectiveToken(cfg);
     const client = createClient(cfg.url, token);
     const path = userId ? `/Users/${userId}/Items` : "/Items";
     const params: Record<string, string | number | boolean> = {
         IncludeItemTypes: "MusicArtist",
         Recursive: "true",
-        Limit: options?.limit ?? 100,
-        StartIndex: options?.offset ?? 0,
+        Limit: limit,
+        StartIndex: offset,
         Fields: "Id,Name,ImageTags,ProviderIds",
         EnableTotalRecordCount: true,
     };
@@ -254,7 +274,15 @@ export async function getJellyfinArtists(
             : undefined,
     };
     });
-    return { artists, total };
+    const result = { artists, total };
+    if (cacheKey && redisClient.isReady) {
+        try {
+            await redisClient.setEx(cacheKey, JF_CACHE_TTL, JSON.stringify(result));
+        } catch {
+            /* ignore Redis errors */
+        }
+    }
+    return result;
 }
 
 /**
@@ -265,15 +293,32 @@ export async function getJellyfinAlbums(
     cfg: JellyfinConfig,
     options?: { limit?: number; offset?: number; artistId?: string; search?: string }
 ): Promise<{ albums: ResolvedAlbum[]; total: number }> {
-    const token = getEffectiveToken(cfg);
     const userId = getEffectiveUserId(cfg);
+    const limit = options?.limit ?? 100;
+    const offset = options?.offset ?? 0;
+    const artistKey = (options?.artistId ?? "").replace(/:/g, "_");
+    const searchKey = (options?.search ?? "").replace(/:/g, "_");
+    const cacheKey = userId ? `jf:albums:${userId}:${limit}:${offset}:${artistKey}:${searchKey}` : null;
+
+    if (cacheKey && redisClient.isReady) {
+        try {
+            const cached = await redisClient.get(cacheKey);
+            if (cached) {
+                return JSON.parse(cached) as { albums: ResolvedAlbum[]; total: number };
+            }
+        } catch {
+            /* ignore Redis errors, fall through to Jellyfin */
+        }
+    }
+
+    const token = getEffectiveToken(cfg);
     const client = createClient(cfg.url, token);
     const path = userId ? `/Users/${userId}/Items` : "/Items";
     const params: Record<string, string | number | boolean> = {
         IncludeItemTypes: "MusicAlbum",
         Recursive: "true",
-        Limit: options?.limit ?? 100,
-        StartIndex: options?.offset ?? 0,
+        Limit: limit,
+        StartIndex: offset,
         Fields: "Id,Name,ProductionYear,AlbumArtists,ParentId,ImageTags,ProviderIds",
         EnableTotalRecordCount: true,
     };
@@ -299,7 +344,15 @@ export async function getJellyfinAlbums(
         year: a.ProductionYear ?? undefined,
         rgMbid: extractRgMbid(a.ProviderIds),
     }));
-    return { albums, total };
+    const result = { albums, total };
+    if (cacheKey && redisClient.isReady) {
+        try {
+            await redisClient.setEx(cacheKey, JF_CACHE_TTL, JSON.stringify(result));
+        } catch {
+            /* ignore Redis errors */
+        }
+    }
+    return result;
 }
 
 const ALBUMS_PAGE_SIZE = 200;
@@ -311,11 +364,32 @@ export async function getJellyfinArtistAlbumCount(
     cfg: JellyfinConfig,
     artistId: string
 ): Promise<number> {
+    const userId = getEffectiveUserId(cfg);
+    const artistKey = artistId.replace(/:/g, "_");
+    const cacheKey = userId ? `jf:albumCount:${userId}:${artistKey}` : null;
+
+    if (cacheKey && redisClient.isReady) {
+        try {
+            const cached = await redisClient.get(cacheKey);
+            if (cached != null) return parseInt(cached, 10);
+        } catch {
+            /* ignore Redis errors, fall through to Jellyfin */
+        }
+    }
+
     const { total } = await getJellyfinAlbums(cfg, {
         artistId,
         limit: 1,
         offset: 0,
     });
+
+    if (cacheKey && redisClient.isReady) {
+        try {
+            await redisClient.setEx(cacheKey, JF_CACHE_TTL, String(total));
+        } catch {
+            /* ignore Redis errors */
+        }
+    }
     return total;
 }
 
@@ -384,8 +458,11 @@ export async function getJellyfinAlbumByRgMbid(
     return null;
 }
 
+/** Max albums to fetch per artist (avoids many Jellyfin calls for prolific artists). */
+const MAX_ARTIST_ALBUMS = 50;
+
 /**
- * Fetch all albums for an artist, paginating through Jellyfin until complete.
+ * Fetch albums for an artist, capped at MAX_ARTIST_ALBUMS.
  * Use when an artist may have more than 200 albums.
  */
 export async function getJellyfinAlbumsAllForArtist(
@@ -397,23 +474,28 @@ export async function getJellyfinAlbumsAllForArtist(
     let total = 0;
     let fetched: ResolvedAlbum[];
     do {
+        const remain = MAX_ARTIST_ALBUMS - all.length;
+        if (remain <= 0) break;
         const result = await getJellyfinAlbums(cfg, {
             artistId,
-            limit: ALBUMS_PAGE_SIZE,
+            limit: Math.min(ALBUMS_PAGE_SIZE, remain),
             offset,
         });
         fetched = result.albums;
         total = result.total;
         all.push(...fetched);
         offset += fetched.length;
-    } while (all.length < total && fetched.length > 0);
+    } while (all.length < total && fetched.length > 0 && all.length < MAX_ARTIST_ALBUMS);
     return all;
 }
 
 const TRACKS_PAGE_SIZE = 500;
 
+/** Max tracks to fetch per album (avoids slow loads for large albums). */
+const MAX_ALBUM_TRACKS = 100;
+
 /**
- * Fetch all tracks for an album, paginating through Jellyfin until complete.
+ * Fetch tracks for an album, capped at MAX_ALBUM_TRACKS.
  * Use when an album may have more than 500 tracks.
  */
 export async function getJellyfinTracksAllForAlbum(
@@ -425,16 +507,18 @@ export async function getJellyfinTracksAllForAlbum(
     let total = 0;
     let fetched: ResolvedTrack[];
     do {
+        const remain = MAX_ALBUM_TRACKS - all.length;
+        if (remain <= 0) break;
         const result = await getJellyfinTracks(cfg, {
             albumId,
-            limit: TRACKS_PAGE_SIZE,
+            limit: Math.min(TRACKS_PAGE_SIZE, remain),
             offset,
         });
         fetched = result.tracks;
         total = result.total;
         all.push(...fetched);
         offset += fetched.length;
-    } while (all.length < total && fetched.length > 0);
+    } while (all.length < total && fetched.length > 0 && all.length < MAX_ALBUM_TRACKS);
     return all;
 }
 
@@ -706,18 +790,31 @@ export async function resolveTrackReferences(
             const userId = getEffectiveUserId(cfg);
             const client = createClient(cfg.url, token);
             const path = userId ? `/Users/${userId}/Items` : "/Items";
+
+            const batches: { batchIds: string[]; batchIndexes: number[] }[] = [];
             for (let batchStart = 0; batchStart < jellyfinIds.length; batchStart += BATCH_SIZE) {
-                const batchIds = jellyfinIds.slice(batchStart, batchStart + BATCH_SIZE);
-                const batchIndexes = jellyfinIndexes.slice(batchStart, batchStart + BATCH_SIZE);
-                const res = await client.get<{ Items: JellyfinItem[] }>(path, {
-                    params: {
-                        Ids: batchIds.join(","),
-                        IncludeItemTypes: "Audio",
-                        Fields: "Id,Name,RunTimeTicks,AlbumId,AlbumArtist,AlbumArtists,ImageTags,ParentId",
-                    },
+                batches.push({
+                    batchIds: jellyfinIds.slice(batchStart, batchStart + BATCH_SIZE),
+                    batchIndexes: jellyfinIndexes.slice(batchStart, batchStart + BATCH_SIZE),
                 });
-                const items = (res.data?.Items ?? []) as JellyfinItem[];
-                const byId = new Map(items.map((i) => [i.Id, i]));
+            }
+
+            const batchResults = await Promise.all(
+                batches.map(async ({ batchIds, batchIndexes }) => {
+                    const res = await client.get<{ Items: JellyfinItem[] }>(path, {
+                        params: {
+                            Ids: batchIds.join(","),
+                            IncludeItemTypes: "Audio",
+                            Fields: "Id,Name,RunTimeTicks,AlbumId,AlbumArtist,AlbumArtists,ImageTags,ParentId",
+                        },
+                    });
+                    const items = (res.data?.Items ?? []) as JellyfinItem[];
+                    const byId = new Map(items.map((i) => [i.Id, i]));
+                    return { batchIds, batchIndexes, byId };
+                })
+            );
+
+            for (const { batchIds, batchIndexes, byId } of batchResults) {
                 for (let j = 0; j < batchIds.length; j++) {
                     const item = byId.get(batchIds[j]);
                     const idx = batchIndexes[j];
@@ -1099,6 +1196,38 @@ export async function removeJellyfinFavorite(cfg: JellyfinConfig, itemId: string
     await client.delete(`/Users/${userId}/FavoriteItems/${itemId}`);
 }
 
+/**
+ * Fetch multiple Jellyfin items by ID in batch (avoids N+1).
+ */
+async function getJellyfinItemsBatch(
+    cfg: JellyfinConfig,
+    itemIds: string[]
+): Promise<Map<string, JellyfinItem>> {
+    const unique = [...new Set(itemIds)].filter(Boolean);
+    if (unique.length === 0) return new Map();
+
+    const token = getEffectiveToken(cfg);
+    const userId = getEffectiveUserId(cfg);
+    const client = createClient(cfg.url, token);
+    const path = userId ? `/Users/${userId}/Items` : "/Items";
+    const BATCH_SIZE = 50;
+    const result = new Map<string, JellyfinItem>();
+
+    for (let i = 0; i < unique.length; i += BATCH_SIZE) {
+        const batch = unique.slice(i, i + BATCH_SIZE);
+        try {
+            const res = await client.get<{ Items: JellyfinItem[] }>(path, {
+                params: { Ids: batch.join(","), Fields: "Id,Name,ImageTags" },
+            });
+            const items = res.data?.Items ?? [];
+            for (const item of items) result.set(item.Id, item);
+        } catch {
+            /* ignore batch errors */
+        }
+    }
+    return result;
+}
+
 export async function getJellyfinFavorites(cfg: JellyfinConfig): Promise<ResolvedTrack[]> {
     const token = getEffectiveToken(cfg);
     const client = createClient(cfg.url, token);
@@ -1114,27 +1243,26 @@ export async function getJellyfinFavorites(cfg: JellyfinConfig): Promise<Resolve
         },
     });
     const items = res.data?.Items ?? [];
+    const albumIds = [...new Set(items.map((i) => i.AlbumId).filter(Boolean))] as string[];
+    const albumsById = await getJellyfinItemsBatch(cfg, albumIds);
+
     const tracks: ResolvedTrack[] = [];
     for (const item of items) {
         let album: ResolvedAlbum | undefined;
         if (item.AlbumId) {
-            try {
-                const albumItem = await getJellyfinItem(cfg, item.AlbumId, "MusicAlbum");
-                if (albumItem)
-                    album = {
-                        id: `${JELLYFIN_PREFIX}${albumItem.Id}`,
-                        title: albumItem.Name,
-                        coverArt: getJellyfinImageUrl(
-                            cfg.url,
-                            albumItem.Id,
-                            albumItem.ImageTags?.Primary,
-                            cfg.apiKey,
-                            cfg.userId
-                        ),
-                    };
-            } catch {
-                // ignore
-            }
+            const albumItem = albumsById.get(item.AlbumId);
+            if (albumItem)
+                album = {
+                    id: `${JELLYFIN_PREFIX}${albumItem.Id}`,
+                    title: albumItem.Name,
+                    coverArt: getJellyfinImageUrl(
+                        cfg.url,
+                        albumItem.Id,
+                        albumItem.ImageTags?.Primary,
+                        cfg.apiKey,
+                        cfg.userId
+                    ),
+                };
         }
         tracks.push(
             mapJellyfinItemToTrack(

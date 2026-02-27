@@ -1,5 +1,5 @@
 import { useParams, useRouter } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/hooks/useQueries";
 import { api } from "@/lib/api";
 import { useDownloadContext } from "@/lib/download-context";
@@ -11,10 +11,11 @@ export function useArtistData() {
     const params = useParams();
     const router = useRouter();
     const id = params.id as string;
+    const queryClient = useQueryClient();
     const { downloadStatus } = useDownloadContext();
     const prevActiveCountRef = useRef(downloadStatus.activeDownloads.length);
 
-    // Use React Query - no polling needed, webhook events trigger refresh via download context
+    // Phase 1: Fetch minimal artist (fast – Jellyfin artist returns without enrichment)
     const {
         data: artist,
         isLoading,
@@ -27,8 +28,6 @@ export function useArtistData() {
             try {
                 return await api.getArtist(id);
             } catch {
-                // Never fall back to discovery for Jellyfin IDs - discovery would treat
-                // "jellyfin:uuid" as an artist name and return garbage (ID as name)
                 if (id.startsWith("jellyfin:")) {
                     throw new Error("Artist not found");
                 }
@@ -40,6 +39,14 @@ export function useArtistData() {
         retry: 1,
     });
 
+    // Phase 2: Fetch enrichment for Jellyfin artists (bio, similar artists, discovery albums)
+    const { data: enrichment } = useQuery({
+        queryKey: queryKeys.artistEnrichment(id || ""),
+        queryFn: () => api.getArtistEnrichment(id),
+        enabled: !!id && !!artist?.id?.startsWith?.("jellyfin:"),
+        staleTime: 10 * 60 * 1000,
+    });
+
     // Refetch when downloads complete (active count decreases)
     useEffect(() => {
         const currentActiveCount = downloadStatus.activeDownloads.length;
@@ -47,39 +54,66 @@ export function useArtistData() {
             prevActiveCountRef.current > 0 &&
             currentActiveCount < prevActiveCountRef.current
         ) {
-            // Downloads have completed, refresh data
-            refetch();
+            queryClient.invalidateQueries({ queryKey: queryKeys.artist(id) });
+            queryClient.invalidateQueries({ queryKey: queryKeys.artistEnrichment(id) });
         }
         prevActiveCountRef.current = currentActiveCount;
-    }, [downloadStatus.activeDownloads.length, refetch]);
+    }, [downloadStatus.activeDownloads.length, id, queryClient]);
 
     // Canonicalize URL: if we landed on /artist/{mbid} and have artist data,
     // replace URL with /artist/{name} so all artist pages use name-based URLs
     useEffect(() => {
-        if (!artist || !id) return;
-        const canonical = toArtistRouteId(artist);
+        if (!mergedArtist || !id) return;
+        const canonical = toArtistRouteId(mergedArtist);
         if (canonical && canonical !== decodeURIComponent(id)) {
             router.replace(`/artist/${encodeURIComponent(canonical)}`, {
                 scroll: false,
             });
         }
-    }, [artist, id, router]);
+    }, [mergedArtist, id, router]);
+
+    // Merge enrichment into artist when available (two-phase load)
+    const mergedArtist = useMemo(() => {
+        if (!artist) return null;
+        if (!enrichment) return artist;
+        const ownedRgMbids = new Set(
+            (artist.albums || []).map((a: { rgMbid?: string }) => a.rgMbid).filter(Boolean)
+        );
+        const discoveryToAdd = (enrichment.discoveryAlbums || []).filter(
+            (d: { rgMbid?: string }) => !ownedRgMbids.has(d.rgMbid)
+        );
+        const mergedAlbums = [...(artist.albums || []), ...discoveryToAdd].sort(
+            (a: { year?: number }, b: { year?: number }) => (b.year ?? 0) - (a.year ?? 0)
+        );
+        return {
+            ...artist,
+            bio: enrichment.bio ?? artist.bio,
+            image: enrichment.image ?? artist.image,
+            coverArt: enrichment.image ?? artist.coverArt,
+            heroUrl: enrichment.image ?? artist.heroUrl,
+            genres: enrichment.genres ?? artist.genres ?? [],
+            listeners: enrichment.listeners ?? artist.listeners,
+            playcount: enrichment.playcount ?? artist.playcount,
+            similarArtists: enrichment.similarArtists ?? artist.similarArtists ?? [],
+            topTracks: enrichment.topTracks?.length ? enrichment.topTracks : artist.topTracks,
+            albums: mergedAlbums,
+        };
+    }, [artist, enrichment]);
 
     // Determine source from the artist data (if it came from library or discovery)
     const source: ArtistSource | null = useMemo(() => {
-        if (!artist) return null;
-        // Jellyfin artists (jellyfin:uuid) and CUIDs are from library
-        if (artist.id?.startsWith("jellyfin:")) return "library";
-        return artist.id && !artist.id.includes("-") ? "library" : "discovery";
-    }, [artist]);
+        if (!mergedArtist) return null;
+        if (mergedArtist.id?.startsWith("jellyfin:")) return "library";
+        return mergedArtist.id && !mergedArtist.id.includes("-") ? "library" : "discovery";
+    }, [mergedArtist]);
 
     // Sort state: 'year' or 'dateAdded'
     const [sortBy, setSortBy] = useState<"year" | "dateAdded">("year");
 
     // Sort albums by year or dateAdded (auto-memoized by React Compiler)
-    const albums = !artist?.albums
+    const albums = !mergedArtist?.albums
         ? []
-        : [...artist.albums].sort((a, b) => {
+        : [...mergedArtist.albums].sort((a, b) => {
               if (sortBy === "dateAdded") {
                   if (!a.lastSynced && !b.lastSynced) return 0;
                   if (!a.lastSynced) return 1;
@@ -100,14 +134,19 @@ export function useArtistData() {
     // The page component should handle displaying a "not found" state
     // Don't call router.back() as it causes navigation loops
 
+    const reloadArtist = () => {
+        queryClient.invalidateQueries({ queryKey: queryKeys.artist(id) });
+        queryClient.invalidateQueries({ queryKey: queryKeys.artistEnrichment(id) });
+    };
+
     return {
-        artist,
+        artist: mergedArtist,
         albums,
         loading: isLoading,
         error: isError,
         source,
         sortBy,
         setSortBy,
-        reloadArtist: refetch,
+        reloadArtist,
     };
 }

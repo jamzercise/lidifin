@@ -3,6 +3,7 @@ import Image from "next/image";
 import { Music } from "lucide-react";
 import { api } from "@/lib/api";
 import { toArtistRouteId } from "@/lib/route-ids";
+import { usePrefetchArtist } from "@/hooks/useQueries";
 import { Artist, DiscoverResult } from "../types";
 interface TopResultProps {
     libraryArtist?: Artist;
@@ -10,6 +11,8 @@ interface TopResultProps {
 }
 
 export function TopResult({ libraryArtist, discoveryArtist }: TopResultProps) {
+    const prefetchArtist = usePrefetchArtist();
+
     // Prefer library artist over discovery
     if (!libraryArtist && !discoveryArtist) {
         return null;
@@ -35,6 +38,7 @@ export function TopResult({ libraryArtist, discoveryArtist }: TopResultProps) {
             <h2 className="text-2xl font-bold text-white mb-6">Top result</h2>
             <Link
                 href={`/artist/${encodeURIComponent(artistId)}`}
+                onMouseEnter={() => prefetchArtist(artistId, libraryArtist)}
                 className="bg-[#121212] hover:bg-[#181818] p-6 rounded-lg transition-all flex items-center gap-6 w-full sm:w-96"
                 data-tv-card
                 data-tv-card-index={0}

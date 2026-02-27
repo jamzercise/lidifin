@@ -45,7 +45,7 @@ const ArtistCard = memo(
             <CarouselItem>
                 <Link
                     href={`/artist/${encodeURIComponent(routeId)}`}
-                    onMouseEnter={() => prefetchArtist(routeId)}
+                    onMouseEnter={() => prefetchArtist(routeId, artist)}
                     data-tv-card
                     data-tv-card-index={index}
                     tabIndex={0}

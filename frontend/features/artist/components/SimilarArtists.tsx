@@ -5,6 +5,7 @@ import { SimilarArtist } from "../types";
 import { Music, Library } from "lucide-react";
 import { api } from "@/lib/api";
 import { toArtistRouteId } from "@/lib/route-ids";
+import { usePrefetchArtist } from "@/hooks/useQueries";
 
 interface SimilarArtistsProps {
     similarArtists: SimilarArtist[];
@@ -15,6 +16,8 @@ export function SimilarArtists({
     similarArtists,
     onNavigate,
 }: SimilarArtistsProps) {
+    const prefetchArtist = usePrefetchArtist();
+
     if (!similarArtists || similarArtists.length === 0) {
         return null;
     }
@@ -44,6 +47,7 @@ export function SimilarArtists({
                             data-tv-card
                             data-tv-card-index={index}
                             tabIndex={0}
+                            onMouseEnter={() => prefetchArtist(routeId, artist)}
                             onClick={() => onNavigate(routeId)}
                             onKeyDown={(e) => {
                                 if (e.key === "Enter") {

@@ -550,6 +550,19 @@ class ApiClient {
         );
     }
 
+    async getArtistEnrichment(id: string) {
+        return this.request<{
+            bio: string | null;
+            image: string | null;
+            genres: string[];
+            listeners?: number;
+            playcount?: number;
+            similarArtists: Array<{ id: string; name: string; mbid: string | null; url?: string; image: string | null }>;
+            discoveryAlbums: ApiData[];
+            topTracks: Array<{ id: string; title: string; duration: number; artist?: { id: string; name: string }; album?: { id: string; title: string; coverArt: string | null } }>;
+        }>(`/library/artists/${encodeURIComponent(id)}/enrichment`);
+    }
+
     async getAlbums(params?: {
         artistId?: string;
         limit?: number;

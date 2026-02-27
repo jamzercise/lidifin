@@ -95,7 +95,7 @@ const ContinueListeningCard = memo(function ContinueListeningCard({
         <CarouselItem>
             <Link
                 href={href}
-                onMouseEnter={() => artistRouteId && prefetchArtist(artistRouteId)}
+                onMouseEnter={() => artistRouteId && prefetchArtist(artistRouteId, !isPodcast && !isAudiobook ? item : undefined)}
                 data-tv-card
                 data-tv-card-index={index}
                 tabIndex={0}

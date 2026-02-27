@@ -11,7 +11,7 @@ import { fanartService } from "./fanart";
 import { deezerService } from "./deezer";
 import { normalizeToArray } from "../utils/normalize";
 
-const ENRICHMENT_CACHE_TTL = 3600; // 1 hour
+const ENRICHMENT_CACHE_TTL = 6 * 60 * 60; // 6 hours – metadata rarely changes
 
 export interface JellyfinArtistEnrichment {
     bio: string | null;
@@ -148,38 +148,18 @@ export async function enrichJellyfinArtist(
         .map((t: any) => t?.name)
         .filter(Boolean);
 
+    // Defer similar-artist images – return without images for faster enrichment.
+    // Frontend can lazy-load images if needed.
     const similarArtistsRaw = normalizeToArray(lastFmInfo?.similar?.artist);
-    const similarArtists: JellyfinArtistEnrichment["similarArtists"] = await Promise.all(
-        similarArtistsRaw.slice(0, 10).map(async (artist: any) => {
-            const images = normalizeToArray(artist.image);
-            const similarImage = images.find((img: any) => img.size === "large")?.["#text"];
-            let img: string | null = null;
-            if (artist.mbid) {
-                try {
-                    img = await fanartService.getArtistImage(artist.mbid);
-                } catch {
-                    // Ignore
-                }
-            }
-            if (!img) {
-                try {
-                    img = await deezerService.getArtistImage(artist.name);
-                } catch {
-                    // Ignore
-                }
-            }
-            if (!img && similarImage && !similarImage.includes("2a96cbd8b46e442fc41c2b86b821562f")) {
-                img = similarImage;
-            }
-            return {
-                id: artist.mbid || artist.name,
-                name: artist.name,
-                mbid: artist.mbid || null,
-                url: artist.url,
-                image: img,
-            };
-        })
-    );
+    const similarArtists: JellyfinArtistEnrichment["similarArtists"] = similarArtistsRaw
+        .slice(0, 10)
+        .map((artist: any) => ({
+            id: artist.mbid || artist.name,
+            name: artist.name,
+            mbid: artist.mbid || null,
+            url: artist.url,
+            image: null as string | null,
+        }));
 
     let discoveryAlbums: JellyfinArtistEnrichment["discoveryAlbums"] = [];
     const releaseGroups = Array.isArray(releaseGroupsRaw) ? releaseGroupsRaw : [];

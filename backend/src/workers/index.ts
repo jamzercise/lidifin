@@ -95,17 +95,34 @@ startUnifiedEnrichmentWorker().catch((err) => {
     logger.error("Failed to start unified enrichment worker:", err);
 });
 
-// Start mood bucket worker
-// Assigns newly analyzed tracks to mood buckets for fast mood mix generation
-startMoodBucketWorker().catch((err) => {
-    logger.error("Failed to start mood bucket worker:", err);
-});
+// Start mood bucket worker only when Prisma is music source (Jellyfin has no local analyzed tracks)
+(async () => {
+    try {
+        const { isJellyfinMusicSource } = await import("../services/jellyfin");
+        if (await isJellyfinMusicSource()) {
+            logger.debug("Mood bucket worker skipped – Jellyfin is music source, no local analyzed tracks");
+        } else {
+            await startMoodBucketWorker();
+        }
+    } catch (err) {
+        logger.error("Failed to start mood bucket worker:", err);
+    }
+})();
 
-// Precomputed library list cache (owned albums) – refresh every 5 min so GET /library/albums is fast
-startLibraryListCacheRefresh();
-refreshAllOwnedAlbumsCache().catch((err) => {
-    logger.warn("Initial library list cache refresh failed:", err);
-});
+// Precomputed library list cache (owned albums) – only used when Prisma is music source
+(async () => {
+    try {
+        const { isJellyfinMusicSource } = await import("../services/jellyfin");
+        if (await isJellyfinMusicSource()) {
+            logger.debug("Library list cache refresh skipped – Jellyfin is music source");
+        } else {
+            startLibraryListCacheRefresh();
+            await refreshAllOwnedAlbumsCache();
+        }
+    } catch (err) {
+        logger.warn("Initial library list cache refresh failed:", err);
+    }
+})();
 
 // Event handlers for scan queue
 scanQueue.on("completed", (job, result) => {
@@ -238,6 +255,11 @@ async function withTimeout<T>(
 async function runReconciliationCycle() {
     try {
         const { lidarrService } = await import("../services/lidarr");
+        if (!(await lidarrService.isEnabled())) {
+            logger.debug("Reconciliation skipped – Lidarr not configured");
+            timeouts.push(setTimeout(runReconciliationCycle, 2 * 60 * 1000));
+            return;
+        }
         const snapshot = await withTimeout(
             () => lidarrService.getReconciliationSnapshot(),
             30000,
@@ -305,6 +327,12 @@ logger.debug("Stale download cleanup scheduled (every 2 minutes, self-rescheduli
 // Self-rescheduling Lidarr queue cleanup (replaces setInterval to prevent pile-up)
 async function runLidarrCleanupCycle() {
     try {
+        const { lidarrService } = await import("../services/lidarr");
+        if (!(await lidarrService.isEnabled())) {
+            logger.debug("Lidarr queue cleanup skipped – Lidarr not configured");
+            timeouts.push(setTimeout(runLidarrCleanupCycle, 5 * 60 * 1000));
+            return;
+        }
         const result = await withTimeout(
             () => simpleDownloadManager.clearLidarrQueue(),
             180000,

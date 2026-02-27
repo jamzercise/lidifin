@@ -9,6 +9,7 @@ import { useAudioPlayback } from "@/lib/audio-playback-context";
 import { useAudioControls } from "@/lib/audio-controls-context";
 import { api } from "@/lib/api";
 import { toArtistRouteId, toAlbumRouteId } from "@/lib/route-ids";
+import { usePrefetchArtist } from "@/hooks/useQueries";
 import { cn } from "@/utils/cn";
 import { formatTime } from "@/utils/formatTime";
 import type { LibraryTrack } from "../types";
@@ -22,6 +23,7 @@ interface LibraryTracksListProps {
 
 export function LibraryTracksList({ tracks, favoriteIds, onToggleFavorite }: LibraryTracksListProps) {
     const { currentTrack } = useAudioState();
+    const prefetchArtist = usePrefetchArtist();
     const [findSimilarTrack, setFindSimilarTrack] = useState<{
         id: string;
         title: string;
@@ -138,6 +140,7 @@ export function LibraryTracksList({ tracks, favoriteIds, onToggleFavorite }: Lib
                             <p className="text-xs text-gray-400 truncate">
                                 <Link
                                     href={`/artist/${encodeURIComponent(toArtistRouteId(track.album.artist))}`}
+                                    onMouseEnter={() => prefetchArtist(toArtistRouteId(track.album.artist), track.album.artist)}
                                     className="hover:underline hover:text-white"
                                     onClick={(e) => e.stopPropagation()}
                                 >

@@ -134,6 +134,19 @@ router.use((req, res, next) => {
     return apiLimiter(req, res, next);
 });
 
+// Timing logs for slow routes (enable with LOG_TIMING=1 or in development)
+const LOG_TIMING = process.env.LOG_TIMING === "1" || config.nodeEnv === "development";
+const TIMING_PATTERNS = ["/artists", "/albums"];
+router.use((req, res, next) => {
+    if (!LOG_TIMING || !TIMING_PATTERNS.some((p) => req.path.startsWith(p))) return next();
+    const start = Date.now();
+    res.once("finish", () => {
+        const ms = Date.now() - start;
+        if (ms > 500) logger.debug(`[TIMING] ${req.method} ${req.path} ${ms}ms`);
+    });
+    next();
+});
+
 /**
  * @openapi
  * /library/scan:
@@ -860,6 +873,117 @@ router.post("/backfill-genres", async (req, res) => {
     }
 });
 
+// GET /library/artists/:id/enrichment
+// Returns enrichment only (bio, similarArtists, discoveryAlbums, topTracks). Used for two-phase artist load.
+router.get("/artists/:id/enrichment", async (req, res) => {
+    try {
+        const idParam = decodeURIComponent(req.params.id);
+        if (!(await isJellyfinMusicSource())) {
+            return res.status(404).json({ error: "Enrichment only available for Jellyfin artists" });
+        }
+        const cfg = await getJellyfinConfig();
+        if (!cfg) return res.status(404).json({ error: "Jellyfin not configured" });
+
+        let artistItem: Awaited<ReturnType<typeof getJellyfinArtistByName>> = null;
+        if (idParam.startsWith("jellyfin:")) {
+            const rawId = idParam.slice("jellyfin:".length);
+            const item = await getJellyfinItem(cfg, rawId);
+            if (item?.Type === "MusicArtist") artistItem = item;
+        }
+        if (!artistItem) {
+            artistItem = await getJellyfinArtistByName(cfg, idParam);
+        }
+        if (!artistItem || artistItem.Type !== "MusicArtist") {
+            return res.status(404).json({ error: "Artist not found" });
+        }
+
+        const resolvedId = `jellyfin:${artistItem.Id}`;
+        const [albums, topTracksResult] = await Promise.all([
+            getJellyfinAlbumsAllForArtist(cfg, resolvedId),
+            getJellyfinTracks(cfg, { artistId: resolvedId, limit: 10 }),
+        ]);
+        const topTracks = topTracksResult.tracks;
+        const rawName = (artistItem as any).Name ?? (artistItem as any).name;
+        const artistName =
+            rawName && rawName !== artistItem.Id && !rawName.startsWith("jellyfin:")
+                ? rawName
+                : albums[0]?.artist?.name ?? "Unknown Artist";
+        const coverArt = artistItem.ImageTags?.Primary
+            ? getJellyfinImageUrl(
+                  cfg.url,
+                  artistItem.Id,
+                  artistItem.ImageTags.Primary,
+                  cfg.apiKey,
+                  cfg.userId
+              )
+            : undefined;
+        const mbid = extractArtistMbid((artistItem as any).ProviderIds);
+
+        const enrichment = await enrichJellyfinArtist(artistName, {
+            mbid: mbid ?? undefined,
+            existingCoverArt: coverArt ?? undefined,
+        });
+        if (!enrichment) {
+            return res.json({
+                bio: null,
+                image: null,
+                genres: [],
+                listeners: undefined,
+                playcount: undefined,
+                similarArtists: [],
+                discoveryAlbums: [],
+                topTracks: topTracks.map((t) => ({
+                    id: t.id,
+                    title: t.title,
+                    duration: t.duration,
+                    artist: t.artist,
+                    album: t.album,
+                })),
+            });
+        }
+
+        const ownedRgMbids = new Set(albums.map((a) => a.rgMbid).filter(Boolean));
+        const discoveryAlbums = enrichment.discoveryAlbums
+            .filter((d) => !ownedRgMbids.has(d.rgMbid))
+            .map((d) => ({
+                id: d.id,
+                title: d.title,
+                coverArt: d.coverUrl,
+                coverUrl: d.coverUrl,
+                artist: { name: artistName },
+                year: d.year,
+                rgMbid: d.rgMbid,
+                owned: false,
+                source: "database" as const,
+                tracks: [],
+            }));
+        const effectiveTopTracks =
+            enrichment.topTracks?.length
+                ? enrichment.topTracks
+                : topTracks.map((t) => ({
+                      id: t.id,
+                      title: t.title,
+                      duration: t.duration,
+                      artist: t.artist,
+                      album: t.album,
+                  }));
+
+        return res.json({
+            bio: enrichment.bio,
+            image: enrichment.image ?? coverArt ?? null,
+            genres: enrichment.genres ?? [],
+            listeners: enrichment.listeners,
+            playcount: enrichment.playcount,
+            similarArtists: enrichment.similarArtists ?? [],
+            discoveryAlbums,
+            topTracks: effectiveTopTracks,
+        });
+    } catch (err: any) {
+        logger.error("[Library] Artist enrichment error:", err);
+        res.status(500).json({ error: err.message ?? "Enrichment failed" });
+    }
+});
+
 // GET /library/artists/:id
 // Resolves by: Prisma (id, name, mbid) or Jellyfin by name (e.g. /artist/Lucero).
 // Artist URLs use /artist/{mbid} or /artist/{artist_name} — not Jellyfin UUID.
@@ -939,14 +1063,6 @@ router.get("/artists/:id", async (req, res) => {
                           )
                         : undefined;
                     if (!coverArt && albums[0]?.coverArt) coverArt = albums[0].coverArt;
-                    const mbid = extractArtistMbid((artistItem as any).ProviderIds);
-                    const enrichment = await enrichJellyfinArtist(artistName, {
-                        mbid: mbid ?? undefined,
-                        existingCoverArt: coverArt ?? undefined,
-                    });
-                    const ownedRgMbids = new Set(
-                        albums.map((a) => a.rgMbid).filter(Boolean)
-                    );
                     const ownedAlbums = albums.map((a) => ({
                         id: a.id,
                         title: a.title,
@@ -959,50 +1075,26 @@ router.get("/artists/:id", async (req, res) => {
                         source: "database" as const,
                         tracks: [],
                     }));
-                    const discoveryAlbums = (
-                        enrichment?.discoveryAlbums?.filter(
-                            (d) => !ownedRgMbids.has(d.rgMbid)
-                        ) ?? []
-                    ).map((d) => ({
-                        id: d.id,
-                        title: d.title,
-                        coverArt: d.coverUrl,
-                        coverUrl: d.coverUrl,
-                        artist: { name: artistName },
-                        year: d.year,
-                        rgMbid: d.rgMbid,
-                        owned: false,
-                        source: "database" as const,
-                        tracks: [],
-                    }));
-                    const mergedAlbums = [...ownedAlbums, ...discoveryAlbums].sort(
-                        (a, b) => {
-                            const ya = a.year ?? 0;
-                            const yb = b.year ?? 0;
-                            return yb - ya;
-                        }
-                    );
-                    const effectiveTopTracks =
-                        enrichment?.topTracks?.length ? enrichment.topTracks : topTracks.map((t) => ({
+                    // Two-phase: return minimal artist first (no enrichment). Frontend fetches /library/artists/:id/enrichment separately.
+                    return res.json({
+                        id: resolvedId,
+                        name: artistName,
+                        coverArt: coverArt ?? undefined,
+                        heroUrl: coverArt ?? undefined,
+                        image: coverArt ?? undefined,
+                        bio: null,
+                        genres: [],
+                        listeners: undefined,
+                        playcount: undefined,
+                        albums: ownedAlbums,
+                        topTracks: topTracks.map((t) => ({
                             id: t.id,
                             title: t.title,
                             duration: t.duration,
                             artist: t.artist,
                             album: t.album,
-                        }));
-                    return res.json({
-                        id: resolvedId,
-                        name: artistName,
-                        coverArt: (enrichment?.image ?? coverArt) ?? undefined,
-                        heroUrl: (enrichment?.image ?? coverArt) ?? undefined,
-                        image: (enrichment?.image ?? coverArt) ?? undefined,
-                        bio: enrichment?.bio ?? null,
-                        genres: enrichment?.genres ?? [],
-                        listeners: enrichment?.listeners ?? undefined,
-                        playcount: enrichment?.playcount ?? undefined,
-                        albums: mergedAlbums,
-                        topTracks: effectiveTopTracks,
-                        similarArtists: enrichment?.similarArtists ?? [],
+                        })),
+                        similarArtists: [],
                     });
                 }
             }

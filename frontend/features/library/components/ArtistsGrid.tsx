@@ -62,7 +62,7 @@ const ArtistCardItem = memo(
         return (
             <Link
                 href={`/artist/${encodeURIComponent(routeId)}`}
-                onMouseEnter={() => prefetchArtist(routeId)}
+                onMouseEnter={() => prefetchArtist(routeId, artist)}
                 prefetch={false}
                 data-tv-card
                 data-tv-card-index={index}
