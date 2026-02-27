@@ -786,6 +786,7 @@ async function enrichTrackTagsBatch(): Promise<number> {
 
                 try {
                     const artistName = track.album.artist.name;
+                    const albumTitle = track.album.title;
 
                     // Add timeout to prevent hanging on rate-limited requests
                     const trackInfo = await withTimeout(
@@ -794,34 +795,63 @@ async function enrichTrackTagsBatch(): Promise<number> {
                         `Timeout enriching track: ${track.title}`,
                     );
 
+                    let moodTags: string[] = [];
+
                     if (trackInfo?.toptags?.tag) {
                         const allTags = trackInfo.toptags.tag.map(
                             (t: any) => t.name,
                         );
-                        const moodTags = filterMoodTags(allTags);
+                        moodTags = filterMoodTags(allTags);
+                    }
 
-                        await prisma.track.update({
-                            where: { id: track.id },
-                            data: {
-                                lastfmTags:
-                                    moodTags.length > 0 ?
-                                        moodTags
-                                    :   ["_no_mood_tags"],
-                            },
-                        });
-
-                        if (moodTags.length > 0) {
-                            logger.debug(
-                                `   ✓ ${track.title}: [${moodTags
-                                    .slice(0, 3)
-                                    .join(", ")}...]`,
+                    // Fallback: if track has no mood tags, try artist tags then album tags
+                    if (moodTags.length === 0) {
+                        const artistInfo = await withTimeout(
+                            lastFmService.getArtistInfo(artistName),
+                            15000,
+                            `Timeout getting artist info for ${artistName}`,
+                        );
+                        if (artistInfo?.tags?.tag) {
+                            const artistTagNames = artistInfo.tags.tag.map(
+                                (t: any) => (typeof t === "string" ? t : t.name),
                             );
+                            moodTags = filterMoodTags(artistTagNames);
                         }
-                    } else {
-                        await prisma.track.update({
-                            where: { id: track.id },
-                            data: { lastfmTags: ["_not_found"] },
-                        });
+                    }
+
+                    if (moodTags.length === 0) {
+                        const albumInfo = await withTimeout(
+                            lastFmService.getAlbumInfo(artistName, albumTitle),
+                            15000,
+                            `Timeout getting album info for ${albumTitle}`,
+                        );
+                        if (albumInfo?.tags?.tag) {
+                            const albumTagNames = albumInfo.tags.tag.map(
+                                (t: any) => (typeof t === "string" ? t : t.name),
+                            );
+                            moodTags = filterMoodTags(albumTagNames);
+                        }
+                    }
+
+                    await prisma.track.update({
+                        where: { id: track.id },
+                        data: {
+                            lastfmTags:
+                                moodTags.length > 0 ?
+                                    moodTags
+                                :   trackInfo === null ?
+                                        ["_not_found"]
+                                    :   ["_no_mood_tags"],
+                        },
+                    });
+
+                    if (moodTags.length > 0) {
+                        const source = trackInfo?.toptags?.tag ? "track" : "fallback";
+                        logger.debug(
+                            `   ✓ ${track.title}: [${moodTags
+                                .slice(0, 3)
+                                .join(", ")}...] (${source})`,
+                        );
                     }
 
                     // Small delay between requests

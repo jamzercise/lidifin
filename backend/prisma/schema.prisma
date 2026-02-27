@@ -272,6 +272,7 @@ model Track {
   @@index([acousticness])
   @@index([instrumentalness])
   @@index([hasUserOverrides])
+  @@index([lastfmTags], type: Gin)
 }
 
 model TranscodedFile {

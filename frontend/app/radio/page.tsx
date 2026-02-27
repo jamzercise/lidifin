@@ -20,10 +20,15 @@ interface RadioStation {
     description: string;
     color: string;
     filter: {
-        type: "genre" | "decade" | "discovery" | "favorites" | "all" | "workout";
+        type: "genre" | "decade" | "discovery" | "favorites" | "all" | "workout" | "mood";
         value?: string;
     };
     minTracks?: number;
+}
+
+interface VibeCount {
+    tag: string;
+    count: number;
 }
 
 interface GenreCount {
@@ -151,6 +156,21 @@ const getGenreColor = (genre: string): string => {
     return GENRE_COLORS[lower] || GENRE_COLORS.default;
 };
 
+// Preset vibe/mood stations (Last.fm tags + audio analysis)
+const VIBE_STATIONS: RadioStation[] = [
+    { id: "vibe-chill", name: "Chill", description: "Relaxing vibes", color: "from-teal-500/30 to-cyan-600/30", filter: { type: "mood", value: "chill" }, minTracks: 15 },
+    { id: "vibe-energetic", name: "Energetic", description: "High energy", color: "from-orange-500/30 to-red-600/30", filter: { type: "mood", value: "energetic" }, minTracks: 15 },
+    { id: "vibe-sad", name: "Sad", description: "Melancholy mood", color: "from-indigo-500/30 to-blue-600/30", filter: { type: "mood", value: "sad" }, minTracks: 15 },
+    { id: "vibe-romantic", name: "Romantic", description: "Love songs", color: "from-rose-500/30 to-pink-600/30", filter: { type: "mood", value: "romantic" }, minTracks: 15 },
+    { id: "vibe-study", name: "Study", description: "Focus music", color: "from-slate-500/30 to-gray-600/30", filter: { type: "mood", value: "study" }, minTracks: 15 },
+    { id: "vibe-driving", name: "Driving", description: "Road trip vibes", color: "from-amber-500/30 to-orange-600/30", filter: { type: "mood", value: "driving" }, minTracks: 15 },
+];
+
+const getVibeColor = (tag: string): string => {
+    const lower = tag.toLowerCase();
+    return GENRE_COLORS[lower] || VIBE_STATIONS.find((s) => s.filter.value === lower)?.color || GENRE_COLORS.default;
+};
+
 // Radio Station Card Component
 function RadioStationCard({ 
     station, 
@@ -251,8 +271,17 @@ export default function RadioPage() {
         select: (data) => data.decades || [],
     });
 
+    // Fetch vibes (Last.fm mood tags) from library
+    const { data: vibesData } = useQuery({
+        queryKey: ["library", "vibes"],
+        queryFn: () => api.get<{ vibes: VibeCount[] }>("/library/vibes"),
+        staleTime: 60 * 60 * 1000, // 1 hour
+        select: (data) => (data.vibes || []).filter((v) => v.count >= 15),
+    });
+
     const genres = genresData ?? [];
     const decades = decadesData ?? [];
+    const vibes = vibesData ?? [];
     const isLoading = genresLoading || decadesLoading;
 
     const startRadio = async (station: RadioStation) => {
@@ -316,6 +345,19 @@ export default function RadioPage() {
         filter: { type: "decade" as const, value: d.decade.toString() },
         minTracks: 15,
     }));
+
+    // Create vibe stations from library (exclude tags already in preset VIBE_STATIONS)
+    const presetVibeTags = new Set(VIBE_STATIONS.map((s) => s.filter.value?.toLowerCase()));
+    const dynamicVibeStations: RadioStation[] = vibes
+        .filter((v) => !presetVibeTags.has(v.tag.toLowerCase()))
+        .map((v) => ({
+            id: `vibe-${v.tag}`,
+            name: v.tag.charAt(0).toUpperCase() + v.tag.slice(1),
+            description: `${v.count} tracks`,
+            color: getVibeColor(v.tag),
+            filter: { type: "mood" as const, value: v.tag },
+            minTracks: 15,
+        }));
 
     const handleSimilarSongClick = () => {
         if (currentTrack?.id?.startsWith("jellyfin:")) {
@@ -438,6 +480,32 @@ export default function RadioPage() {
                     />
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
                         {STATIC_STATIONS.map((station) => (
+                            <RadioStationCard
+                                key={station.id}
+                                station={station}
+                                onPlay={() => startRadio(station)}
+                                isLoading={loadingStation === station.id}
+                            />
+                        ))}
+                    </div>
+                </section>
+
+                {/* Vibes Section - Mood-based stations from Last.fm tags */}
+                <section className="mb-10">
+                    <SectionHeader 
+                        title="By Vibe" 
+                        description="Mood-based stations from your library" 
+                    />
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+                        {VIBE_STATIONS.map((station) => (
+                            <RadioStationCard
+                                key={station.id}
+                                station={station}
+                                onPlay={() => startRadio(station)}
+                                isLoading={loadingStation === station.id}
+                            />
+                        ))}
+                        {dynamicVibeStations.map((station) => (
                             <RadioStationCard
                                 key={station.id}
                                 station={station}

@@ -116,6 +116,56 @@ const applyCoverArtCorsHeaders = (res: Response, origin?: string) => {
     res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
 };
 
+/** Transient network errors that warrant a retry. */
+const RETRYABLE_ERRORS = ["ECONNRESET", "ECONNREFUSED", "ETIMEDOUT", "ENOTFOUND", "EAI_AGAIN", "EPIPE"];
+
+function isRetryableError(err: unknown): boolean {
+    const e = err as NodeJS.ErrnoException & { cause?: NodeJS.ErrnoException };
+    const code = e?.code ?? e?.cause?.code;
+    if (code && RETRYABLE_ERRORS.includes(code)) return true;
+    const message = String(e?.message ?? "").toLowerCase();
+    return message.includes("econnreset") || message.includes("fetch failed") || message.includes("aborted");
+}
+
+/**
+ * Fetch with retry for transient connection errors (ECONNRESET, etc.).
+ * Retries up to 3 times with 400ms delay. 15s timeout per attempt.
+ */
+async function fetchWithRetry(
+    url: string,
+    options: RequestInit & { timeoutMs?: number } = {}
+): Promise<Response> {
+    const { timeoutMs = 15000, ...fetchOptions } = options;
+    const maxAttempts = 3;
+    let lastError: unknown;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+            const res = await fetch(url, {
+                ...fetchOptions,
+                signal: controller.signal,
+                headers: {
+                    "User-Agent": "Lidify/1.0.0 (https://github.com/jamzercise/lidifin)",
+                    ...(fetchOptions.headers as Record<string, string>),
+                },
+            });
+            clearTimeout(timeoutId);
+            return res;
+        } catch (err) {
+            lastError = err;
+            if (attempt < maxAttempts && isRetryableError(err)) {
+                logger.debug(`[FETCH] Retry ${attempt}/${maxAttempts - 1} for ${url.substring(0, 60)}...:`, (err as Error).message);
+                await new Promise((r) => setTimeout(r, 400));
+            } else {
+                throw err;
+            }
+        }
+    }
+    throw lastError;
+}
+
 // All routes require auth (session or API key)
 router.use(requireAuthOrToken);
 
@@ -2272,11 +2322,9 @@ router.get("/cover-art/:id?", imageLimiter, async (req, res) => {
                         100
                     )}...`
                 );
-                const imageResponse = await fetch(coverUrl, {
+                const imageResponse = await fetchWithRetry(coverUrl, {
                     headers: {
                         Authorization: `Bearer ${audiobookshelfApiKey}`,
-                        "User-Agent":
-                            "Lidify/1.0.0 (https://github.com/jamzercise/lidifin)",
                     },
                 });
 
@@ -2463,11 +2511,9 @@ router.get("/cover-art/:id?", imageLimiter, async (req, res) => {
                         100
                     )}...`
                 );
-                const imageResponse = await fetch(coverUrl, {
+                const imageResponse = await fetchWithRetry(coverUrl, {
                     headers: {
                         Authorization: `Bearer ${audiobookshelfApiKey}`,
-                        "User-Agent":
-                            "Lidify/1.0.0 (https://github.com/jamzercise/lidifin)",
                     },
                 });
 
@@ -2576,12 +2622,7 @@ router.get("/cover-art/:id?", imageLimiter, async (req, res) => {
 
         // Fetch the image and proxy it to avoid CORS issues
         logger.debug(`[COVER-ART] Fetching: ${coverUrl.substring(0, 100)}...`);
-        const imageResponse = await fetch(coverUrl, {
-            headers: {
-                "User-Agent":
-                    "Lidify/1.0.0 (https://github.com/jamzercise/lidifin)",
-            },
-        });
+        const imageResponse = await fetchWithRetry(coverUrl);
         if (!imageResponse.ok) {
             logger.error(
                 `[COVER-ART] Failed to fetch: ${coverUrl} (${imageResponse.status} ${imageResponse.statusText})`
@@ -2736,12 +2777,7 @@ router.get("/cover-art-colors", imageLimiter, async (req, res) => {
         logger.debug(
             `[COLORS] Fetching image: ${imageUrl.substring(0, 100)}...`
         );
-        const imageResponse = await fetch(imageUrl, {
-            headers: {
-                "User-Agent":
-                    "Lidify/1.0.0 (https://github.com/jamzercise/lidifin)",
-            },
-        });
+        const imageResponse = await fetchWithRetry(imageUrl);
 
         if (!imageResponse.ok) {
             logger.error(
@@ -3538,6 +3574,73 @@ router.get("/decades", async (req, res) => {
     } catch (error) {
         logger.error("Decades endpoint error:", error);
         res.status(500).json({ error: "Failed to get decades" });
+    }
+});
+
+const LIBRARY_VIBES_CACHE_KEY = "library:vibes:counts";
+const LIBRARY_VIBES_CACHE_TTL = 3600; // 1 hour
+
+/**
+ * GET /library/vibes
+ * Returns aggregate counts of Last.fm mood tags in the library.
+ * Used by Radio Vibes section to show available vibe stations.
+ * Cached in Redis for 1 hour.
+ */
+router.get("/vibes", async (req, res) => {
+    try {
+        if (await isJellyfinMusicSource()) {
+            return res.json({ vibes: [] });
+        }
+
+        const cacheKey = LIBRARY_VIBES_CACHE_KEY;
+        if (redisClient.isReady) {
+            try {
+                const cached = await redisClient.get(cacheKey);
+                if (cached) {
+                    return res.json(JSON.parse(cached));
+                }
+            } catch (err) {
+                // ignore cache errors
+            }
+        }
+
+        const vibes = await prisma.$queryRaw<
+            { tag: string; count: bigint }[]
+        >`
+            SELECT unnest("lastfmTags") AS tag, count(*) AS count
+            FROM "Track"
+            WHERE "lastfmTags" IS NOT NULL
+              AND array_length("lastfmTags", 1) > 0
+              AND NOT ("lastfmTags" @> ARRAY['_no_mood_tags'])
+              AND NOT ("lastfmTags" @> ARRAY['_not_found'])
+            GROUP BY tag
+            ORDER BY count DESC
+            LIMIT 40
+        `;
+
+        const result = {
+            vibes: vibes.map((v) => ({
+                tag: v.tag,
+                count: Number(v.count),
+            })),
+        };
+
+        if (redisClient.isReady) {
+            try {
+                await redisClient.setEx(
+                    cacheKey,
+                    LIBRARY_VIBES_CACHE_TTL,
+                    JSON.stringify(result)
+                );
+            } catch (err) {
+                // ignore
+            }
+        }
+
+        return res.json(result);
+    } catch (error: any) {
+        logger.error("Vibes endpoint error:", error?.message || error);
+        res.status(500).json({ error: "Failed to get vibes" });
     }
 });
 
