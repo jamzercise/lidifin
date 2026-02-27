@@ -2,37 +2,38 @@
 
 :root,
 [data-theme="dark"] {
-    /* Lidify Design System - Dark Theme (default) */
+    /* Lidify Design System - Dark Theme (default) - Teal/Sage palette */
 
     /* Background Layers */
-    --bg-primary: #0a0a0a; /* Primary canvas */
-    --bg-secondary: #0f0f0f; /* Cards, panels */
-    --bg-tertiary: #141414; /* Nested content, wells */
-    --bg-hover: #1a1a1a; /* Modals, dropdowns, hover */
-    --bg-active: #1c1c1c; /* Active/selected states */
+    --bg-primary: #081917; /* Primary canvas - darkest */
+    --bg-secondary: #12353F; /* Cards, panels */
+    --bg-tertiary: #19413B; /* Nested content, wells */
+    --bg-hover: #19413B; /* Modals, dropdowns, hover */
+    --bg-active: #1a2e2d; /* Active/selected states */
 
     /* Borders */
-    --border-subtle: #1c1c1c; /* Subtle borders (default) */
-    --border-interactive: #262626; /* Interactive elements */
-    --border-focus: #333333; /* Focus, selected states */
+    --border-subtle: rgba(93, 162, 157, 0.2); /* Subtle borders */
+    --border-interactive: rgba(93, 162, 157, 0.35); /* Interactive elements */
+    --border-focus: rgba(177, 210, 195, 0.5); /* Focus, selected states */
 
-    /* Text Colors */
-    --text-primary: #ffffff; /* Primary headers */
-    --text-body: #e5e5e5; /* Body text */
-    --text-secondary: #a3a3a3; /* Secondary info */
-    --text-muted: #737373; /* Timestamps, meta */
-    --text-disabled: #525252; /* Disabled */
+    /* Text Colors - white/black with lowered opacity */
+    --text-primary: rgba(255, 255, 255, 0.95); /* Primary headers */
+    --text-body: rgba(255, 255, 255, 0.88); /* Body text */
+    --text-secondary: #B1D2C3; /* Secondary info - mint */
+    --text-muted: #5DA29D; /* Timestamps, meta - teal */
+    --text-disabled: rgba(255, 255, 255, 0.4); /* Disabled */
 
     /* Actions */
-    --color-primary: #eab308; /* PRIMARY CTA ONLY - Yellow */
-    --color-ai: #a855f7; /* AI features - Purple */
-    --color-ai-dark: #9333ea; /* AI selected */
+    --color-primary: #5DA29D; /* PRIMARY CTA - teal accent */
+    --color-primary-hover: #4a8f8a; /* Darker teal for hover */
+    --color-ai: #B1D2C3; /* AI features - mint */
+    --color-ai-dark: #5DA29D; /* AI selected */
 
     /* Status */
     --color-success: #22c55e;
     --color-warning: #f59e0b;
     --color-error: #ef4444;
-    --color-info: #3b82f6;
+    --color-info: #5DA29D;
 }
 
 /* Light Theme */
@@ -54,6 +55,7 @@
     --text-disabled: #a3a3a3;
 
     --color-primary: #ca8a04;
+    --color-primary-hover: #a16207;
     --color-ai: #7c3aed;
     --color-ai-dark: #6d28d9;
 
@@ -82,6 +84,7 @@
     --text-disabled: #d97706;
 
     --color-primary: #f59e0b;
+    --color-primary-hover: #d97706;
     --color-ai: #d97706;
     --color-ai-dark: #b45309;
 
@@ -110,6 +113,7 @@
     --text-disabled: #64748b;
 
     --color-primary: #0ea5e9;
+    --color-primary-hover: #0284c7;
     --color-ai: #6366f1;
     --color-ai-dark: #4f46e5;
 
@@ -138,6 +142,7 @@
     --text-disabled: #a3a3a3;
 
     --color-primary: #facc15;
+    --color-primary-hover: #eab308;
     --color-ai: #c084fc;
     --color-ai-dark: #a855f7;
 

@@ -3,11 +3,12 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, useEffect, useRef } from "react";
-import { Plus, Settings, RefreshCw } from "lucide-react";
+import { Plus, Settings, RefreshCw, Play } from "lucide-react";
 import { cn } from "@/utils/cn";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { useAudioState } from "@/lib/audio-state-context";
+import { useAudioControls } from "@/lib/audio-controls-context";
 import { useIsMobile, useIsTablet } from "@/hooks/useMediaQuery";
 import { useToast } from "@/lib/toast-context";
 import Image from "next/image";
@@ -39,6 +40,7 @@ export function Sidebar() {
     const { toast } = useToast();
     const { currentTrack, currentAudiobook, currentPodcast, playbackType } =
         useAudioState();
+    const { playTracks } = useAudioControls();
     const isMobile = useIsMobile();
     const isTablet = useIsTablet();
     const isMobileOrTablet = isMobile || isTablet;
@@ -114,6 +116,49 @@ export function Sidebar() {
             window.removeEventListener("playlist-deleted", handlePlaylistEvent);
         };
     }, [isAuthenticated]);
+
+    const handlePlayPlaylist = async (e: React.MouseEvent, playlistId: string) => {
+        e.preventDefault();
+        e.stopPropagation();
+        try {
+            const playlist = await api.getPlaylist(playlistId);
+            if (playlist?.items && playlist.items.length > 0) {
+                const tracks = playlist.items.map(
+                    (item: {
+                        track: {
+                            id: string;
+                            title: string;
+                            duration: number;
+                            album?: {
+                                id?: string;
+                                title?: string;
+                                coverArt?: string;
+                                artist?: { id?: string; name?: string };
+                            };
+                        };
+                    }
+                ) => ({
+                    id: item.track.id,
+                    title: item.track.title,
+                    artist: {
+                        name: item.track.album?.artist?.name || "Unknown",
+                        id: item.track.album?.artist?.id,
+                    },
+                    album: {
+                        title: item.track.album?.title || "Unknown",
+                        coverArt: item.track.album?.coverArt,
+                        id: item.track.album?.id,
+                    },
+                    duration: item.track.duration,
+                })
+                );
+                playTracks(tracks, 0);
+            }
+        } catch (error) {
+            console.error("Failed to play playlist:", error);
+            toast.error("Could not play playlist");
+        }
+    };
 
     // Close mobile menu when route changes
     useEffect(() => {
@@ -373,26 +418,46 @@ export function Sidebar() {
                                             <div className="absolute inset-0 bg-gradient-to-r from-transparent via-purple-500/5 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700" />
                                         )}
 
-                                        <div className="flex items-center gap-1.5">
-                                            <div
-                                                className={cn(
-                                                    "text-sm font-medium truncate relative z-10 transition-all duration-200 flex-1",
-                                                    isActive ? "font-semibold"
-                                                    :   "group-hover:translate-x-0.5",
+                                        <div className="flex items-center gap-2 w-full">
+                                            <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                                                <div
+                                                    className={cn(
+                                                        "text-sm font-medium truncate relative z-10 transition-all duration-200",
+                                                        isActive ? "font-semibold"
+                                                        :   "group-hover:translate-x-0.5",
+                                                    )}
+                                                >
+                                                    {playlist.name}
+                                                </div>
+                                                {isShared && (
+                                                    <span
+                                                        className="shrink-0 w-1.5 h-1.5 rounded-full bg-purple-500"
+                                                        title={`Shared by ${
+                                                            playlist.user
+                                                                ?.username ||
+                                                            "someone"
+                                                        }`}
+                                                    />
                                                 )}
-                                            >
-                                                {playlist.name}
                                             </div>
-                                            {isShared && (
-                                                <span
-                                                    className="shrink-0 w-1.5 h-1.5 rounded-full bg-purple-500"
-                                                    title={`Shared by ${
-                                                        playlist.user
-                                                            ?.username ||
-                                                        "someone"
-                                                    }`}
-                                                />
-                                            )}
+                                            <button
+                                                type="button"
+                                                onClick={(e) =>
+                                                    handlePlayPlaylist(
+                                                        e,
+                                                        playlist.id
+                                                    )
+                                                }
+                                                className={cn(
+                                                    "shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200 opacity-0 group-hover:opacity-100",
+                                                    "bg-white text-black hover:scale-110 hover:bg-white/90",
+                                                    "focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-white/50"
+                                                )}
+                                                aria-label={`Play ${playlist.name}`}
+                                                title={`Play ${playlist.name}`}
+                                            >
+                                                <Play className="w-4 h-4 ml-0.5 fill-current" />
+                                            </button>
                                         </div>
                                         <div
                                             className={cn(

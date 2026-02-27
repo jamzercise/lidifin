@@ -105,7 +105,7 @@ export function AudioMuseSection({ settings, onUpdate, isTesting }: AudioMuseSec
                         </select>
                     </SettingsRow>
 
-                    {settings.audiomuseAiProvider === "OLLAMA" && (
+                    {(settings.audiomuseAiProvider || "OLLAMA") === "OLLAMA" && (
                         <SettingsRow
                             label="Ollama URL"
                             description="Override if AudioMuse uses wrong default (e.g. in Docker use host.docker.internal:11434)"

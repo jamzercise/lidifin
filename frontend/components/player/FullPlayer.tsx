@@ -19,6 +19,7 @@ import {
     Shuffle,
     Repeat,
     Repeat1,
+    Heart,
     RotateCcw,
     RotateCw,
     Loader2,
@@ -31,6 +32,7 @@ import { KeyboardShortcutsTooltip } from "./KeyboardShortcutsTooltip";
 import { SleepTimerButton } from "./SleepTimerButton";
 import { PlaybackSpeedButton } from "./PlaybackSpeedButton";
 import { useQueuePanel } from "@/lib/queue-panel-context";
+import { useFavorites } from "@/hooks/useFavorites";
 import { cn } from "@/utils/cn";
 import { useFeatures } from "@/lib/features-context";
 import { formatTime, clampTime, formatTimeRemaining } from "@/utils/formatTime";
@@ -93,6 +95,7 @@ export function FullPlayer() {
     const [isVibeLoading, setIsVibeLoading] = useState(false);
     const { vibeEmbeddings, loading: featuresLoading } = useFeatures();
     const { openQueue } = useQueuePanel();
+    const { favoriteIds, addFavorite, removeFavorite } = useFavorites();
 
     // Get current track's audio features for vibe comparison
     const currentTrackFeatures = queue[currentIndex]?.audioFeatures || null;
@@ -492,6 +495,31 @@ export function FullPlayer() {
                                 visible={playbackType === "podcast" || playbackType === "audiobook"}
                                 dropdownPlacement="top"
                             />
+
+                            {/* Jellyfin favorites - track only */}
+                            {playbackType === "track" && currentTrack?.id?.startsWith("jellyfin:") && (
+                                <button
+                                    type="button"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        const isFav = favoriteIds.has(currentTrack.id);
+                                        if (isFav) removeFavorite(currentTrack.id);
+                                        else addFavorite(currentTrack.id);
+                                    }}
+                                    className={cn(
+                                        "transition-all duration-200 hover:scale-110",
+                                        favoriteIds.has(currentTrack.id)
+                                            ? "text-red-400 hover:text-red-300"
+                                            : "text-gray-400 hover:text-white"
+                                    )}
+                                    aria-label={favoriteIds.has(currentTrack.id) ? "Remove from Favorites" : "Add to Favorites"}
+                                    title={favoriteIds.has(currentTrack.id) ? "Remove from Favorites" : "Add to Favorites"}
+                                >
+                                    <Heart
+                                        className={cn("w-4 h-4", favoriteIds.has(currentTrack.id) && "fill-current")}
+                                    />
+                                </button>
+                            )}
 
                             {/* Vibe Mode Toggle - only when embeddings available */}
                             {!featuresLoading && vibeEmbeddings && (

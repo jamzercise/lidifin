@@ -26,7 +26,7 @@ export const viewport: Viewport = {
     maximumScale: 1,
     userScalable: false,
     viewportFit: "cover",
-    themeColor: "#000000",
+    themeColor: "#081917",
 };
 
 export const metadata: Metadata = {
@@ -34,10 +34,10 @@ export const metadata: Metadata = {
     description: "Self-hosted music streaming platform",
     manifest: "/manifest.webmanifest",
     icons: {
-        icon: "/assets/images/Lidify__favicon.ico",
+        icon: "/assets/images/favicon-192.png",
         apple: [
-            { url: "/assets/icons/icon-192.webp", sizes: "192x192" },
-            { url: "/assets/icons/icon-512.webp", sizes: "512x512" },
+            { url: "/assets/icons/icon-192.png", sizes: "192x192" },
+            { url: "/assets/icons/icon-512.png", sizes: "512x512" },
         ],
     },
     appleWebApp: {

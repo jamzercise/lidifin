@@ -370,7 +370,7 @@ export default function OnboardingPage() {
                                             <button
                                                 type="submit"
                                                 disabled={loading}
-                                                className="w-full py-3.5 bg-[#fca200] text-black font-bold rounded-lg hover:bg-[#e69200] transition-all disabled:opacity-50 disabled:cursor-not-allowed relative group overflow-hidden mt-8 focus:outline-none focus:ring-2 focus:ring-brand/30"
+                                                className="w-full py-3.5 bg-brand text-black font-bold rounded-lg hover:bg-brand-hover transition-all disabled:opacity-50 disabled:cursor-not-allowed relative group overflow-hidden mt-8 focus:outline-none focus:ring-2 focus:ring-brand/30"
                                             >
                                                 <span className="relative z-10 flex items-center justify-center gap-2">
                                                     {loading ? (
@@ -601,7 +601,7 @@ export default function OnboardingPage() {
                                                 onKeyDown={(e) => e.key === 'Enter' && !loading && handleNextStep()}
                                                 disabled={loading}
                                                 tabIndex={0}
-                                                className="flex-1 py-3.5 bg-[#fca200] text-black font-bold rounded-lg hover:bg-[#e69200] transition-all disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-brand/30"
+                                                className="flex-1 py-3.5 bg-brand text-black font-bold rounded-lg hover:bg-brand-hover transition-all disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-brand/30"
                                             >
                                                 {loading
                                                     ? "Saving..."
@@ -731,7 +731,7 @@ export default function OnboardingPage() {
                                                 onClick={handleNextStep}
                                                 onKeyDown={(e) => e.key === 'Enter' && !loading && handleNextStep()}
                                                 disabled={loading}
-                                                className="w-full py-3.5 bg-[#fca200] text-black font-bold rounded-lg hover:bg-[#e69200] transition-all duration-200 disabled:opacity-50 disabled:hover:scale-100 relative group overflow-hidden focus:outline-none focus:ring-2 focus:ring-brand/30"
+                                                className="w-full py-3.5 bg-brand text-black font-bold rounded-lg hover:bg-brand-hover transition-all duration-200 disabled:opacity-50 disabled:hover:scale-100 relative group overflow-hidden focus:outline-none focus:ring-2 focus:ring-brand/30"
                                             >
                                                 <span className="relative z-10 flex items-center justify-center gap-2">
                                                     {loading ? (

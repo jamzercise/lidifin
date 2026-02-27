@@ -10,6 +10,7 @@ import { cn } from "@/utils/cn";
 import { shuffleArray } from "@/utils/shuffle";
 import { formatTime } from "@/utils/formatTime";
 import { usePlaylistQuery } from "@/hooks/useQueries";
+import { useFavorites } from "@/hooks/useFavorites";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/lib/toast-context";
 import { GradientSpinner } from "@/components/ui/GradientSpinner";
@@ -20,6 +21,7 @@ import {
     Shuffle,
     Eye,
     EyeOff,
+    Heart,
     ListPlus,
     ListMusic,
     Music,
@@ -34,11 +36,15 @@ interface Track {
     id: string;
     title: string;
     duration: number;
+    artist?: {
+        id?: string;
+        name: string;
+    };
     album: {
         id?: string;
         title: string;
         coverArt?: string;
-        artist: {
+        artist?: {
             id?: string;
             name: string;
         };
@@ -74,6 +80,7 @@ export default function PlaylistDetailPage() {
     const { currentTrack } = useAudioState();
     const { isPlaying } = useAudioPlayback();
     const { playTracks, addToQueue, pause, resume } = useAudioControls();
+    const { favoriteIds, addFavorite, removeFavorite } = useFavorites();
     const playlistId = params.id as string;
 
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -595,9 +602,10 @@ export default function PlaylistDetailPage() {
                 playlist.pendingTracks?.length > 0 ? (
                     <div className="w-full">
                         {/* Table Header */}
-                        <div className="hidden md:grid grid-cols-[40px_minmax(200px,4fr)_minmax(100px,1fr)_80px] gap-4 px-4 py-2 text-xs text-gray-400 uppercase tracking-wider border-b border-white/10 mb-2">
+                        <div className="hidden md:grid grid-cols-[40px_minmax(160px,2fr)_minmax(100px,1fr)_minmax(100px,1fr)_80px] gap-4 px-4 py-2 text-xs text-gray-400 uppercase tracking-wider border-b border-white/10 mb-2">
                             <span className="text-center">#</span>
                             <span>Title</span>
+                            <span>Artist</span>
                             <span>Album</span>
                             <span className="text-right">Duration</span>
                         </div>
@@ -623,14 +631,14 @@ export default function PlaylistDetailPage() {
                                         return (
                                             <div
                                                 key={`pending-${pending.id}`}
-                                                className="grid grid-cols-[40px_1fr_auto] md:grid-cols-[40px_minmax(200px,4fr)_minmax(100px,1fr)_120px] gap-4 px-4 py-2 rounded-md opacity-60 hover:opacity-80 group transition-opacity"
+                                                className="grid grid-cols-[40px_1fr_auto] md:grid-cols-[40px_minmax(160px,2fr)_minmax(100px,1fr)_minmax(100px,1fr)_120px] gap-4 px-4 py-2 rounded-md opacity-60 hover:opacity-80 group transition-opacity"
                                             >
                                                 {/* Track Number - failed icon */}
                                                 <div className="flex items-center justify-center">
                                                     <AlertCircle className="w-4 h-4 text-red-400" />
                                                 </div>
 
-                                                {/* Title + Artist */}
+                                                {/* Title (mobile: title + artist subtitle) */}
                                                 <div className="flex items-center gap-3 min-w-0">
                                                     <div className="w-10 h-10 bg-[#282828] rounded shrink-0 overflow-hidden flex items-center justify-center">
                                                         <button
@@ -653,11 +661,16 @@ export default function PlaylistDetailPage() {
                                                         <p className="text-sm font-medium truncate text-gray-400">
                                                             {pending.title}
                                                         </p>
-                                                        <p className="text-xs text-gray-500 truncate">
+                                                        <p className="text-xs text-gray-500 truncate md:hidden">
                                                             {pending.artist}
                                                         </p>
                                                     </div>
                                                 </div>
+
+                                                {/* Artist (hidden on mobile) */}
+                                                <p className="hidden md:flex items-center text-sm text-gray-500 truncate">
+                                                    {pending.artist}
+                                                </p>
 
                                                 {/* Album (hidden on mobile) */}
                                                 <p className="hidden md:flex items-center text-sm text-gray-500 truncate">
@@ -762,7 +775,7 @@ export default function PlaylistDetailPage() {
                                                 handlePlayTrack(trackIndex)
                                             }
                                             className={cn(
-                                                "grid grid-cols-[40px_1fr_auto] md:grid-cols-[40px_minmax(200px,4fr)_minmax(100px,1fr)_80px] gap-4 px-4 py-2 rounded-md hover:bg-white/5 transition-colors group cursor-pointer",
+                                                "grid grid-cols-[40px_1fr_auto] md:grid-cols-[40px_minmax(160px,2fr)_minmax(100px,1fr)_minmax(100px,1fr)_80px] gap-4 px-4 py-2 rounded-md hover:bg-white/5 transition-colors group cursor-pointer",
                                                 isCurrentlyPlaying &&
                                                     "bg-white/10"
                                             )}
@@ -787,7 +800,7 @@ export default function PlaylistDetailPage() {
                                                 <Play className="w-4 h-4 text-white hidden group-hover:block" />
                                             </div>
 
-                                            {/* Title + Artist */}
+                                            {/* Title (mobile: title + artist subtitle) */}
                                             <div className="flex items-center gap-3 min-w-0">
                                                 <div className="relative w-10 h-10 bg-[#282828] rounded shrink-0 overflow-hidden">
                                                     {playlistItem.track.album
@@ -814,7 +827,7 @@ export default function PlaylistDetailPage() {
                                                         </div>
                                                     )}
                                                 </div>
-                                                <div className="min-w-0">
+                                                <div className="min-w-0 md:min-w-0">
                                                     <p
                                                         className={cn(
                                                             "text-sm font-medium truncate",
@@ -828,15 +841,21 @@ export default function PlaylistDetailPage() {
                                                                 .title
                                                         }
                                                     </p>
-                                                    <p className="text-xs text-gray-400 truncate">
-                                                        {
-                                                            playlistItem.track
-                                                                ?.album?.artist
-                                                                ?.name ?? "Unknown"
-                                                        }
+                                                    {/* Artist subtitle - mobile only (desktop has dedicated column) */}
+                                                    <p className="text-xs text-gray-400 truncate md:hidden">
+                                                        {playlistItem.track?.artist?.name ??
+                                                            playlistItem.track?.album?.artist?.name ??
+                                                            "Unknown"}
                                                     </p>
                                                 </div>
                                             </div>
+
+                                            {/* Artist (hidden on mobile) */}
+                                            <p className="hidden md:flex items-center text-sm text-gray-400 truncate">
+                                                {playlistItem.track?.artist?.name ??
+                                                    playlistItem.track?.album?.artist?.name ??
+                                                    "Unknown"}
+                                            </p>
 
                                             {/* Album (hidden on mobile) */}
                                             <p className="hidden md:flex items-center text-sm text-gray-400 truncate">
@@ -845,6 +864,27 @@ export default function PlaylistDetailPage() {
 
                                             {/* Duration + Actions */}
                                             <div className="flex items-center justify-end gap-2">
+                                                {playlistItem.track.id.startsWith("jellyfin:") && (
+                                                    <button
+                                                        className={cn(
+                                                            "p-1.5 rounded-full opacity-0 group-hover:opacity-100 hover:bg-white/10 transition-all",
+                                                            favoriteIds.has(playlistItem.track.id)
+                                                                ? "text-red-400 hover:text-red-300"
+                                                                : "text-gray-400 hover:text-white"
+                                                        )}
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            const isFav = favoriteIds.has(playlistItem.track.id);
+                                                            if (isFav) removeFavorite(playlistItem.track.id);
+                                                            else addFavorite(playlistItem.track.id);
+                                                        }}
+                                                        title={favoriteIds.has(playlistItem.track.id) ? "Remove from Favorites" : "Add to Favorites"}
+                                                    >
+                                                        <Heart
+                                                            className={cn("w-4 h-4", favoriteIds.has(playlistItem.track.id) && "fill-current")}
+                                                        />
+                                                    </button>
+                                                )}
                                                 <button
                                                     className="p-1.5 rounded-full opacity-0 group-hover:opacity-100 hover:bg-white/10 text-gray-400 hover:text-white transition-all"
                                                     onClick={(e) => {

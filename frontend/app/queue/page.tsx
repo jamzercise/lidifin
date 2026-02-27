@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { useAudioState, useAudioControls } from "@/lib/audio-context";
 import { useAuth } from "@/lib/auth-context";
+import { useFavorites } from "@/hooks/useFavorites";
+import { cn } from "@/utils/cn";
 import { useToast } from "@/lib/toast-context";
 import { api } from "@/lib/api";
 
@@ -15,6 +17,7 @@ import {
     Music,
     Play,
     X,
+    Heart,
     GripVertical,
     Trash2,
     ListMusic,
@@ -27,6 +30,7 @@ export default function QueuePage() {
     const { isAuthenticated } = useAuth();
     const { queue, currentTrack, currentIndex, setQueue } = useAudioState();
     const { playTracks, removeFromQueue, clearQueue } = useAudioControls();
+    const { favoriteIds, addFavorite, removeFavorite } = useFavorites();
     const { toast } = useToast();
 
     useEffect(() => {
@@ -167,6 +171,28 @@ export default function QueuePage() {
                                         {currentTrack.album?.title}
                                     </p>
                                 </div>
+                                {currentTrack.id?.startsWith("jellyfin:") && (
+                                    <button
+                                        type="button"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            const isFav = favoriteIds.has(currentTrack.id);
+                                            if (isFav) removeFavorite(currentTrack.id);
+                                            else addFavorite(currentTrack.id);
+                                        }}
+                                        className={cn(
+                                            "p-2 rounded-md transition-colors",
+                                            favoriteIds.has(currentTrack.id)
+                                                ? "text-red-400 hover:text-red-300"
+                                                : "text-gray-400 hover:text-white"
+                                        )}
+                                        title={favoriteIds.has(currentTrack.id) ? "Remove from Favorites" : "Add to Favorites"}
+                                    >
+                                        <Heart
+                                            className={cn("w-4 h-4", favoriteIds.has(currentTrack.id) && "fill-current")}
+                                        />
+                                    </button>
+                                )}
                                 <div className="text-sm text-gray-500">
                                     {currentTrack.duration
                                         ? `${Math.floor(
@@ -250,6 +276,28 @@ export default function QueuePage() {
 
                                             {/* Actions */}
                                             <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                {track.id?.startsWith("jellyfin:") && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            const isFav = favoriteIds.has(track.id);
+                                                            if (isFav) removeFavorite(track.id);
+                                                            else addFavorite(track.id);
+                                                        }}
+                                                        className={cn(
+                                                            "p-2 rounded-md transition-colors",
+                                                            favoriteIds.has(track.id)
+                                                                ? "text-red-400 hover:text-red-300"
+                                                                : "text-gray-400 hover:text-white"
+                                                        )}
+                                                        title={favoriteIds.has(track.id) ? "Remove from Favorites" : "Add to Favorites"}
+                                                    >
+                                                        <Heart
+                                                            className={cn("w-4 h-4", favoriteIds.has(track.id) && "fill-current")}
+                                                        />
+                                                    </button>
+                                                )}
                                                 <button
                                                     onClick={() =>
                                                         handleMoveUp(queueIndex)
@@ -352,6 +400,29 @@ export default function QueuePage() {
                                                 {track.artist?.name}
                                             </p>
                                         </div>
+
+                                        {track.id?.startsWith("jellyfin:") && (
+                                            <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    const isFav = favoriteIds.has(track.id);
+                                                    if (isFav) removeFavorite(track.id);
+                                                    else addFavorite(track.id);
+                                                }}
+                                                className={cn(
+                                                    "p-2 rounded-md transition-colors",
+                                                    favoriteIds.has(track.id)
+                                                        ? "text-red-400 hover:text-red-300"
+                                                        : "text-gray-400 hover:text-white"
+                                                )}
+                                                title={favoriteIds.has(track.id) ? "Remove from Favorites" : "Add to Favorites"}
+                                            >
+                                                <Heart
+                                                    className={cn("w-4 h-4", favoriteIds.has(track.id) && "fill-current")}
+                                                />
+                                            </button>
+                                        )}
 
                                         {/* Duration */}
                                         <div className="text-sm text-gray-500">

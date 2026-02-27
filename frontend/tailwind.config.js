@@ -10,10 +10,10 @@ module.exports = {
         extend: {
             colors: {
                 brand: {
-                    DEFAULT: '#fca200',
-                    hover: '#e69200',
-                    light: '#fcb84d',
-                    dark: '#d48c00'
+                    DEFAULT: 'var(--color-primary)',
+                    hover: 'var(--color-primary-hover, #4a8f8a)',
+                    light: '#B1D2C3',
+                    dark: '#19413B'
                 },
                 /* Theme-aware colors (use CSS variables) */
                 theme: {

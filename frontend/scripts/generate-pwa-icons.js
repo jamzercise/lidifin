@@ -1,9 +1,11 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 /**
- * Generate PWA icons from the correct Lidify logo
+ * Generate PWA icons from icon-only.png
  *
- * Uses the icon-only.png (smooth black circle with yellow soundwave)
- * instead of the old sharp-edged version with white borders
+ * Source: frontend/assets/icon-only.png
+ * Outputs: WebP icons + favicon-192.png (requires Node 14+ for sharp)
+ * Fallback: Use `sips` on macOS: for s in 48 72 96 128 192 256 512; do
+ *   sips -z $s $s assets/icon-only.png --out public/assets/icons/icon-$s.png; done
  */
 
 const sharp = require("sharp");
