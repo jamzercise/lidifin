@@ -127,6 +127,9 @@ function isRetryableError(err: unknown): boolean {
     return message.includes("econnreset") || message.includes("fetch failed") || message.includes("aborted");
 }
 
+/** Fetch API Response type (distinct from Express Response). */
+type FetchResponse = Awaited<ReturnType<typeof fetch>>;
+
 /**
  * Fetch with retry for transient connection errors (ECONNRESET, etc.).
  * Retries up to 3 times with 400ms delay. 15s timeout per attempt.
@@ -134,7 +137,7 @@ function isRetryableError(err: unknown): boolean {
 async function fetchWithRetry(
     url: string,
     options: RequestInit & { timeoutMs?: number } = {}
-): Promise<Response> {
+): Promise<FetchResponse> {
     const { timeoutMs = 15000, ...fetchOptions } = options;
     const maxAttempts = 3;
     let lastError: unknown;
