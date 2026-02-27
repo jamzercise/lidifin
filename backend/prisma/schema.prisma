@@ -291,10 +291,7 @@ model TranscodedFile {
   @@index([lastAccessed])
 }
 
-/**
- * Jellyfin track metadata for mood/vibe radio when Jellyfin is music source.
- * Synced from Jellyfin library; enriched with Last.fm tags for By Vibe stations.
- */
+/// Jellyfin track metadata for mood/vibe radio when Jellyfin is music source.
 model JellyfinTrackMetadata {
   jellyfinId   String   @id // jellyfin:uuid format
   artistName   String
