@@ -124,6 +124,59 @@ startUnifiedEnrichmentWorker().catch((err) => {
     }
 })();
 
+// Jellyfin track metadata sync + enrichment (for By Vibe radio when Jellyfin is music source)
+(async () => {
+    try {
+        const { isJellyfinMusicSource } = await import("../services/jellyfin");
+        if (!(await isJellyfinMusicSource())) {
+            logger.debug("Jellyfin metadata sync skipped – Jellyfin is not music source");
+            return;
+        }
+        const { syncJellyfinTrackMetadata } = await import("../services/jellyfinMetadataSync");
+        const { enrichJellyfinTrackMetadata } = await import("../services/jellyfinMetadataEnrichment");
+        // Run sync 30s after startup (allow Jellyfin to be ready)
+        timeouts.push(
+            setTimeout(async () => {
+                try {
+                    const syncResult = await syncJellyfinTrackMetadata();
+                    if (syncResult) {
+                        logger.info(`[JellyfinMetadata] Sync: ${syncResult.synced} tracks`);
+                        // Run enrichment after sync
+                        let totalEnriched = 0;
+                        for (let i = 0; i < 5; i++) {
+                            const r = await enrichJellyfinTrackMetadata();
+                            if (!r || r.enriched === 0) break;
+                            totalEnriched += r.enriched;
+                        }
+                        if (totalEnriched > 0) {
+                            logger.info(`[JellyfinMetadata] Enrichment: ${totalEnriched} tracks`);
+                        }
+                    }
+                } catch (err: any) {
+                    logger.warn("[JellyfinMetadata] Sync/enrich failed:", err?.message);
+                }
+            }, 30000)
+        );
+        // Schedule periodic sync every 6 hours
+        intervals.push(
+            setInterval(async () => {
+                try {
+                    const syncResult = await syncJellyfinTrackMetadata();
+                    if (syncResult) {
+                        logger.debug(`[JellyfinMetadata] Periodic sync: ${syncResult.synced} tracks`);
+                        await enrichJellyfinTrackMetadata();
+                    }
+                } catch (err: any) {
+                    logger.warn("[JellyfinMetadata] Periodic sync failed:", err?.message);
+                }
+            }, 6 * 60 * 60 * 1000)
+        );
+        logger.debug("Jellyfin metadata sync scheduled (30s delay, then every 6h)");
+    } catch (err) {
+        logger.warn("Jellyfin metadata sync setup failed:", err);
+    }
+})();
+
 // Event handlers for scan queue
 scanQueue.on("completed", (job, result) => {
     logger.debug(

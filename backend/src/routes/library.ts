@@ -1,5 +1,5 @@
 import { Router, Response } from "express";
-import { requireAuth, requireAuthOrToken } from "../middleware/auth";
+import { requireAuth, requireAuthOrToken, requireAdmin } from "../middleware/auth";
 import { imageLimiter, apiLimiter } from "../middleware/rateLimiter";
 import { lastFmService } from "../services/lastfm";
 import { prisma, Prisma } from "../utils/db";
@@ -3584,6 +3584,50 @@ const LIBRARY_VIBES_CACHE_KEY = "library:vibes:counts";
 const LIBRARY_VIBES_CACHE_TTL = 3600; // 1 hour
 
 /**
+ * POST /library/jellyfin-metadata/sync
+ * Manually trigger Jellyfin track metadata sync + enrichment (for By Vibe radio).
+ * Only available when Jellyfin is the music source.
+ */
+router.post("/jellyfin-metadata/sync", requireAdmin, async (req, res) => {
+    try {
+        if (!(await isJellyfinMusicSource())) {
+            return res.status(400).json({
+                error: "Jellyfin metadata sync only applies when Jellyfin is the music source",
+            });
+        }
+        const { syncJellyfinTrackMetadata } = await import("../services/jellyfinMetadataSync");
+        const { enrichJellyfinTrackMetadata } = await import("../services/jellyfinMetadataEnrichment");
+        const syncResult = await syncJellyfinTrackMetadata();
+        if (!syncResult) {
+            return res.status(503).json({ error: "Jellyfin not configured" });
+        }
+        let enriched = 0;
+        for (let i = 0; i < 10; i++) {
+            const r = await enrichJellyfinTrackMetadata();
+            if (!r || r.enriched === 0) break;
+            enriched += r.enriched;
+        }
+        if (redisClient.isReady) {
+            try {
+                await redisClient.del(LIBRARY_VIBES_CACHE_KEY + ":jellyfin");
+            } catch {
+                /* ignore */
+            }
+        }
+        return res.json({
+            success: true,
+            synced: syncResult.synced,
+            removed: syncResult.removed,
+            enriched,
+            durationMs: syncResult.durationMs,
+        });
+    } catch (error: any) {
+        logger.error("Jellyfin metadata sync error:", error?.message || error);
+        res.status(500).json({ error: "Failed to sync Jellyfin metadata" });
+    }
+});
+
+/**
  * GET /library/vibes
  * Returns aggregate counts of Last.fm mood tags in the library.
  * Used by Radio Vibes section to show available vibe stations.
@@ -3592,7 +3636,46 @@ const LIBRARY_VIBES_CACHE_TTL = 3600; // 1 hour
 router.get("/vibes", async (req, res) => {
     try {
         if (await isJellyfinMusicSource()) {
-            return res.json({ vibes: [] });
+            // Jellyfin: aggregate from JellyfinTrackMetadata (Last.fm tags from sync+enrichment)
+            const cacheKey = LIBRARY_VIBES_CACHE_KEY + ":jellyfin";
+            if (redisClient.isReady) {
+                try {
+                    const cached = await redisClient.get(cacheKey);
+                    if (cached) {
+                        return res.json(JSON.parse(cached));
+                    }
+                } catch (err) {
+                    /* ignore cache errors */
+                }
+            }
+            const vibes = await prisma.$queryRaw<
+                { tag: string; count: bigint }[]
+            >`
+                SELECT unnest("lastfmTags") AS tag, count(*) AS count
+                FROM "JellyfinTrackMetadata"
+                WHERE "lastfmTags" IS NOT NULL
+                  AND array_length("lastfmTags", 1) > 0
+                  AND NOT ("lastfmTags" @> ARRAY['_no_mood_tags'])
+                  AND NOT ("lastfmTags" @> ARRAY['_not_found'])
+                GROUP BY tag
+                ORDER BY count DESC
+                LIMIT 40
+            `;
+            const result = {
+                vibes: vibes.map((v) => ({ tag: v.tag, count: Number(v.count) })),
+            };
+            if (redisClient.isReady) {
+                try {
+                    await redisClient.setEx(
+                        cacheKey,
+                        LIBRARY_VIBES_CACHE_TTL,
+                        JSON.stringify(result)
+                    );
+                } catch (err) {
+                    /* ignore */
+                }
+            }
+            return res.json(result);
         }
 
         const cacheKey = LIBRARY_VIBES_CACHE_KEY;
@@ -3664,6 +3747,63 @@ router.get("/radio", async (req, res) => {
 
         if (!type) {
             return res.status(400).json({ error: "Radio type is required" });
+        }
+
+        // Jellyfin music source: fetch from Jellyfin API or JellyfinTrackMetadata (mood)
+        if (await isJellyfinMusicSource()) {
+            const cfg = await getJellyfinConfig();
+            if (!cfg) {
+                return res.status(503).json({
+                    error: JELLYFIN_UNREACHABLE_MESSAGE,
+                    jellyfin: true,
+                });
+            }
+            let jellyfinTracks: Awaited<ReturnType<typeof getJellyfinTracks>>["tracks"] = [];
+            if (type === "mood" && value) {
+                // Mood radio: use JellyfinTrackMetadata (Last.fm tags from sync+enrichment)
+                const moodValue = ((value as string) || "").toLowerCase();
+                const moodRows = await prisma.jellyfinTrackMetadata.findMany({
+                    where: {
+                        AND: [
+                            { lastfmTags: { has: moodValue } },
+                            { NOT: { lastfmTags: { has: "_no_mood_tags" } } },
+                            { NOT: { lastfmTags: { has: "_not_found" } } },
+                        ],
+                    },
+                    select: { jellyfinId: true },
+                    take: limitNum * 2,
+                });
+                const trackIds = moodRows.map((r) => r.jellyfinId);
+                if (trackIds.length > 0) {
+                    const resolved = await resolveTrackReferences(trackIds);
+                    jellyfinTracks = resolved.filter((t): t is NonNullable<typeof t> => t !== null);
+                }
+            }
+            if (jellyfinTracks.length === 0) {
+                if (type === "favorites") {
+                    jellyfinTracks = await getJellyfinFavorites(cfg);
+                } else {
+                    // all, discovery, workout, genre, decade, or mood with no matches
+                    const { tracks } = await getJellyfinTracks(cfg, {
+                        limit: limitNum * 2,
+                        sortBy: "Random",
+                    });
+                    jellyfinTracks = tracks;
+                }
+            }
+            const sliced = shuffleArray(jellyfinTracks).slice(0, limitNum);
+            const transformed = sliced.map((t) => ({
+                id: t.id,
+                title: t.title,
+                duration: t.duration,
+                artist: { id: t.artist.id, name: t.artist.name },
+                album: {
+                    id: t.album.id,
+                    title: t.album.title,
+                    coverArt: t.album.coverArt ?? undefined,
+                },
+            }));
+            return res.json({ tracks: transformed });
         }
 
         let whereClause: any = {};

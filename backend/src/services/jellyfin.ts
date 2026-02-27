@@ -528,7 +528,15 @@ export async function getJellyfinTracksAllForAlbum(
  */
 export async function getJellyfinTracks(
     cfg: JellyfinConfig,
-    options?: { limit?: number; offset?: number; albumId?: string; artistId?: string; search?: string }
+    options?: {
+        limit?: number;
+        offset?: number;
+        albumId?: string;
+        artistId?: string;
+        search?: string;
+        /** e.g. "Random" for shuffle, "DateCreated" for newest */
+        sortBy?: string;
+    }
 ): Promise<{ tracks: ResolvedTrack[]; total: number }> {
     const token = getEffectiveToken(cfg);
     const userId = getEffectiveUserId(cfg);
@@ -542,6 +550,7 @@ export async function getJellyfinTracks(
         Fields: "Id,Name,RunTimeTicks,AlbumId,AlbumArtist,AlbumArtists,ImageTags,ParentId",
         EnableTotalRecordCount: true,
     };
+    if (options?.sortBy) params.SortBy = options.sortBy;
     if (options?.albumId) {
         const rawId = options.albumId.startsWith(JELLYFIN_PREFIX)
             ? options.albumId.slice(JELLYFIN_PREFIX.length)
@@ -1274,6 +1283,52 @@ export async function getJellyfinFavorites(cfg: JellyfinConfig): Promise<Resolve
         );
     }
     return tracks;
+}
+
+/**
+ * Fetch a batch of Jellyfin tracks with minimal metadata for sync (no cover art).
+ * Used by JellyfinTrackMetadata sync. Returns { jellyfinId, artistName, trackTitle, albumTitle }.
+ */
+export async function getJellyfinTracksForSync(
+    cfg: JellyfinConfig,
+    options: { limit?: number; offset?: number }
+): Promise<{ items: { jellyfinId: string; artistName: string; trackTitle: string; albumTitle: string | null }[]; total: number }> {
+    const token = getEffectiveToken(cfg);
+    const userId = getEffectiveUserId(cfg);
+    const client = createClient(cfg.url, token);
+    const path = userId ? `/Users/${userId}/Items` : "/Items";
+    const limit = options.limit ?? 200;
+    const offset = options.offset ?? 0;
+
+    const res = await client.get<{ Items: JellyfinItem[]; TotalRecordCount?: number }>(path, {
+        params: {
+            IncludeItemTypes: "Audio",
+            Recursive: "true",
+            Limit: limit,
+            StartIndex: offset,
+            Fields: "Id,Name,AlbumId,AlbumArtist,AlbumArtists",
+            EnableTotalRecordCount: true,
+        },
+    });
+    const items = res.data?.Items ?? [];
+    const total = res.data?.TotalRecordCount ?? items.length;
+
+    const albumIds = [...new Set(items.map((i) => i.AlbumId).filter(Boolean))] as string[];
+    const albumsById = await getJellyfinItemsBatch(cfg, albumIds);
+
+    const result = items.map((item) => {
+        const artistName = item.AlbumArtists?.[0]?.Name ?? item.AlbumArtist ?? "Unknown Artist";
+        const albumItem = item.AlbumId ? albumsById.get(item.AlbumId) : undefined;
+        const albumTitle = albumItem?.Name ?? null;
+        return {
+            jellyfinId: `${JELLYFIN_PREFIX}${item.Id}`,
+            artistName,
+            trackTitle: item.Name,
+            albumTitle,
+        };
+    });
+
+    return { items: result, total };
 }
 
 /**
