@@ -65,7 +65,7 @@ export function SearchFilters({
                     onClick={() => onFilterChange("soulseek")}
                     className={cn(
                         "px-4 py-2 text-sm font-bold rounded-full transition-all flex items-center gap-2",
-                        filterTab === "soulseek" ? "bg-[#ecb200] text-black" : "bg-[#232323] text-white hover:bg-[#2a2a2a]"
+                        filterTab === "soulseek" ? "bg-[#B1D2C3] text-black" : "bg-[#232323] text-white hover:bg-[#2a2a2a]"
                     )}
                 >
                     <Download className="w-4 h-4" />

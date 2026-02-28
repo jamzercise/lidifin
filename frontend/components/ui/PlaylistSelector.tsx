@@ -137,7 +137,7 @@ export function PlaylistSelector({
                             >
                                 <div className="flex items-center justify-between">
                                     <div className="flex-1 min-w-0">
-                                        <p className="text-white font-semibold truncate group-hover:text-[#ecb200] transition-colors">
+                                        <p className="text-white font-semibold truncate group-hover:text-[#B1D2C3] transition-colors">
                                             {playlist.name}
                                         </p>
                                         <p className="text-xs text-gray-400 mt-1">
@@ -147,7 +147,7 @@ export function PlaylistSelector({
                                                 : "tracks"}
                                         </p>
                                     </div>
-                                    <Plus className="w-5 h-5 text-gray-400 group-hover:text-[#ecb200] transition-colors ml-2 shrink-0" />
+                                    <Plus className="w-5 h-5 text-gray-400 group-hover:text-[#B1D2C3] transition-colors ml-2 shrink-0" />
                                 </div>
                             </button>
                         ))
@@ -167,7 +167,7 @@ export function PlaylistSelector({
                             onKeyDown={(e) =>
                                 e.key === "Enter" && handleCreatePlaylist()
                             }
-                            className="flex-1 px-4 py-3 bg-white/5 border border-white/10 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-[#ecb200] focus:bg-white/10 transition-all"
+                            className="flex-1 px-4 py-3 bg-white/5 border border-white/10 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-[#B1D2C3] focus:bg-white/10 transition-all"
                         />
                         <button
                             onClick={handleCreatePlaylist}
@@ -176,7 +176,7 @@ export function PlaylistSelector({
                                 isCreating ||
                                 isSaving
                             }
-                            className="px-5 py-3 bg-[#ecb200] hover:bg-[#d4a000] disabled:bg-gray-700 disabled:cursor-not-allowed text-black font-bold rounded-lg transition-all flex items-center gap-2 disabled:text-gray-500"
+                            className="px-5 py-3 bg-[#B1D2C3] hover:bg-[#9bc4b3] disabled:bg-gray-700 disabled:cursor-not-allowed text-black font-bold rounded-lg transition-all flex items-center gap-2 disabled:text-gray-500"
                         >
                             <Plus className="w-5 h-5" />
                             <span className="hidden sm:inline">Create</span>
@@ -190,7 +190,7 @@ export function PlaylistSelector({
                                 onChange={(e) => setIsPublic(e.target.checked)}
                                 className="sr-only peer"
                             />
-                            <div className="w-10 h-5 bg-white/10 rounded-full peer-checked:bg-[#ecb200] transition-colors" />
+                            <div className="w-10 h-5 bg-white/10 rounded-full peer-checked:bg-[#B1D2C3] transition-colors" />
                             <div className="absolute left-0.5 top-0.5 w-4 h-4 bg-white rounded-full transition-transform peer-checked:translate-x-5" />
                         </div>
                         <span className="text-sm text-gray-400 group-hover:text-gray-300 transition-colors">

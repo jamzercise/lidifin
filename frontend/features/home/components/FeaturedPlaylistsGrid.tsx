@@ -60,7 +60,7 @@ const PlaylistCard = memo(function PlaylistCard({
                     )}
                     {/* Play button on hover */}
                     <div className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0 transition-all duration-200">
-                        <div className="w-10 h-10 rounded-full bg-[#ecb200] flex items-center justify-center shadow-xl hover:scale-105 transition-transform">
+                        <div className="w-10 h-10 rounded-full bg-[#B1D2C3] flex items-center justify-center shadow-xl hover:scale-105 transition-transform">
                             <svg viewBox="0 0 24 24" className="w-4 h-4 text-black ml-0.5" fill="currentColor">
                                 <path d="M8 5v14l11-7z" />
                             </svg>

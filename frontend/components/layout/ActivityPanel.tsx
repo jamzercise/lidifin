@@ -168,7 +168,7 @@ export function ActivityPanel({
 
                     {/* Activity badge */}
                     {hasActivity && (
-                        <span className="absolute top-4 right-3 w-2.5 h-2.5 rounded-full bg-[#ecb200]" />
+                        <span className="absolute top-4 right-3 w-2.5 h-2.5 rounded-full bg-[#B1D2C3]" />
                     )}
                 </div>
 
@@ -211,7 +211,7 @@ export function ActivityPanel({
                                 className={cn(
                                     "flex-1 flex items-center justify-center gap-2 py-3 text-sm font-medium transition-colors relative whitespace-nowrap",
                                     resolvedActiveTab === tab.id
-                                        ? "text-white border-b-2 border-[#ecb200]"
+                                        ? "text-white border-b-2 border-[#B1D2C3]"
                                         : "text-white/50 hover:text-white/70"
                                 )}
                             >
@@ -223,7 +223,7 @@ export function ActivityPanel({
                                             "absolute -top-0.5 right-1/4 min-w-[18px] h-[18px] px-1 rounded-full text-xs font-bold flex items-center justify-center",
                                             tab.id === "active"
                                                 ? "bg-blue-500 text-white"
-                                                : "bg-[#ecb200] text-black"
+                                                : "bg-[#B1D2C3] text-black"
                                         )}
                                     >
                                         {badge > 99 ? "99+" : badge}
@@ -274,7 +274,7 @@ export function ActivityPanelToggle() {
         >
             <Bell className="w-5 h-5" />
             {hasActivity && (
-                <span className="absolute top-1.5 right-2 w-1 h-1 rounded-full bg-[#ecb200]" />
+                <span className="absolute top-1.5 right-2 w-1 h-1 rounded-full bg-[#B1D2C3]" />
             )}
         </button>
     );

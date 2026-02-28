@@ -5,7 +5,7 @@ import type { Album } from "../types";
 import type { ArtistSource } from "../types";
 import type { ColorPalette } from "@/hooks/useImageColor";
 
-const LIDIFY_YELLOW = "#ecb200";
+const LIDIFY_YELLOW = "#B1D2C3";
 
 interface ArtistActionBarProps {
     artist: Artist;

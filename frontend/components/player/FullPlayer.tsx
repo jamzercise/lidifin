@@ -142,7 +142,7 @@ export function FullPlayer() {
             if (result.success && result.trackCount > 0) {
                 toast.success(`Vibe mode on`, {
                     description: `${result.trackCount} similar tracks queued up next`,
-                    icon: <AudioWaveform className="w-4 h-4 text-[#ecb200]" />,
+                    icon: <AudioWaveform className="w-4 h-4 text-[#B1D2C3]" />,
                 });
             } else {
                 toast.error("Couldn't find matching tracks in your library");
@@ -530,8 +530,8 @@ export function FullPlayer() {
                                         !hasMedia || playbackType !== "track"
                                             ? "text-gray-600"
                                             : vibeMode
-                                            ? "text-[#ecb200] hover:text-[#d4a000]"
-                                            : "text-gray-400 hover:text-[#ecb200]"
+                                            ? "text-[#B1D2C3] hover:text-[#9bc4b3]"
+                                            : "text-gray-400 hover:text-[#B1D2C3]"
                                     )}
                                     disabled={
                                         !hasMedia ||

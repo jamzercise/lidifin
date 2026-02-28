@@ -10,6 +10,9 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 3030",
+    "icons:fix": "python3 scripts/remove_checkerboard.py",
+    "icons:generate": "python3 scripts/generate_pwa_icons.py",
+    "icons": "npm run icons:fix && npm run icons:generate",
     "build": "next build",
     "start": "next start -H 0.0.0.0 -p 3030",
     "lint": "eslint",

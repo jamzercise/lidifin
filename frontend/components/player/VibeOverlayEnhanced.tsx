@@ -35,7 +35,7 @@ const RADAR_FEATURES = [
 ];
 
 const ML_MOODS = [
-    { key: "moodHappy", label: "Happy", color: "#ecb200" },
+    { key: "moodHappy", label: "Happy", color: "#B1D2C3" },
     { key: "moodSad", label: "Sad", color: "#5c8dd6" },
     { key: "moodRelaxed", label: "Relaxed", color: "#1db954" },
     { key: "moodAggressive", label: "Aggressive", color: "#e35656" },
@@ -109,7 +109,7 @@ const AudioWaveform = memo(function AudioWaveform({
             const frequency = (bpm / 120) * 0.015; // Reduced frequency
             const speed = (bpm / 120) * 0.015; // Slower speed (was 0.05)
 
-            // Draw multiple layered waves with #ecb200 accent
+            // Draw multiple layered waves with #B1D2C3 accent
             for (let layer = 0; layer < 3; layer++) {
                 const layerOffset = layer * 0.4;
                 const layerAmplitude = baseAmplitude * (1 - layer * 0.2);
@@ -134,7 +134,7 @@ const AudioWaveform = memo(function AudioWaveform({
                     ctx.lineTo(x, y);
                 }
 
-                ctx.strokeStyle = "#ecb200";
+                ctx.strokeStyle = "#B1D2C3";
                 ctx.globalAlpha = alpha;
                 ctx.lineWidth = 2 - layer * 0.4;
                 ctx.stroke();
@@ -152,7 +152,7 @@ const AudioWaveform = memo(function AudioWaveform({
                         baseAmplitude;
                 ctx.lineTo(x, y);
             }
-            ctx.strokeStyle = "#ecb200";
+            ctx.strokeStyle = "#B1D2C3";
             ctx.lineWidth = 8;
             ctx.stroke();
             ctx.filter = "none";
@@ -290,13 +290,13 @@ export function EnhancedVibeOverlay({
                         <motion.div
                             animate={{
                                 boxShadow: [
-                                    "0 0 8px #ecb200",
-                                    "0 0 16px #ecb200",
-                                    "0 0 8px #ecb200",
+                                    "0 0 8px #B1D2C3",
+                                    "0 0 16px #B1D2C3",
+                                    "0 0 8px #B1D2C3",
                                 ],
                             }}
                             transition={{ duration: 2, repeat: Infinity }}
-                            className="w-2.5 h-2.5 rounded-full bg-[#ecb200]"
+                            className="w-2.5 h-2.5 rounded-full bg-[#B1D2C3]"
                         />
                         <span className="text-sm font-semibold tracking-wide">
                             Vibe Analysis
@@ -308,7 +308,7 @@ export function EnhancedVibeOverlay({
                                     matchScore >= 80
                                         ? "bg-[#1db954]/20 text-[#1db954]"
                                         : matchScore >= 60
-                                        ? "bg-[#ecb200]/20 text-[#ecb200]"
+                                        ? "bg-[#B1D2C3]/20 text-[#B1D2C3]"
                                         : "bg-[#e35656]/20 text-[#e35656]"
                                 )}
                             >
@@ -386,8 +386,8 @@ export function EnhancedVibeOverlay({
                                                 <Radar
                                                     name="Source"
                                                     dataKey="source"
-                                                    stroke="#ecb200"
-                                                    fill="#ecb200"
+                                                    stroke="#B1D2C3"
+                                                    fill="#B1D2C3"
                                                     fillOpacity={0.1}
                                                     strokeWidth={2}
                                                     strokeDasharray="5 5"
@@ -491,8 +491,8 @@ export function EnhancedVibeOverlay({
                                                 <Radar
                                                     name="Source"
                                                     dataKey="source"
-                                                    stroke="#ecb200"
-                                                    fill="#ecb200"
+                                                    stroke="#B1D2C3"
+                                                    fill="#B1D2C3"
                                                     fillOpacity={0.1}
                                                     strokeWidth={2}
                                                     strokeDasharray="5 5"
@@ -514,7 +514,7 @@ export function EnhancedVibeOverlay({
                             {/* Legend */}
                             <div className="flex items-center justify-center gap-6 py-3 border-t border-[#282828]">
                                 <div className="flex items-center gap-2">
-                                    <div className="w-4 h-0.5 bg-[#ecb200]" style={{ borderStyle: "dashed" }} />
+                                    <div className="w-4 h-0.5 bg-[#B1D2C3]" style={{ borderStyle: "dashed" }} />
                                     <span className="text-[10px] text-[#b3b3b3]">Source</span>
                                 </div>
                                 <div className="flex items-center gap-2">

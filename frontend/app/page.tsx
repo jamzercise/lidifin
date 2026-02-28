@@ -93,7 +93,7 @@ export default function HomePage() {
                                     <div className="flex items-center gap-2">
                                         <button
                                             onClick={() => setShowMoodMixer(true)}
-                                            className="flex items-center gap-2 px-3 py-1.5 text-sm text-black font-semibold bg-[#ecb200] hover:bg-[#d4a000] rounded-full transition-colors"
+                                            className="flex items-center gap-2 px-3 py-1.5 text-sm text-black font-semibold bg-[#B1D2C3] hover:bg-[#9bc4b3] rounded-full transition-colors"
                                         >
                                             <AudioWaveform className="w-4 h-4" />
                                             <span className="hidden sm:inline">Mood Mixer</span>

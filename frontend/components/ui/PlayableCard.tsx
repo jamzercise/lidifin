@@ -9,7 +9,7 @@ import type { ColorPalette } from "@/hooks/useImageColor";
 import { CachedImage } from "./CachedImage";
 
 // Lidify brand yellow for all on-page play buttons
-const LIDIFY_YELLOW = "#ecb200";
+const LIDIFY_YELLOW = "#B1D2C3";
 
 export interface PlayableCardProps extends Omit<CardProps, "onPlay"> {
     href?: string;

@@ -62,8 +62,8 @@ export function DiscoverActionBar({
                         className={cn(
                             "h-12 w-12 rounded-full flex items-center justify-center shadow-lg transition-all",
                             isGenerating
-                                ? "bg-[#ecb200]/50 cursor-not-allowed"
-                                : "bg-[#ecb200] hover:bg-[#d4a000] hover:scale-105"
+                                ? "bg-[#B1D2C3]/50 cursor-not-allowed"
+                                : "bg-[#B1D2C3] hover:bg-[#9bc4b3] hover:scale-105"
                         )}
                     >
                         {isPlaylistPlaying && isPlaying ? (

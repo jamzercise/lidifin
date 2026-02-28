@@ -351,11 +351,11 @@ function SpotifyImportPageContent() {
             {/* Quick gradient fade - yellow to purple like home page */}
             <div className="absolute inset-0 pointer-events-none">
                 <div
-                    className="absolute inset-0 bg-linear-to-b from-[#ecb200]/15 via-purple-900/10 to-transparent"
+                    className="absolute inset-0 bg-linear-to-b from-[#B1D2C3]/15 via-purple-900/10 to-transparent"
                     style={{ height: "35vh" }}
                 />
                 <div
-                    className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,var(--tw-gradient-stops))] from-[#ecb200]/8 via-transparent to-transparent"
+                    className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,var(--tw-gradient-stops))] from-[#B1D2C3]/8 via-transparent to-transparent"
                     style={{ height: "25vh" }}
                 />
             </div>
@@ -386,7 +386,7 @@ function SpotifyImportPageContent() {
                         Looking for playlists to import?{" "}
                         <Link
                             href="/browse/playlists"
-                            className="text-[#ecb200] hover:underline font-medium"
+                            className="text-[#B1D2C3] hover:underline font-medium"
                         >
                             Browse Deezer playlists, or paste a Spotify/YouTube Music URL above →
                         </Link>
@@ -405,7 +405,7 @@ function SpotifyImportPageContent() {
                                 value={url}
                                 onChange={handleUrlChange}
                                 placeholder="Deezer, Spotify, or YouTube Music playlist URL"
-                                className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-[#ecb200]/50 focus:border-[#ecb200] transition-colors"
+                                className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-[#B1D2C3]/50 focus:border-[#B1D2C3] transition-colors"
                                 onKeyDown={(e) =>
                                     e.key === "Enter" && handleFetchPreview()
                                 }
@@ -421,7 +421,7 @@ function SpotifyImportPageContent() {
                         <button
                             onClick={handleFetchPreview}
                             disabled={isLoading || !url.trim()}
-                            className="w-full py-3 rounded-full font-medium bg-[#ecb200] text-black hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
+                            className="w-full py-3 rounded-full font-medium bg-[#B1D2C3] text-black hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
                         >
                             {isLoading ? (
                                 <>
@@ -1055,7 +1055,7 @@ export default function SpotifyImportPage() {
         <Suspense
             fallback={
                 <div className="min-h-screen flex items-center justify-center">
-                    <Loader2 className="w-8 h-8 text-[#ecb200] animate-spin" />
+                    <Loader2 className="w-8 h-8 text-[#B1D2C3] animate-spin" />
                 </div>
             }
         >

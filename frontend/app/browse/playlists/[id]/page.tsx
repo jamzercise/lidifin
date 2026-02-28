@@ -306,7 +306,7 @@ export default function DeezerPlaylistDetailPage() {
                     <button
                         onClick={handleImport}
                         disabled={isImporting}
-                        className="h-12 px-6 rounded-full bg-[#ecb200] hover:bg-[#d4a000] hover:scale-105 flex items-center justify-center gap-2 shadow-lg transition-all disabled:opacity-50 disabled:hover:scale-100"
+                        className="h-12 px-6 rounded-full bg-[#B1D2C3] hover:bg-[#9bc4b3] hover:scale-105 flex items-center justify-center gap-2 shadow-lg transition-all disabled:opacity-50 disabled:hover:scale-100"
                     >
                         {isImporting ? (
                             <Loader2 className="w-5 h-5 text-black animate-spin" />

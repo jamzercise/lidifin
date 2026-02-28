@@ -227,7 +227,7 @@ export function EnrichmentFailuresModal({
                             }}
                             className={`px-5 py-2.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${
                                 selectedType === tab.key
-                                    ? "bg-[#ecb200] text-black"
+                                    ? "bg-[#B1D2C3] text-black"
                                     : "bg-white/5 text-white/70 hover:bg-white/10"
                             }`}
                         >

@@ -294,11 +294,11 @@ export default function AudiobooksPage() {
                 {/* Quick gradient fade - yellow to purple */}
                 <div className="absolute inset-0 pointer-events-none">
                     <div
-                        className="absolute inset-0 bg-gradient-to-b from-[#ecb200]/15 via-purple-900/10 to-transparent"
+                        className="absolute inset-0 bg-gradient-to-b from-[#B1D2C3]/15 via-purple-900/10 to-transparent"
                         style={{ height: "35vh" }}
                     />
                     <div
-                        className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,var(--tw-gradient-stops))] from-[#ecb200]/8 via-transparent to-transparent"
+                        className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,var(--tw-gradient-stops))] from-[#B1D2C3]/8 via-transparent to-transparent"
                         style={{ height: "25vh" }}
                     />
                 </div>
@@ -405,11 +405,11 @@ export default function AudiobooksPage() {
             {/* Quick gradient fade - yellow to purple */}
             <div className="absolute inset-0 pointer-events-none">
                 <div
-                    className="absolute inset-0 bg-gradient-to-b from-[#ecb200]/15 via-purple-900/10 to-transparent"
+                    className="absolute inset-0 bg-gradient-to-b from-[#B1D2C3]/15 via-purple-900/10 to-transparent"
                     style={{ height: "35vh" }}
                 />
                 <div
-                    className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,var(--tw-gradient-stops))] from-[#ecb200]/8 via-transparent to-transparent"
+                    className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,var(--tw-gradient-stops))] from-[#B1D2C3]/8 via-transparent to-transparent"
                     style={{ height: "25vh" }}
                 />
             </div>
@@ -424,7 +424,7 @@ export default function AudiobooksPage() {
                         type="button"
                         onClick={handleSyncAudiobooks}
                         disabled={isSyncingAudiobooks}
-                        className="flex items-center justify-center w-10 h-10 rounded-full bg-[#ecb200] hover:bg-[#d4a000] text-black transition-all hover:scale-105 disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:scale-100"
+                        className="flex items-center justify-center w-10 h-10 rounded-full bg-[#B1D2C3] hover:bg-[#9bc4b3] text-black transition-all hover:scale-105 disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:scale-100"
                         title="Sync audiobooks from Audiobookshelf"
                     >
                         <RefreshCw
@@ -467,7 +467,7 @@ export default function AudiobooksPage() {
                         {/* Shuffle Button */}
                         <button
                             onClick={handleShuffleAudiobooks}
-                            className="flex items-center gap-2 px-4 py-2 bg-[#ecb200] hover:bg-[#d4a000] text-black font-medium rounded-full transition-all hover:scale-105"
+                            className="flex items-center gap-2 px-4 py-2 bg-[#B1D2C3] hover:bg-[#9bc4b3] text-black font-medium rounded-full transition-all hover:scale-105"
                         >
                             <Shuffle className="w-4 h-4" />
                             <span className="hidden sm:inline">Random Book</span>

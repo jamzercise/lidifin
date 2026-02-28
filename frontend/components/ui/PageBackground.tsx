@@ -7,12 +7,12 @@ export function PageBackground() {
         <div className="absolute inset-0 pointer-events-none -z-10">
             {/* Main gradient from yellow through purple */}
             <div
-                className="absolute inset-0 bg-gradient-to-br from-[#ecb200]/15 via-purple-900/10 to-transparent"
+                className="absolute inset-0 bg-gradient-to-br from-[#B1D2C3]/15 via-purple-900/10 to-transparent"
                 style={{ height: "120vh" }}
             />
             {/* Radial gradient for depth */}
             <div
-                className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-[#ecb200]/8 via-transparent to-transparent"
+                className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-[#B1D2C3]/8 via-transparent to-transparent"
                 style={{ height: "100vh" }}
             />
             {/* Subtle bottom fade to keep it clean */}

@@ -110,7 +110,7 @@ export default function AudiobookDetailPage() {
                         <section>
                             <h2 className="text-xl font-bold mb-4">Series</h2>
                             <div className="flex items-center gap-3 text-sm">
-                                <span className="text-[#ecb200] font-medium">
+                                <span className="text-[#B1D2C3] font-medium">
                                     {audiobook.series.name}
                                 </span>
                                 <span className="text-white/40">•</span>

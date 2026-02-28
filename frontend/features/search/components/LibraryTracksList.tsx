@@ -92,9 +92,9 @@ export function LibraryTracksList({ tracks, favoriteIds, onToggleFavorite }: Lib
                             className="w-8 h-8 flex items-center justify-center flex-shrink-0"
                         >
                             {isPlayingThis ? (
-                                <Pause className="w-4 h-4 text-[#ecb200]" />
+                                <Pause className="w-4 h-4 text-[#B1D2C3]" />
                             ) : isCurrentTrack ? (
-                                <Play className="w-4 h-4 text-[#ecb200] ml-0.5" />
+                                <Play className="w-4 h-4 text-[#B1D2C3] ml-0.5" />
                             ) : (
                                 <>
                                     <span className="text-sm text-gray-400 group-hover:hidden">
@@ -131,7 +131,7 @@ export function LibraryTracksList({ tracks, favoriteIds, onToggleFavorite }: Lib
                                 className={cn(
                                     "text-sm font-medium truncate",
                                     isCurrentTrack
-                                        ? "text-[#ecb200]"
+                                        ? "text-[#B1D2C3]"
                                         : "text-white"
                                 )}
                             >

@@ -215,7 +215,7 @@ export default function BrowsePlaylistsPage() {
                 )}
                 {/* Import button on hover */}
                 <div className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0 transition-all duration-200">
-                    <div className="w-12 h-12 rounded-full bg-[#ecb200] flex items-center justify-center shadow-xl hover:scale-105 transition-transform">
+                    <div className="w-12 h-12 rounded-full bg-[#B1D2C3] flex items-center justify-center shadow-xl hover:scale-105 transition-transform">
                         <svg
                             viewBox="0 0 24 24"
                             className="w-5 h-5 text-black ml-0.5"
@@ -252,7 +252,7 @@ export default function BrowsePlaylistsPage() {
                     unoptimized
                 />
             ) : (
-                <div className="w-full h-full bg-gradient-to-br from-[#AD47FF] to-[#ecb200]" />
+                <div className="w-full h-full bg-gradient-to-br from-[#AD47FF] to-[#B1D2C3]" />
             )}
             <div className="absolute inset-0 bg-black/40 group-hover:bg-black/30 transition-colors" />
             <div className="absolute bottom-3 left-3 right-3">
@@ -266,11 +266,11 @@ export default function BrowsePlaylistsPage() {
             {/* Gradient - Same as home page (yellow → purple) */}
             <div className="absolute inset-0 pointer-events-none">
                 <div
-                    className="absolute inset-0 bg-gradient-to-b from-[#ecb200]/15 via-purple-900/10 to-transparent"
+                    className="absolute inset-0 bg-gradient-to-b from-[#B1D2C3]/15 via-purple-900/10 to-transparent"
                     style={{ height: "35vh" }}
                 />
                 <div
-                    className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,var(--tw-gradient-stops))] from-[#ecb200]/8 via-transparent to-transparent"
+                    className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,var(--tw-gradient-stops))] from-[#B1D2C3]/8 via-transparent to-transparent"
                     style={{ height: "25vh" }}
                 />
             </div>
@@ -283,7 +283,7 @@ export default function BrowsePlaylistsPage() {
                         <h1 className="text-3xl font-bold text-white">
                             Browse
                         </h1>
-                        <span className="px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide rounded bg-[#ecb200]/20 text-[#ecb200] border border-[#ecb200]/30">
+                        <span className="px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide rounded bg-[#B1D2C3]/20 text-[#B1D2C3] border border-[#B1D2C3]/30">
                             Beta
                         </span>
                     </div>
@@ -293,10 +293,10 @@ export default function BrowsePlaylistsPage() {
                 </div>
 
                 {/* Beta Notice */}
-                <div className="mb-6 flex items-start gap-3 px-4 py-3 rounded-lg bg-[#ecb200]/10 border border-[#ecb200]/20">
-                    <Info className="w-5 h-5 text-[#ecb200] shrink-0 mt-0.5" />
+                <div className="mb-6 flex items-start gap-3 px-4 py-3 rounded-lg bg-[#B1D2C3]/10 border border-[#B1D2C3]/20">
+                    <Info className="w-5 h-5 text-[#B1D2C3] shrink-0 mt-0.5" />
                     <p className="text-sm text-gray-300">
-                        <span className="font-medium text-[#ecb200]">Beta feature:</span>{" "}
+                        <span className="font-medium text-[#B1D2C3]">Beta feature:</span>{" "}
                         Importing from Spotify and Deezer relies on matching tracks through Soulseek and your configured indexers.
                         Results may vary depending on track availability and metadata quality.
                     </p>
@@ -353,7 +353,7 @@ export default function BrowsePlaylistsPage() {
                             onClick={() => setActiveTab("genres")}
                             className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
                                 activeTab === "genres"
-                                    ? "bg-[#ecb200] text-black"
+                                    ? "bg-[#B1D2C3] text-black"
                                     : "bg-white/10 text-white hover:bg-white/20"
                             }`}
                         >
@@ -528,7 +528,7 @@ export default function BrowsePlaylistsPage() {
                             </button>
 
                             <div className="flex items-center gap-3 mb-2">
-                                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#ecb200] to-[#AD47FF] flex items-center justify-center">
+                                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#B1D2C3] to-[#AD47FF] flex items-center justify-center">
                                     <Link2 className="w-5 h-5 text-white" />
                                 </div>
                                 <h3 className="text-xl font-bold text-white">
@@ -577,7 +577,7 @@ export default function BrowsePlaylistsPage() {
                                         setUrlInput(e.target.value)
                                     }
                                     placeholder="Paste playlist URL here..."
-                                    className="w-full bg-black/40 border border-white/[0.06] rounded-xl px-4 py-4 text-white placeholder:text-white/30 focus:outline-none focus:border-[#ecb200]/40 focus:ring-1 focus:ring-[#ecb200]/20 transition-all text-sm"
+                                    className="w-full bg-black/40 border border-white/[0.06] rounded-xl px-4 py-4 text-white placeholder:text-white/30 focus:outline-none focus:border-[#B1D2C3]/40 focus:ring-1 focus:ring-[#B1D2C3]/20 transition-all text-sm"
                                     onKeyDown={(e) =>
                                         e.key === "Enter" && handleUrlSubmit()
                                     }
@@ -610,7 +610,7 @@ export default function BrowsePlaylistsPage() {
                             <button
                                 onClick={handleUrlSubmit}
                                 disabled={isParsing || !urlInput.trim()}
-                                className="flex-1 py-3.5 rounded-full bg-[#ecb200] text-black font-semibold hover:bg-[#d4a000] disabled:opacity-40 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2 shadow-lg shadow-[#ecb200]/20"
+                                className="flex-1 py-3.5 rounded-full bg-[#B1D2C3] text-black font-semibold hover:bg-[#9bc4b3] disabled:opacity-40 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2 shadow-lg shadow-[#B1D2C3]/20"
                             >
                                 {isParsing ? (
                                     <>

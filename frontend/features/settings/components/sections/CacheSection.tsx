@@ -34,7 +34,7 @@ interface CacheSectionProps {
 // Progress bar component
 function ProgressBar({
     progress,
-    color = "bg-[#ecb200]",
+    color = "bg-[#B1D2C3]",
     showPercentage = true,
 }: {
     progress: number;
@@ -93,7 +93,7 @@ function EnrichmentStage({
                 {isComplete ? (
                     <CheckCircle className="w-4 h-4 text-green-400" />
                 ) : hasActivity ? (
-                    <Loader2 className="w-4 h-4 text-[#ecb200] animate-spin" />
+                    <Loader2 className="w-4 h-4 text-[#B1D2C3] animate-spin" />
                 ) : (
                     <Icon className="w-4 h-4 text-white/40" />
                 )}
@@ -118,7 +118,7 @@ function EnrichmentStage({
                                 ? "bg-green-500"
                                 : isBackground
                                 ? "bg-purple-500"
-                                : "bg-[#ecb200]"
+                                : "bg-[#B1D2C3]"
                         }
                     />
                 </div>
@@ -127,7 +127,7 @@ function EnrichmentStage({
                         {completed} / {total}
                     </span>
                     {processing > 0 && (
-                        <span className="text-[#ecb200]">
+                        <span className="text-[#B1D2C3]">
                             {processing} processing
                         </span>
                     )}
@@ -791,7 +791,7 @@ export function CacheSection({ settings, onUpdate }: CacheSectionProps) {
                                     <div className="flex items-center gap-2">
                                         {enrichmentState.status ===
                                             "running" && (
-                                            <Loader2 className="w-3 h-3 animate-spin text-[#ecb200]" />
+                                            <Loader2 className="w-3 h-3 animate-spin text-[#B1D2C3]" />
                                         )}
                                         {enrichmentState.status ===
                                             "paused" && (

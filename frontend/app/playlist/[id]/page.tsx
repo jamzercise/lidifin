@@ -496,7 +496,7 @@ export default function PlaylistDetailPage() {
                             className={cn(
                                 "h-12 w-12 rounded-full flex items-center justify-center shadow-lg transition-all",
                                 playableTracks.length > 0
-                                    ? "bg-[#ecb200] hover:bg-[#d4a000] hover:scale-105"
+                                    ? "bg-[#B1D2C3] hover:bg-[#9bc4b3] hover:scale-105"
                                     : "bg-gray-600 cursor-not-allowed opacity-60"
                             )}
                         >
@@ -554,7 +554,7 @@ export default function PlaylistDetailPage() {
                         className={cn(
                             "h-8 w-8 rounded-full flex items-center justify-center transition-all",
                             playlist.isHidden
-                                ? "text-[#ecb200] hover:text-[#d4a000]"
+                                ? "text-[#B1D2C3] hover:text-[#9bc4b3]"
                                 : "text-white/40 hover:text-white",
                             isHiding && "opacity-50 cursor-not-allowed"
                         )}
@@ -651,7 +651,7 @@ export default function PlaylistDetailPage() {
                                                             title="Play 30s Deezer preview"
                                                         >
                                                             {isPreviewPlaying ? (
-                                                                <Volume2 className="w-5 h-5 text-[#ecb200] animate-pulse" />
+                                                                <Volume2 className="w-5 h-5 text-[#B1D2C3] animate-pulse" />
                                                             ) : (
                                                                 <Play className="w-5 h-5 text-gray-400 hover:text-white" />
                                                             )}
@@ -694,7 +694,7 @@ export default function PlaylistDetailPage() {
                                                         className={cn(
                                                             "p-1.5 rounded-full hover:bg-white/10 transition-all",
                                                             isRetrying
-                                                                ? "text-[#ecb200]"
+                                                                ? "text-[#B1D2C3]"
                                                                 : "text-gray-400 hover:text-white"
                                                         )}
                                                         title="Retry download"
@@ -786,13 +786,13 @@ export default function PlaylistDetailPage() {
                                                     className={cn(
                                                         "text-sm group-hover:hidden",
                                                         isCurrentlyPlaying
-                                                            ? "text-[#ecb200]"
+                                                            ? "text-[#B1D2C3]"
                                                             : "text-gray-400"
                                                     )}
                                                 >
                                                     {isCurrentlyPlaying &&
                                                     isPlaying ? (
-                                                        <Music className="w-4 h-4 text-[#ecb200] animate-pulse" />
+                                                        <Music className="w-4 h-4 text-[#B1D2C3] animate-pulse" />
                                                     ) : (
                                                         trackIndex + 1
                                                     )}
@@ -832,7 +832,7 @@ export default function PlaylistDetailPage() {
                                                         className={cn(
                                                             "text-sm font-medium truncate",
                                                             isCurrentlyPlaying
-                                                                ? "text-[#ecb200]"
+                                                                ? "text-[#B1D2C3]"
                                                                 : "text-white"
                                                         )}
                                                     >

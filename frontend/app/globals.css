@@ -403,7 +403,7 @@ body.tv-mode * {
 }
 
 .tv-nav-link.focused {
-    color: #ecb200;
+    color: #B1D2C3;
     background: rgba(236, 178, 0, 0.1);
 }
 
@@ -424,7 +424,7 @@ body.tv-mode * {
 .tv-sync-btn:hover,
 .tv-sync-btn:focus {
     background: rgba(255, 255, 255, 0.2);
-    outline: 2px solid #ecb200;
+    outline: 2px solid #B1D2C3;
 }
 
 .tv-sync-btn:disabled {
@@ -480,7 +480,7 @@ body.tv-mode * {
     width: 40px;
     height: 40px;
     border-radius: 50%;
-    background: #ecb200;
+    background: #B1D2C3;
     color: #000;
     border: none;
     display: flex;
@@ -523,7 +523,7 @@ body.tv-mode * {
 }
 
 .tv-np-ctrl.active {
-    color: #ecb200;
+    color: #B1D2C3;
 }
 
 .tv-np-ctrl.active:hover {
@@ -537,14 +537,14 @@ body.tv-mode * {
     right: 2px;
     font-size: 8px;
     font-weight: bold;
-    color: #ecb200;
+    color: #B1D2C3;
 }
 
 /* ===== TV FOCUS STATES ===== */
 /* Card focus styling - visible ring around focused cards */
 body.tv-mode [data-tv-card]:focus {
     outline: none;
-    box-shadow: 0 0 0 3px #ecb200, 0 0 20px rgba(236, 178, 0, 0.4);
+    box-shadow: 0 0 0 3px #B1D2C3, 0 0 20px rgba(177, 210, 195, 0.4);
     transform: scale(1.02);
     transition: box-shadow 0.15s ease, transform 0.15s ease;
     z-index: 10;
@@ -558,7 +558,7 @@ body.tv-mode [data-tv-card]:focus-visible {
 /* Buttons in TV mode */
 body.tv-mode button:focus,
 body.tv-mode a:focus {
-    outline: 2px solid #ecb200;
+    outline: 2px solid #B1D2C3;
     outline-offset: 2px;
 }
 
@@ -572,21 +572,21 @@ body.tv-mode [data-tv-card] {
 body.tv-mode [data-tv-filter]:focus {
     outline: none;
     background: rgba(236, 178, 0, 0.2);
-    color: #ecb200;
-    box-shadow: 0 0 0 2px #ecb200;
+    color: #B1D2C3;
+    box-shadow: 0 0 0 2px #B1D2C3;
 }
 
 /* Track list items focus */
 body.tv-mode [data-tv-track]:focus {
     outline: none;
     background: rgba(236, 178, 0, 0.15);
-    box-shadow: inset 0 0 0 2px #ecb200;
+    box-shadow: inset 0 0 0 2px #B1D2C3;
 }
 
 /* Action buttons in action bars */
 body.tv-mode [data-tv-action]:focus {
     outline: none;
-    box-shadow: 0 0 0 2px #ecb200;
+    box-shadow: 0 0 0 2px #B1D2C3;
     transform: scale(1.05);
 }
 

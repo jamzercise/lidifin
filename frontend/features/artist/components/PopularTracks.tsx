@@ -102,12 +102,12 @@ export const PopularTracks: React.FC<PopularTracksProps> = ({
                                     className={cn(
                                         "text-sm group-hover:hidden",
                                         isPlaying
-                                            ? "text-[#ecb200]"
+                                            ? "text-[#B1D2C3]"
                                             : "text-gray-400"
                                     )}
                                 >
                                     {isPlaying ? (
-                                        <Music className="w-4 h-4 text-[#ecb200] animate-pulse" />
+                                        <Music className="w-4 h-4 text-[#B1D2C3] animate-pulse" />
                                     ) : (
                                         index + 1
                                     )}
@@ -138,7 +138,7 @@ export const PopularTracks: React.FC<PopularTracksProps> = ({
                                         className={cn(
                                             "text-sm font-medium truncate flex items-center gap-2",
                                             isPlaying
-                                                ? "text-[#ecb200]"
+                                                ? "text-[#B1D2C3]"
                                                 : "text-white"
                                         )}
                                     >

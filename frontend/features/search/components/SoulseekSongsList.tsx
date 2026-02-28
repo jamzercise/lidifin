@@ -121,7 +121,7 @@ export function SoulseekSongsList({
                                         "px-4 py-2 rounded-full font-bold transition-all flex items-center gap-2 text-sm",
                                         isDownloading
                                             ? "bg-green-600/20 text-green-400 cursor-not-allowed"
-                                            : "bg-[#ecb200] text-black hover:bg-[#d4a000] hover:scale-105"
+                                            : "bg-[#B1D2C3] text-black hover:bg-[#9bc4b3] hover:scale-105"
                                     )}
                                 >
                                     {isDownloading ? (

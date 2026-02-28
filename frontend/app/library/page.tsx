@@ -385,7 +385,7 @@ export default function LibraryPage() {
                         {/* Shuffle Button */}
                         <button
                             onClick={handleShuffleLibrary}
-                            className="flex items-center justify-center w-8 h-8 rounded-full bg-[#ecb200] hover:bg-[#d4a000] text-black transition-all hover:scale-105"
+                            className="flex items-center justify-center w-8 h-8 rounded-full bg-[#B1D2C3] hover:bg-[#9bc4b3] text-black transition-all hover:scale-105"
                             title="Shuffle Library"
                         >
                             <Shuffle className="w-4 h-4" />
@@ -427,7 +427,7 @@ export default function LibraryPage() {
                                     onClick={() => setFilter("owned")}
                                     className={`px-3 py-1.5 text-xs font-medium rounded-full transition-all ${
                                         filter === "owned" ?
-                                            "bg-[#ecb200] text-black"
+                                            "bg-[#B1D2C3] text-black"
                                         :   "bg-white/5 text-gray-400 hover:text-white hover:bg-white/10"
                                     }`}
                                 >

@@ -4,7 +4,7 @@ import type { Album } from "../types";
 import type { AlbumSource } from "../types";
 import type { ColorPalette } from "@/hooks/useImageColor";
 
-const LIDIFY_YELLOW = "#ecb200";
+const LIDIFY_YELLOW = "#B1D2C3";
 
 interface AlbumActionBarProps {
     album: Album;
@@ -91,7 +91,7 @@ export function AlbumActionBar({
                         "flex items-center gap-2 px-5 py-2.5 rounded-full font-medium transition-all",
                         isPendingDownload
                             ? "bg-white/5 text-white/50 cursor-not-allowed"
-                            : "bg-[#ecb200] hover:bg-[#d4a000] text-black hover:scale-105"
+                            : "bg-[#B1D2C3] hover:bg-[#9bc4b3] text-black hover:scale-105"
                     )}
                 >
                     <Download className="w-4 h-4" />

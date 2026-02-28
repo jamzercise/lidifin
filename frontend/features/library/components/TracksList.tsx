@@ -76,13 +76,13 @@ const TrackRow = memo(
                     <span
                         className={cn(
                             "text-sm group-hover:hidden",
-                            isCurrentlyPlaying ? "text-[#ecb200]" : (
+                            isCurrentlyPlaying ? "text-[#B1D2C3]" : (
                                 "text-gray-500"
                             ),
                         )}
                     >
                         {isCurrentlyPlaying ?
-                            <AudioLines className="w-4 h-4 text-[#ecb200]" />
+                            <AudioLines className="w-4 h-4 text-[#B1D2C3]" />
                         :   index + 1}
                     </span>
                     <Play className="w-4 h-4 text-white hidden group-hover:block fill-current" />
@@ -108,7 +108,7 @@ const TrackRow = memo(
                         <h3
                             className={cn(
                                 "text-sm font-medium truncate",
-                                isCurrentlyPlaying ? "text-[#ecb200]" : (
+                                isCurrentlyPlaying ? "text-[#B1D2C3]" : (
                                     "text-white"
                                 ),
                             )}

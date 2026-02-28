@@ -1,11 +1,12 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 /**
- * Generate PWA icons from icon-only.png
+ * Generate PWA icons from icon-only.png (requires Node 14+ for sharp)
  *
  * Source: frontend/assets/icon-only.png
- * Outputs: WebP icons + favicon-192.png (requires Node 14+ for sharp)
- * Fallback: Use `sips` on macOS: for s in 48 72 96 128 192 256 512; do
- *   sips -z $s $s assets/icon-only.png --out public/assets/icons/icon-$s.png; done
+ * Outputs: PNG icons + favicon-192.png (transparent background)
+ *
+ * Python fallback (works with Node 13): python3 scripts/remove_checkerboard.py
+ *   then: python3 scripts/generate_pwa_icons.py
  */
 
 const sharp = require("sharp");
@@ -38,23 +39,26 @@ async function generatePwaIcons() {
     console.log(`Source icon: ${meta.width}x${meta.height}`);
 
     for (const size of SIZES) {
-        const outputPath = path.join(OUTPUT_DIR, `icon-${size}.webp`);
+        const outputPath = path.join(OUTPUT_DIR, `icon-${size}.png`);
         
         await sharp(SOURCE_ICON)
             .resize(size, size, {
                 fit: "contain",
                 background: { r: 0, g: 0, b: 0, alpha: 0 }
             })
-            .webp({ quality: 90 })
+            .png()
             .toFile(outputPath);
         
-        console.log(`✓ Generated icon-${size}.webp`);
+        console.log(`✓ Generated icon-${size}.png`);
     }
 
-    // Also generate a PNG version for favicon (some browsers prefer PNG)
+    // Also generate favicon (transparent background)
     const faviconPath = path.join(__dirname, "..", "public", "assets", "images", "favicon-192.png");
     await sharp(SOURCE_ICON)
-        .resize(192, 192)
+        .resize(192, 192, {
+            fit: "contain",
+            background: { r: 0, g: 0, b: 0, alpha: 0 }
+        })
         .png()
         .toFile(faviconPath);
     console.log(`✓ Generated favicon-192.png`);
