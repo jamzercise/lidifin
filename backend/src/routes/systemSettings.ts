@@ -60,6 +60,7 @@ const systemSettingsSchema = z.object({
     jellyfinUsername: z.string().nullable().optional(),
     jellyfinPassword: z.string().nullable().optional(),
     jellyfinUserId: z.string().nullable().optional(),
+    jellyfinProxyStreams: z.boolean().optional(),
 
     // AudioMuse-AI (instant playlist from mood/vibe)
     audiomuseEnabled: z.boolean().optional(),

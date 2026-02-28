@@ -141,9 +141,9 @@ startUnifiedEnrichmentWorker().catch((err) => {
                     const syncResult = await syncJellyfinTrackMetadata();
                     if (syncResult) {
                         logger.info(`[JellyfinMetadata] Sync: ${syncResult.synced} tracks`);
-                        // Run enrichment after sync (up to 100 batches = 5000 tracks)
+                        // Run enrichment after sync (up to 25 batches = 1250 tracks per startup)
                         let totalEnriched = 0;
-                        for (let i = 0; i < 100; i++) {
+                        for (let i = 0; i < 25; i++) {
                             const r = await enrichJellyfinTrackMetadata();
                             if (!r || r.enriched === 0) break;
                             totalEnriched += r.enriched;

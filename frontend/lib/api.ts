@@ -673,24 +673,35 @@ class ApiClient {
         );
     }
 
-    /** Sync Jellyfin track metadata (library index) and run enrichment. */
+    /** Start Jellyfin track metadata sync + enrichment (async). Returns immediately. */
     async syncJellyfinMetadata() {
         return this.request<{
             success: boolean;
-            synced: number;
-            removed: number;
-            enriched: number;
-            durationMs: number;
+            message?: string;
+            status?: "syncing" | "enriching";
         }>("/library/jellyfin-metadata/sync", { method: "POST" });
     }
 
-    /** Enrich Jellyfin tracks with genre/mood tags from Last.fm (no sync). Use to backfill full library. */
+    /** Start Jellyfin enrichment only (async). Returns immediately. */
     async enrichJellyfinMetadata() {
         return this.request<{
             success: boolean;
-            enriched: number;
-            message: string;
+            message?: string;
+            status?: "enriching";
         }>("/library/jellyfin-metadata/enrich", { method: "POST" });
+    }
+
+    /** Get Jellyfin metadata job status (for polling). */
+    async getJellyfinMetadataStatus() {
+        return this.request<{
+            status: "idle" | "syncing" | "enriching";
+            startedAt?: number;
+            lastError?: string;
+            lastSynced?: number;
+            lastRemoved?: number;
+            lastEnriched?: number;
+            lastDurationMs?: number;
+        }>("/library/jellyfin-metadata/status");
     }
 
     /**

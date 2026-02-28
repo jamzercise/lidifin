@@ -61,7 +61,8 @@ export function useFavorites(): FavoritesState {
                 // Revert optimistic update on error
                 setTracks((prev) => prev.filter((t) => t.id !== trackId));
                 fetchFavorites();
-                const msg = e instanceof Error ? e.message : "Failed to add to favorites";
+                const err = e as { message?: string; data?: { detail?: string } };
+                const msg = err?.data?.detail ?? err?.message ?? "Failed to add to favorites";
                 toast.error(msg);
             }
         },
@@ -81,7 +82,8 @@ export function useFavorites(): FavoritesState {
             } catch (e) {
                 setTracks(previous);
                 fetchFavorites();
-                const msg = e instanceof Error ? e.message : "Failed to remove from favorites";
+                const err = e as { message?: string; data?: { detail?: string } };
+                const msg = err?.data?.detail ?? err?.message ?? "Failed to remove from favorites";
                 toast.error(msg);
             }
         },

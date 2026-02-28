@@ -331,33 +331,40 @@ export function CacheSection({ settings, onUpdate }: CacheSectionProps) {
     const enrichmentSpeed = concurrencyConfig?.concurrency ?? 1;
 
     // Poll enrichment status when syncing to detect completion
+    // When Jellyfin is enabled, also poll Jellyfin metadata job status
     useEffect(() => {
         if (!syncing) return;
 
-        const maxPollDuration = 5 * 60 * 1000; // 5 minutes max
+        const maxPollDuration = settings.jellyfinEnabled ? 30 * 60 * 1000 : 5 * 60 * 1000; // 30 min for Jellyfin, 5 min otherwise
         const pollInterval = 2000; // Check every 2 seconds
 
         const startTime = syncStartTimeRef.current;
 
         const checkStatus = async () => {
             try {
-                const status = await enrichmentApi.getStatus();
+                const [enrichmentStatus, jellyfinStatus] = await Promise.all([
+                    enrichmentApi.getStatus(),
+                    settings.jellyfinEnabled ? api.getJellyfinMetadataStatus().catch(() => ({ status: "idle" as const })) : Promise.resolve({ status: "idle" as const }),
+                ]);
                 const elapsed = Date.now() - startTime;
 
-                // Stop polling if idle or max duration exceeded
-                if (status?.status === "idle" || elapsed > maxPollDuration) {
+                const enrichmentIdle = enrichmentStatus?.status === "idle";
+                const jellyfinIdle = jellyfinStatus?.status === "idle";
+                const timedOut = elapsed > maxPollDuration;
+
+                if ((enrichmentIdle && jellyfinIdle) || timedOut) {
                     setSyncing(false);
                     refetchProgress();
                 }
             } catch (err) {
-                console.error("Failed to check enrichment status:", err);
+                console.error("Failed to check sync status:", err);
             }
         };
 
         const intervalId = setInterval(checkStatus, pollInterval);
 
         return () => clearInterval(intervalId);
-    }, [syncing, refetchProgress]);
+    }, [syncing, refetchProgress, settings.jellyfinEnabled]);
 
     const refreshNotifications = () => {
         queryClient.invalidateQueries({ queryKey: ["notifications"] });
@@ -377,9 +384,15 @@ export function CacheSection({ settings, onUpdate }: CacheSectionProps) {
                 await api.post("/audiobooks/sync", {});
             }
             await api.post("/podcasts/sync-covers", {});
-            // When Jellyfin is the music source, sync and enrich its metadata (genre radio, etc.)
+            // When Jellyfin is the music source, start sync + enrich in background (async)
             if (settings.jellyfinEnabled) {
-                await api.syncJellyfinMetadata();
+                try {
+                    await api.syncJellyfinMetadata();
+                } catch (e: unknown) {
+                    // 409 = already in progress, continue (polling will track it)
+                    const err = e as { status?: number };
+                    if (err?.status !== 409) throw e;
+                }
             }
             // Use the new fast incremental sync endpoint (Lidarr/self-hosted library)
             await api.syncLibraryEnrichment();

@@ -42,6 +42,7 @@ import systemRoutes from "./routes/system";
 import { dataCacheService } from "./services/dataCache";
 import { errorHandler } from "./middleware/errorHandler";
 import { requestTimeout } from "./middleware/requestTimeout";
+import { requestTiming } from "./middleware/requestTiming";
 import { requireAuth, requireAdmin } from "./middleware/auth";
 import {
     authLimiter,
@@ -140,6 +141,9 @@ app.use(
 
 // Request timeout: prevent stuck handlers from holding connections (90s default)
 app.use(requestTimeout());
+
+// Request timing: log slow requests (>500ms) for library/playlist routes; use ?timing=1 for all
+app.use(requestTiming());
 
 // Routes - All API routes prefixed with /api for clear separation from frontend
 // Apply rate limiting to auth routes

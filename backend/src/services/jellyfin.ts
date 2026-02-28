@@ -12,8 +12,11 @@ import { redisClient } from "../utils/redis";
 
 const JELLYFIN_PREFIX = "jellyfin:";
 
-/** TTL for Jellyfin list/count caches (30 minutes). */
-const JF_CACHE_TTL = 30 * 60;
+/** TTL for Jellyfin list caches (1 hour). */
+const JF_CACHE_TTL = 60 * 60;
+
+/** TTL for artist album count cache (6 hours – counts change rarely). */
+const JF_ALBUM_COUNT_CACHE_TTL = 6 * 60 * 60;
 
 export interface JellyfinConfig {
     enabled: boolean;
@@ -385,7 +388,7 @@ export async function getJellyfinArtistAlbumCount(
 
     if (cacheKey && redisClient.isReady) {
         try {
-            await redisClient.setEx(cacheKey, JF_CACHE_TTL, String(total));
+            await redisClient.setEx(cacheKey, JF_ALBUM_COUNT_CACHE_TTL, String(total));
         } catch {
             /* ignore Redis errors */
         }
@@ -710,6 +713,41 @@ export async function getJellyfinStreamUrl(
 }
 
 /**
+ * Proxy a Jellyfin audio stream through the backend. Used when the client cannot reach Jellyfin directly
+ * (e.g. remote access). Backend fetches from Jellyfin and pipes to the client.
+ * Supports Range requests for seeking.
+ */
+export async function streamJellyfinAudio(
+    cfg: JellyfinConfig,
+    itemId: string,
+    rangeHeader?: string
+): Promise<{ stream: import("stream").Readable; headers: Record<string, string>; status: number }> {
+    const streamUrl = await getJellyfinStreamUrl(cfg, itemId);
+    const requestHeaders: Record<string, string> = {};
+    if (rangeHeader) {
+        requestHeaders["Range"] = rangeHeader;
+    }
+    const response = await axios.get(streamUrl, {
+        responseType: "stream",
+        timeout: 0,
+        headers: requestHeaders,
+        validateStatus: (status) => status >= 200 && status < 300,
+    });
+    const headers: Record<string, string> = {};
+    const copyHeaders = ["content-type", "content-length", "accept-ranges", "content-range"];
+    for (const name of copyHeaders) {
+        const val = response.headers[name];
+        if (val != null) headers[name] = String(val);
+    }
+    if (!headers["accept-ranges"]) headers["accept-ranges"] = "bytes";
+    return {
+        stream: response.data,
+        headers,
+        status: response.status,
+    };
+}
+
+/**
  * Resolve a single track reference (cuid or jellyfin:xxx) to ResolvedTrack, or null.
  */
 export async function resolveTrackReference(trackId: string): Promise<ResolvedTrack | null> {
@@ -837,33 +875,49 @@ export async function resolveTrackReferences(
                     }
                 }
             }
-            const nullCount = jellyfinIndexes.filter((_, j) => result[jellyfinIndexes[j]] == null).length;
+            const nullIndices: number[] = [];
+            for (let k = 0; k < jellyfinIds.length; k++) {
+                if (result[jellyfinIndexes[k]] == null) nullIndices.push(k);
+            }
+            const nullCount = nullIndices.length;
             if (nullCount > 0) {
                 logger.debug(`[Jellyfin] resolveTrackReferences: ${nullCount}/${jellyfinIds.length} items unresolved from batch, trying per-item fallback`);
-                for (let k = 0; k < jellyfinIds.length; k++) {
-                    const idx = jellyfinIndexes[k];
-                    if (result[idx] != null) continue;
-                    const rawId = jellyfinIds[k];
-                    try {
-                        const single = await resolveTrackReference(`${JELLYFIN_PREFIX}${rawId}`);
-                        if (single) result[idx] = single;
-                    } catch {
-                        // ignore
-                    }
-                }
+                const pLimit = (await import("p-limit")).default;
+                const limit = pLimit(8);
+                await Promise.all(
+                    nullIndices.map((k) =>
+                        limit(async () => {
+                            const idx = jellyfinIndexes[k];
+                            if (result[idx] != null) return;
+                            const rawId = jellyfinIds[k];
+                            try {
+                                const single = await resolveTrackReference(`${JELLYFIN_PREFIX}${rawId}`);
+                                if (single) result[idx] = single;
+                            } catch {
+                                // ignore
+                            }
+                        })
+                    )
+                );
             }
         } catch (err: any) {
             logger.warn("[Jellyfin] batch get items failed:", err.message, "— falling back to per-item");
-            for (let k = 0; k < jellyfinIds.length; k++) {
-                const idx = jellyfinIndexes[k];
-                const rawId = jellyfinIds[k];
-                try {
-                    const single = await resolveTrackReference(`${JELLYFIN_PREFIX}${rawId}`);
-                    if (single) result[idx] = single;
-                } catch {
-                    // ignore
-                }
-            }
+            const pLimit = (await import("p-limit")).default;
+            const limit = pLimit(8);
+            await Promise.all(
+                jellyfinIndexes.map((_, k) =>
+                    limit(async () => {
+                        const idx = jellyfinIndexes[k];
+                        const rawId = jellyfinIds[k];
+                        try {
+                            const single = await resolveTrackReference(`${JELLYFIN_PREFIX}${rawId}`);
+                            if (single) result[idx] = single;
+                        } catch {
+                            // ignore
+                        }
+                    })
+                )
+            );
         }
     }
 

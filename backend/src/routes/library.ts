@@ -64,6 +64,7 @@ import {
     resolveTrackReference,
     resolveTrackReferences,
     getJellyfinStreamUrl,
+    streamJellyfinAudio,
     addJellyfinFavorite,
     removeJellyfinFavorite,
     getJellyfinFavorites,
@@ -2851,6 +2852,53 @@ router.get("/tracks/:id/stream", async (req, res) => {
                     data: { userId, trackId },
                 });
             }
+            const settings = await getSystemSettings();
+            const proxyStreams = !!settings?.jellyfinProxyStreams;
+            if (proxyStreams) {
+                try {
+                    const rangeHeader = req.headers.range as string | undefined;
+                    const { stream, headers, status } = await streamJellyfinAudio(
+                        cfg,
+                        rawId,
+                        rangeHeader
+                    );
+                    const responseStatus = status || (rangeHeader ? 206 : 200);
+                    res.status(responseStatus);
+                    res.setHeader(
+                        "Content-Type",
+                        headers["content-type"] || "audio/mpeg"
+                    );
+                    if (headers["content-length"])
+                        res.setHeader("Content-Length", headers["content-length"]);
+                    if (headers["accept-ranges"])
+                        res.setHeader("Accept-Ranges", headers["accept-ranges"]);
+                    if (headers["content-range"])
+                        res.setHeader("Content-Range", headers["content-range"]);
+                    res.setHeader("Cache-Control", "public, max-age=0");
+                    res.on("close", () => {
+                        if (!stream.destroyed) stream.destroy();
+                    });
+                    stream.pipe(res);
+                    stream.on("error", (err: Error) => {
+                        logger.error("[STREAM] Jellyfin proxy stream error:", err.message);
+                        if (!res.headersSent) {
+                            res.status(503).json({
+                                error: JELLYFIN_UNREACHABLE_MESSAGE,
+                                jellyfin: true,
+                            });
+                        } else {
+                            res.end();
+                        }
+                    });
+                    return;
+                } catch (err: any) {
+                    logger.error("[STREAM] Jellyfin proxy failed:", err?.message);
+                    return res.status(503).json({
+                        error: JELLYFIN_UNREACHABLE_MESSAGE,
+                        jellyfin: true,
+                    });
+                }
+            }
             const streamUrl = await getJellyfinStreamUrl(cfg, rawId);
             return res.redirect(302, streamUrl);
         }
@@ -3102,8 +3150,13 @@ router.post("/favorites/:trackId", async (req, res) => {
         await addJellyfinFavorite(cfg, rawId);
         return res.json({ success: true, favorited: true });
     } catch (err: any) {
-        logger.warn("[Library] Jellyfin add favorite error:", err?.message);
-        return res.status(503).json({ error: JELLYFIN_UNREACHABLE_MESSAGE, jellyfin: true });
+        const msg = err?.response?.data?.message ?? err?.message ?? "Jellyfin unreachable";
+        logger.warn("[Library] Jellyfin add favorite error:", msg);
+        return res.status(503).json({
+            error: JELLYFIN_UNREACHABLE_MESSAGE,
+            detail: msg,
+            jellyfin: true,
+        });
     }
 });
 
@@ -3122,8 +3175,13 @@ router.delete("/favorites/:trackId", async (req, res) => {
         await removeJellyfinFavorite(cfg, rawId);
         return res.json({ success: true, favorited: false });
     } catch (err: any) {
-        logger.warn("[Library] Jellyfin remove favorite error:", err?.message);
-        return res.status(503).json({ error: JELLYFIN_UNREACHABLE_MESSAGE, jellyfin: true });
+        const msg = err?.response?.data?.message ?? err?.message ?? "Jellyfin unreachable";
+        logger.warn("[Library] Jellyfin remove favorite error:", msg);
+        return res.status(503).json({
+            error: JELLYFIN_UNREACHABLE_MESSAGE,
+            detail: msg,
+            jellyfin: true,
+        });
     }
 });
 
@@ -3603,12 +3661,30 @@ router.get("/decades", async (req, res) => {
 });
 
 const LIBRARY_VIBES_CACHE_KEY = "library:vibes:counts";
-const LIBRARY_VIBES_CACHE_TTL = 3600; // 1 hour
+const LIBRARY_VIBES_CACHE_TTL = 6 * 60 * 60; // 6 hours – vibes/genres change rarely
+
+/**
+ * GET /library/jellyfin-metadata/status
+ * Poll this to check if Jellyfin sync/enrich is running. Used by Sync New and Enrich button.
+ */
+router.get("/jellyfin-metadata/status", requireAuthOrToken, async (req, res) => {
+    try {
+        if (!(await isJellyfinMusicSource())) {
+            return res.json({ status: "idle" as const });
+        }
+        const { getJobStatus } = await import("../services/jellyfinMetadataJob");
+        const state = await getJobStatus();
+        return res.json(state);
+    } catch (error: any) {
+        logger.error("Jellyfin metadata status error:", error?.message || error);
+        res.status(500).json({ error: "Failed to get status" });
+    }
+});
 
 /**
  * POST /library/jellyfin-metadata/sync
- * Manually trigger Jellyfin track metadata sync + enrichment (for By Vibe radio).
- * Only available when Jellyfin is the music source.
+ * Start Jellyfin track metadata sync + enrichment in the background. Returns immediately.
+ * Poll GET /library/jellyfin-metadata/status for progress.
  */
 router.post("/jellyfin-metadata/sync", requireAdmin, async (req, res) => {
     try {
@@ -3617,43 +3693,30 @@ router.post("/jellyfin-metadata/sync", requireAdmin, async (req, res) => {
                 error: "Jellyfin metadata sync only applies when Jellyfin is the music source",
             });
         }
-        const { syncJellyfinTrackMetadata } = await import("../services/jellyfinMetadataSync");
-        const { enrichJellyfinTrackMetadata } = await import("../services/jellyfinMetadataEnrichment");
-        const syncResult = await syncJellyfinTrackMetadata();
-        if (!syncResult) {
-            return res.status(503).json({ error: "Jellyfin not configured" });
-        }
-        // Enrich in batches (up to 100 iterations = 5000 tracks per manual sync)
-        let enriched = 0;
-        for (let i = 0; i < 100; i++) {
-            const r = await enrichJellyfinTrackMetadata();
-            if (!r || r.enriched === 0) break;
-            enriched += r.enriched;
-        }
-        if (redisClient.isReady) {
-            try {
-                await redisClient.del(LIBRARY_VIBES_CACHE_KEY + ":jellyfin");
-            } catch {
-                /* ignore */
-            }
+        const { runSyncAndEnrich } = await import("../services/jellyfinMetadataJob");
+        const { started, status } = await runSyncAndEnrich();
+        if (!started) {
+            return res.status(409).json({
+                success: false,
+                error: "Sync already in progress",
+                status,
+            });
         }
         return res.json({
             success: true,
-            synced: syncResult.synced,
-            removed: syncResult.removed,
-            enriched,
-            durationMs: syncResult.durationMs,
+            message: "Sync started. Poll /library/jellyfin-metadata/status for progress.",
+            status,
         });
     } catch (error: any) {
         logger.error("Jellyfin metadata sync error:", error?.message || error);
-        res.status(500).json({ error: "Failed to sync Jellyfin metadata" });
+        res.status(500).json({ error: "Failed to start Jellyfin metadata sync" });
     }
 });
 
 /**
  * POST /library/jellyfin-metadata/enrich
- * Run enrichment only (no sync). Use to backfill genre/mood tags for the full library.
- * Processes up to 500 batches (25,000 tracks) or until no more rows need enrichment.
+ * Start enrichment only (no sync) in the background. Returns immediately.
+ * Poll GET /library/jellyfin-metadata/status for progress.
  */
 router.post("/jellyfin-metadata/enrich", requireAdmin, async (req, res) => {
     try {
@@ -3662,32 +3725,23 @@ router.post("/jellyfin-metadata/enrich", requireAdmin, async (req, res) => {
                 error: "Jellyfin metadata enrichment only applies when Jellyfin is the music source",
             });
         }
-        const { enrichJellyfinTrackMetadata } = await import("../services/jellyfinMetadataEnrichment");
-        let totalEnriched = 0;
-        const maxIterations = 500; // ~25,000 tracks at 50/batch
-        for (let i = 0; i < maxIterations; i++) {
-            const r = await enrichJellyfinTrackMetadata();
-            if (!r || r.enriched === 0) break;
-            totalEnriched += r.enriched;
-        }
-        if (redisClient.isReady) {
-            try {
-                await redisClient.del(LIBRARY_VIBES_CACHE_KEY + ":jellyfin");
-            } catch {
-                /* ignore */
-            }
+        const { runEnrichOnly } = await import("../services/jellyfinMetadataJob");
+        const { started, status } = await runEnrichOnly();
+        if (!started) {
+            return res.status(409).json({
+                success: false,
+                error: "Enrichment already in progress",
+                status,
+            });
         }
         return res.json({
             success: true,
-            enriched: totalEnriched,
-            message:
-                totalEnriched > 0
-                    ? `Enriched ${totalEnriched} tracks with genre and mood tags. Run again if you have more tracks to process.`
-                    : "All tracks are already enriched.",
+            message: "Enrichment started. Poll /library/jellyfin-metadata/status for progress.",
+            status,
         });
     } catch (error: any) {
         logger.error("Jellyfin metadata enrich error:", error?.message || error);
-        res.status(500).json({ error: "Failed to enrich Jellyfin metadata" });
+        res.status(500).json({ error: "Failed to start Jellyfin metadata enrichment" });
     }
 });
 
@@ -3695,7 +3749,7 @@ router.post("/jellyfin-metadata/enrich", requireAdmin, async (req, res) => {
  * GET /library/vibes
  * Returns aggregate counts of Last.fm mood tags in the library.
  * Used by Radio Vibes section to show available vibe stations.
- * Cached in Redis for 1 hour.
+ * Cached in Redis for 6 hours.
  */
 router.get("/vibes", async (req, res) => {
     try {

@@ -27,7 +27,8 @@ Thanks for your patience while I work through this.
     -   [Playlist Import](#playlist-import)
 -   [Mobile Support](#mobile-support)
 -   [Quick Start](#quick-start)
--   [Installation guide (Docker / Dockge)](INSTALL-DOCKER-DOCKGE.md)
+-   [Installation guide (Docker / Dockge)](docs/INSTALL.md)
+-   [Documentation](docs/README.md) (roadmap, performance, Jellyfin, troubleshooting)
 -   [Configuration](#configuration)
 -   [CLAP Audio Analysis](#clap-audio-analysis)
 -   [GPU Acceleration](#gpu-acceleration)
@@ -214,7 +215,7 @@ The TV interface is automatically enabled when accessing Lidify from an Android 
 
 ## Quick Start
 
-For **step-by-step instructions** (Docker, Docker Compose, and Dockge), see the **[Installation guide (Docker / Dockge)](INSTALL-DOCKER-DOCKGE.md)**.
+For **step-by-step instructions** (Docker, Docker Compose, and Dockge), see the **[Installation guide](docs/INSTALL.md)**.
 
 ### One Command Install
 
@@ -981,7 +982,7 @@ Lidify consists of several components working together:
 
 ## Roadmap
 
-Lidify is under active development. Here's what's planned:
+Lidify is under active development. See [docs/ROADMAP.md](docs/ROADMAP.md) for the full roadmap. Highlights:
 
 -   **Native Mobile App** - React Native application for iOS and Android
 -   **Offline Mode** - Download tracks for offline playback
@@ -1014,6 +1015,8 @@ Lidify wouldn't be possible without these services and projects:
 ---
 
 ## Troubleshooting
+
+For artist URLs, favorites, playlists, and genre radio issues, see [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
 
 ### UI stuck on loading / "Failed to proxy … socket hang up"
 

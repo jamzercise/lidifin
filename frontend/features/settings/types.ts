@@ -33,6 +33,7 @@ export interface SystemSettings {
     jellyfinUrl?: string | null;
     jellyfinApiKey?: string | null;
     jellyfinApiKeyFromEnv?: boolean;
+    jellyfinProxyStreams?: boolean;
     jellyfinUserId?: string | null; // Optional: provide so user-scoped API paths work with API key
     // AudioMuse-AI (instant playlist from mood/vibe)
     audiomuseEnabled?: boolean;

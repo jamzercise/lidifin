@@ -112,6 +112,7 @@ model SystemSettings {
   jellyfinUsername            String?  // optional: use AuthenticateByName for token + User.Id
   jellyfinPassword            String?  // encrypted
   jellyfinUserId              String?  // optional: provide directly so API key + userId work without login
+  jellyfinProxyStreams        Boolean  @default(false) // proxy Jellyfin audio through Lidifin (for remote access when client can't reach Jellyfin)
   // AudioMuse-AI: instant playlist generation from mood/vibe text
   audiomuseEnabled            Boolean  @default(false)
   audiomuseUrl                String?  @default("http://localhost:8000")

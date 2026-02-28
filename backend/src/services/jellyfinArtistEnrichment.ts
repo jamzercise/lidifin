@@ -11,7 +11,7 @@ import { fanartService } from "./fanart";
 import { deezerService } from "./deezer";
 import { normalizeToArray } from "../utils/normalize";
 
-const ENRICHMENT_CACHE_TTL = 6 * 60 * 60; // 6 hours – metadata rarely changes
+const ENRICHMENT_CACHE_TTL = 24 * 60 * 60; // 24 hours – metadata rarely changes
 
 export interface JellyfinArtistEnrichment {
     bio: string | null;

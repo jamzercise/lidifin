@@ -19,6 +19,7 @@ const defaultSystemSettings: SystemSettings = {
     jellyfinEnabled: false,
     jellyfinUrl: "",
     jellyfinApiKey: "",
+    jellyfinProxyStreams: false,
     jellyfinUserId: "",
     audiomuseEnabled: false,
     audiomuseUrl: "http://localhost:8000",
