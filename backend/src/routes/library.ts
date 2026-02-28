@@ -3490,7 +3490,33 @@ const GENRES_ARTIST_NAMES_CAP = 5000;
 
 router.get("/genres", async (req, res) => {
     try {
-        // Get artist names to filter them out of genres (capped to avoid unbounded query)
+        const minTracks = 15; // Minimum tracks for a genre to show up
+
+        // Jellyfin music source: aggregate from JellyfinTrackMetadata.genres
+        if (await isJellyfinMusicSource()) {
+            const genreResults = await prisma.$queryRaw<
+                { genre: string; track_count: bigint }[]
+            >`
+                SELECT LOWER(g.genre)::text as genre, COUNT(DISTINCT j."jellyfinId")::bigint as track_count
+                FROM "JellyfinTrackMetadata" j
+                CROSS JOIN LATERAL unnest(j."genres") AS g(genre)
+                WHERE j."genres" IS NOT NULL AND array_length(j."genres", 1) > 0
+                GROUP BY LOWER(g.genre)::text
+                HAVING COUNT(DISTINCT j."jellyfinId") >= ${minTracks}
+                ORDER BY track_count DESC
+                LIMIT 20
+            `;
+            const genres = genreResults.map((row) => ({
+                genre: row.genre,
+                count: Number(row.track_count),
+            }));
+            logger.debug(
+                `[Genres] Found ${genres.length} genres from JellyfinTrackMetadata (min ${minTracks} tracks)`,
+            );
+            return res.json({ genres });
+        }
+
+        // Prisma/Lidarr: use Artist.genres
         const artists = await prisma.artist.findMany({
             select: { name: true, normalizedName: true },
             take: GENRES_ARTIST_NAMES_CAP,
@@ -3503,9 +3529,6 @@ router.get("/genres", async (req, res) => {
             )
         );
 
-        // Query Artist.genres field (populated by enrichment from Last.fm tags)
-        // Use raw SQL to expand JSONB array and count tracks per genre
-        const minTracks = 15; // Minimum tracks for a genre to show up
         const genreResults = await prisma.$queryRaw<
             { genre: string; track_count: bigint }[]
         >`
@@ -3521,7 +3544,6 @@ router.get("/genres", async (req, res) => {
             LIMIT 20
         `;
 
-        // Filter out artist names and convert bigint to number
         const genres = genreResults
             .map((row) => ({
                 genre: row.genre,
@@ -3530,7 +3552,7 @@ router.get("/genres", async (req, res) => {
             .filter((g) => !artistNames.has(g.genre.toLowerCase()));
 
         logger.debug(
-            `[Genres] Found ${genres.length} genres from Artist.genres (min ${minTracks} tracks)`
+            `[Genres] Found ${genres.length} genres from Artist.genres (min ${minTracks} tracks)`,
         );
 
         res.json({ genres });
@@ -3759,7 +3781,26 @@ router.get("/radio", async (req, res) => {
                 });
             }
             let jellyfinTracks: Awaited<ReturnType<typeof getJellyfinTracks>>["tracks"] = [];
-            if (type === "mood" && value) {
+            if (type === "genre" && value) {
+                // Genre radio: use JellyfinTrackMetadata.genres (Last.fm artist tags from enrichment)
+                const genreValue = ((value as string) || "").toLowerCase();
+                const genreRows = await prisma.jellyfinTrackMetadata.findMany({
+                    where: {
+                        genres: { has: genreValue },
+                    },
+                    select: { jellyfinId: true },
+                    take: limitNum * 2,
+                });
+                const trackIds = genreRows.map((r) => r.jellyfinId);
+                if (trackIds.length > 0) {
+                    const resolved = await resolveTrackReferences(trackIds);
+                    jellyfinTracks = resolved.filter((t): t is NonNullable<typeof t> => t !== null);
+                    logger.debug(
+                        `[Radio:genre] Jellyfin: Found ${jellyfinTracks.length} tracks for genre "${genreValue}"`,
+                    );
+                }
+            }
+            if (type === "mood" && value && jellyfinTracks.length === 0) {
                 // Mood radio: use JellyfinTrackMetadata (Last.fm tags from sync+enrichment)
                 const moodValue = ((value as string) || "").toLowerCase();
                 const moodRows = await prisma.jellyfinTrackMetadata.findMany({

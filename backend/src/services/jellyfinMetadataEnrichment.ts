@@ -1,8 +1,8 @@
 /**
  * Jellyfin Track Metadata Enrichment
  *
- * Enriches JellyfinTrackMetadata with Last.fm mood tags for By Vibe radio.
- * Runs after sync. Uses same tag filtering as Prisma track enrichment.
+ * Enriches JellyfinTrackMetadata with Last.fm mood tags (for By Vibe radio)
+ * and genre tags (for Genre radio). Runs after sync.
  */
 
 import { logger } from "../utils/logger";
@@ -38,6 +38,21 @@ function filterMoodTags(tags: string[]): string[] {
         .slice(0, 10);
 }
 
+/** Extract genre tags (tags that are NOT mood tags) - e.g. rock, pop, jazz */
+function extractGenreTags(tags: string[]): string[] {
+    return tags
+        .map((t) => t.toLowerCase().trim())
+        .filter((t) => {
+            if (!t || t.length < 2) return false;
+            if (MOOD_TAGS.has(t)) return false;
+            for (const mood of MOOD_TAGS) {
+                if (t.includes(mood)) return false;
+            }
+            return true;
+        })
+        .slice(0, 10);
+}
+
 async function withTimeout<T>(promise: Promise<T>, ms: number, msg: string): Promise<T> {
     let t: NodeJS.Timeout;
     const timeout = new Promise<never>((_, reject) => {
@@ -60,11 +75,14 @@ export async function enrichJellyfinTrackMetadata(): Promise<EnrichmentResult | 
         return null;
     }
 
+    // Process rows that need lastfmTags OR genres (enrich both in one pass)
     const rows = await prisma.jellyfinTrackMetadata.findMany({
         where: {
             OR: [
                 { lastfmTags: { isEmpty: true } },
                 { lastfmTags: { equals: [] } },
+                { genres: { isEmpty: true } },
+                { genres: { equals: [] } },
             ],
         },
         take: BATCH_SIZE,
@@ -88,21 +106,30 @@ export async function enrichJellyfinTrackMetadata(): Promise<EnrichmentResult | 
                     );
 
                     let moodTags: string[] = [];
+                    let allTags: string[] = [];
+
                     if (trackInfo?.toptags?.tag) {
-                        moodTags = filterMoodTags(trackInfo.toptags.tag.map((t: any) => t.name));
+                        const tagNames = trackInfo.toptags.tag.map((t: any) => (typeof t === "string" ? t : t.name));
+                        moodTags = filterMoodTags(tagNames);
+                        allTags = tagNames;
                     }
-                    if (moodTags.length === 0) {
-                        const artistInfo = await withTimeout(
+
+                    let artistInfo: any = null;
+                    if (moodTags.length === 0 || allTags.length < 5) {
+                        artistInfo = await withTimeout(
                             lastFmService.getArtistInfo(row.artistName),
                             15000,
                             `Timeout artist: ${row.artistName}`,
                         );
                         if (artistInfo?.tags?.tag) {
-                            moodTags = filterMoodTags(
-                                artistInfo.tags.tag.map((t: any) => (typeof t === "string" ? t : t.name)),
-                            );
+                            const artistTagNames = artistInfo.tags.tag.map((t: any) => (typeof t === "string" ? t : t.name));
+                            if (moodTags.length === 0) {
+                                moodTags = filterMoodTags(artistTagNames);
+                            }
+                            allTags = [...new Set([...allTags, ...artistTagNames])];
                         }
                     }
+
                     if (moodTags.length === 0 && row.albumTitle) {
                         const albumInfo = await withTimeout(
                             lastFmService.getAlbumInfo(row.artistName, row.albumTitle),
@@ -110,9 +137,22 @@ export async function enrichJellyfinTrackMetadata(): Promise<EnrichmentResult | 
                             `Timeout album: ${row.albumTitle}`,
                         );
                         if (albumInfo?.tags?.tag) {
-                            moodTags = filterMoodTags(
-                                albumInfo.tags.tag.map((t: any) => (typeof t === "string" ? t : t.name)),
-                            );
+                            const albumTagNames = albumInfo.tags.tag.map((t: any) => (typeof t === "string" ? t : t.name));
+                            moodTags = filterMoodTags(albumTagNames);
+                            allTags = [...new Set([...allTags, ...albumTagNames])];
+                        }
+                    }
+
+                    // Fetch artistInfo for genres if we don't have it yet
+                    if (!artistInfo && allTags.length < 5) {
+                        artistInfo = await withTimeout(
+                            lastFmService.getArtistInfo(row.artistName),
+                            15000,
+                            `Timeout artist: ${row.artistName}`,
+                        );
+                        if (artistInfo?.tags?.tag) {
+                            const artistTagNames = artistInfo.tags.tag.map((t: any) => (typeof t === "string" ? t : t.name));
+                            allTags = [...new Set([...allTags, ...artistTagNames])];
                         }
                     }
 
@@ -123,13 +163,22 @@ export async function enrichJellyfinTrackMetadata(): Promise<EnrichmentResult | 
                               ? ["_not_found"]
                               : ["_no_mood_tags"];
 
+                    const genreTags = extractGenreTags(allTags);
+
                     await prisma.jellyfinTrackMetadata.update({
                         where: { jellyfinId: row.jellyfinId },
-                        data: { lastfmTags: tags, lastEnriched: new Date(), updatedAt: new Date() },
+                        data: {
+                            lastfmTags: tags,
+                            genres: genreTags,
+                            lastEnriched: new Date(),
+                            updatedAt: new Date(),
+                        },
                     });
                     enriched++;
-                    if (moodTags.length > 0) {
-                        logger.debug(`[JellyfinEnrich] ${row.artistName} - ${row.trackTitle}: [${moodTags.slice(0, 3).join(", ")}...]`);
+                    if (moodTags.length > 0 || genreTags.length > 0) {
+                        logger.debug(
+                            `[JellyfinEnrich] ${row.artistName} - ${row.trackTitle}: moods=[${moodTags.slice(0, 2).join(", ")}] genres=[${genreTags.slice(0, 3).join(", ")}]`,
+                        );
                     }
                 } catch (err: any) {
                     logger.debug(`[JellyfinEnrich] Failed ${row.trackTitle}: ${err?.message}`);

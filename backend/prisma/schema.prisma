@@ -291,18 +291,20 @@ model TranscodedFile {
   @@index([lastAccessed])
 }
 
-/// Jellyfin track metadata for mood/vibe radio when Jellyfin is music source.
+/// Jellyfin track metadata for mood/vibe and genre radio when Jellyfin is music source.
 model JellyfinTrackMetadata {
   jellyfinId   String   @id // jellyfin:uuid format
   artistName   String
   trackTitle   String
   albumTitle   String?
   lastfmTags   String[] @default([])
+  genres      String[] @default([])
   lastEnriched DateTime?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   @@index([lastfmTags], type: Gin)
+  @@index([genres], type: Gin)
 }
 
 model Play {
