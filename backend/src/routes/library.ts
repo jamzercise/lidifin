@@ -3623,8 +3623,9 @@ router.post("/jellyfin-metadata/sync", requireAdmin, async (req, res) => {
         if (!syncResult) {
             return res.status(503).json({ error: "Jellyfin not configured" });
         }
+        // Enrich in batches (up to 100 iterations = 5000 tracks per manual sync)
         let enriched = 0;
-        for (let i = 0; i < 10; i++) {
+        for (let i = 0; i < 100; i++) {
             const r = await enrichJellyfinTrackMetadata();
             if (!r || r.enriched === 0) break;
             enriched += r.enriched;
@@ -3646,6 +3647,47 @@ router.post("/jellyfin-metadata/sync", requireAdmin, async (req, res) => {
     } catch (error: any) {
         logger.error("Jellyfin metadata sync error:", error?.message || error);
         res.status(500).json({ error: "Failed to sync Jellyfin metadata" });
+    }
+});
+
+/**
+ * POST /library/jellyfin-metadata/enrich
+ * Run enrichment only (no sync). Use to backfill genre/mood tags for the full library.
+ * Processes up to 500 batches (25,000 tracks) or until no more rows need enrichment.
+ */
+router.post("/jellyfin-metadata/enrich", requireAdmin, async (req, res) => {
+    try {
+        if (!(await isJellyfinMusicSource())) {
+            return res.status(400).json({
+                error: "Jellyfin metadata enrichment only applies when Jellyfin is the music source",
+            });
+        }
+        const { enrichJellyfinTrackMetadata } = await import("../services/jellyfinMetadataEnrichment");
+        let totalEnriched = 0;
+        const maxIterations = 500; // ~25,000 tracks at 50/batch
+        for (let i = 0; i < maxIterations; i++) {
+            const r = await enrichJellyfinTrackMetadata();
+            if (!r || r.enriched === 0) break;
+            totalEnriched += r.enriched;
+        }
+        if (redisClient.isReady) {
+            try {
+                await redisClient.del(LIBRARY_VIBES_CACHE_KEY + ":jellyfin");
+            } catch {
+                /* ignore */
+            }
+        }
+        return res.json({
+            success: true,
+            enriched: totalEnriched,
+            message:
+                totalEnriched > 0
+                    ? `Enriched ${totalEnriched} tracks with genre and mood tags. Run again if you have more tracks to process.`
+                    : "All tracks are already enriched.",
+        });
+    } catch (error: any) {
+        logger.error("Jellyfin metadata enrich error:", error?.message || error);
+        res.status(500).json({ error: "Failed to enrich Jellyfin metadata" });
     }
 });
 

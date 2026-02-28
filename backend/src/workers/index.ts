@@ -141,9 +141,9 @@ startUnifiedEnrichmentWorker().catch((err) => {
                     const syncResult = await syncJellyfinTrackMetadata();
                     if (syncResult) {
                         logger.info(`[JellyfinMetadata] Sync: ${syncResult.synced} tracks`);
-                        // Run enrichment after sync
+                        // Run enrichment after sync (up to 100 batches = 5000 tracks)
                         let totalEnriched = 0;
-                        for (let i = 0; i < 5; i++) {
+                        for (let i = 0; i < 100; i++) {
                             const r = await enrichJellyfinTrackMetadata();
                             if (!r || r.enriched === 0) break;
                             totalEnriched += r.enriched;
@@ -164,7 +164,15 @@ startUnifiedEnrichmentWorker().catch((err) => {
                     const syncResult = await syncJellyfinTrackMetadata();
                     if (syncResult) {
                         logger.debug(`[JellyfinMetadata] Periodic sync: ${syncResult.synced} tracks`);
-                        await enrichJellyfinTrackMetadata();
+                        let totalEnriched = 0;
+                        for (let i = 0; i < 20; i++) {
+                            const r = await enrichJellyfinTrackMetadata();
+                            if (!r || r.enriched === 0) break;
+                            totalEnriched += r.enriched;
+                        }
+                        if (totalEnriched > 0) {
+                            logger.debug(`[JellyfinMetadata] Periodic enrichment: ${totalEnriched} tracks`);
+                        }
                     }
                 } catch (err: any) {
                     logger.warn("[JellyfinMetadata] Periodic sync failed:", err?.message);

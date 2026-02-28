@@ -377,7 +377,11 @@ export function CacheSection({ settings, onUpdate }: CacheSectionProps) {
                 await api.post("/audiobooks/sync", {});
             }
             await api.post("/podcasts/sync-covers", {});
-            // Use the new fast incremental sync endpoint
+            // When Jellyfin is the music source, sync and enrich its metadata (genre radio, etc.)
+            if (settings.jellyfinEnabled) {
+                await api.syncJellyfinMetadata();
+            }
+            // Use the new fast incremental sync endpoint (Lidarr/self-hosted library)
             await api.syncLibraryEnrichment();
             refreshNotifications();
             refetchProgress();

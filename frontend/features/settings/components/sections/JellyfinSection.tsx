@@ -4,6 +4,8 @@ import { useState } from "react";
 import { SettingsSection, SettingsRow, SettingsInput, SettingsToggle } from "../ui";
 import { SystemSettings } from "../../types";
 import { InlineStatus, StatusType } from "@/components/ui/InlineStatus";
+import { api } from "@/lib/api";
+import { Loader2 } from "lucide-react";
 
 interface JellyfinSectionProps {
     settings: SystemSettings;
@@ -15,6 +17,23 @@ interface JellyfinSectionProps {
 export function JellyfinSection({ settings, onUpdate, onTest, isTesting }: JellyfinSectionProps) {
     const [testStatus, setTestStatus] = useState<StatusType>("idle");
     const [testMessage, setTestMessage] = useState("");
+    const [enriching, setEnriching] = useState(false);
+    const [enrichMessage, setEnrichMessage] = useState("");
+
+    const handleEnrichGenres = async () => {
+        if (enriching) return;
+        setEnriching(true);
+        setEnrichMessage("");
+        try {
+            const res = await api.enrichJellyfinMetadata();
+            setEnrichMessage(res.message || `Enriched ${res.enriched} tracks`);
+        } catch (err: unknown) {
+            setEnrichMessage("Failed to enrich. Check console.");
+            console.error("Jellyfin enrich error:", err);
+        } finally {
+            setEnriching(false);
+        }
+    };
 
     const handleTest = async () => {
         setTestStatus("loading");
@@ -88,7 +107,7 @@ export function JellyfinSection({ settings, onUpdate, onTest, isTesting }: Jelly
                         />
                     </SettingsRow>
 
-                    <div className="pt-2">
+                    <div className="pt-2 space-y-3">
                         <div className="inline-flex items-center gap-3">
                             <button
                                 onClick={handleTest}
@@ -107,6 +126,30 @@ export function JellyfinSection({ settings, onUpdate, onTest, isTesting }: Jelly
                                 message={testMessage}
                                 onClear={() => setTestStatus("idle")}
                             />
+                        </div>
+                        <div>
+                            <button
+                                onClick={handleEnrichGenres}
+                                disabled={enriching}
+                                className="px-4 py-1.5 text-sm bg-[#B1D2C3] text-black rounded-full
+                                    hover:bg-[#9fc4b5] disabled:opacity-50 disabled:cursor-not-allowed transition-colors
+                                    inline-flex items-center gap-2"
+                            >
+                                {enriching ? (
+                                    <>
+                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                        Enriching...
+                                    </>
+                                ) : (
+                                    "Enrich genres & moods"
+                                )}
+                            </button>
+                            <p className="text-xs text-white/50 mt-1.5">
+                                Fetches genre and mood tags from Last.fm for Genre Radio. Run repeatedly to backfill a large library.
+                            </p>
+                            {enrichMessage && (
+                                <p className="text-xs text-white/70 mt-1">{enrichMessage}</p>
+                            )}
                         </div>
                     </div>
                 </>

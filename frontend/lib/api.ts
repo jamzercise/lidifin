@@ -673,6 +673,26 @@ class ApiClient {
         );
     }
 
+    /** Sync Jellyfin track metadata (library index) and run enrichment. */
+    async syncJellyfinMetadata() {
+        return this.request<{
+            success: boolean;
+            synced: number;
+            removed: number;
+            enriched: number;
+            durationMs: number;
+        }>("/library/jellyfin-metadata/sync", { method: "POST" });
+    }
+
+    /** Enrich Jellyfin tracks with genre/mood tags from Last.fm (no sync). Use to backfill full library. */
+    async enrichJellyfinMetadata() {
+        return this.request<{
+            success: boolean;
+            enriched: number;
+            message: string;
+        }>("/library/jellyfin-metadata/enrich", { method: "POST" });
+    }
+
     /**
      * Get the current token, lazily loading from localStorage if needed.
      * This handles the case where the singleton was created during SSR

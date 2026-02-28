@@ -11,8 +11,8 @@ import { lastFmService } from "./lastfm";
 import { isJellyfinMusicSource } from "./jellyfin";
 import pLimit from "p-limit";
 
-const BATCH_SIZE = 20;
-const CONCURRENCY = 2;
+const BATCH_SIZE = 50;
+const CONCURRENCY = 4;
 
 // Same mood tags as unifiedEnrichment (keep in sync)
 const MOOD_TAGS = new Set([
