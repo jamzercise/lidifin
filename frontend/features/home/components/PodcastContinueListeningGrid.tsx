@@ -89,7 +89,12 @@ const EpisodeCard = memo(function EpisodeCard({
             podcastTitle: episode.podcast.title,
             coverUrl: coverUrl ?? null,
             duration: episode.duration,
-            progress: episode.progress,
+            progress: {
+                currentTime: episode.progress.currentTime,
+                progress: episode.progress.progress,
+                isFinished: episode.progress.isFinished,
+                lastPlayedAt: new Date(episode.progress.lastPlayedAt),
+            },
         });
     };
 
