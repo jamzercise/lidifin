@@ -515,7 +515,7 @@ class ApiClient {
     }
 
     async getRecentlyAdded(limit = 10) {
-        return this.request<{ artists: ApiData[] }>(
+        return this.request<{ albums: Array<{ id: string; title: string; coverArt?: string | null; year?: number; rgMbid?: string | null; artist?: { id: string; name: string } }> }>(
             `/library/recently-added?limit=${limit}`
         );
     }
@@ -1315,6 +1315,18 @@ class ApiClient {
     // Podcasts
     async getPodcasts() {
         return this.request<ApiData[]>("/podcasts");
+    }
+
+    async getNewEpisodes(limit = 20) {
+        return this.request<ApiData[]>(
+            `/podcasts/new-episodes?limit=${limit}`
+        );
+    }
+
+    async getPodcastContinueListening(limit = 20) {
+        return this.request<ApiData[]>(
+            `/podcasts/continue-listening?limit=${limit}`
+        );
     }
 
     async getPodcast(id: string) {

@@ -294,14 +294,22 @@ export async function getJellyfinArtists(
  */
 export async function getJellyfinAlbums(
     cfg: JellyfinConfig,
-    options?: { limit?: number; offset?: number; artistId?: string; search?: string }
+    options?: {
+        limit?: number;
+        offset?: number;
+        artistId?: string;
+        search?: string;
+        sortBy?: string;
+        sortOrder?: string;
+    }
 ): Promise<{ albums: ResolvedAlbum[]; total: number }> {
     const userId = getEffectiveUserId(cfg);
     const limit = options?.limit ?? 100;
     const offset = options?.offset ?? 0;
     const artistKey = (options?.artistId ?? "").replace(/:/g, "_");
     const searchKey = (options?.search ?? "").replace(/:/g, "_");
-    const cacheKey = userId ? `jf:albums:${userId}:${limit}:${offset}:${artistKey}:${searchKey}` : null;
+    const sortKey = `${options?.sortBy ?? ""}:${options?.sortOrder ?? ""}`;
+    const cacheKey = userId ? `jf:albums:${userId}:${limit}:${offset}:${artistKey}:${searchKey}:${sortKey}` : null;
 
     if (cacheKey && redisClient.isReady) {
         try {
@@ -332,6 +340,8 @@ export async function getJellyfinAlbums(
         params.ParentId = rawId;
     }
     if (options?.search) params.SearchTerm = options.search;
+    if (options?.sortBy) params.SortBy = options.sortBy;
+    if (options?.sortOrder) params.SortOrder = options.sortOrder;
     const res = await client.get<{ Items: JellyfinItem[]; TotalRecordCount?: number }>(path, {
         params,
     });
@@ -1291,10 +1301,24 @@ async function getJellyfinItemsBatch(
     return result;
 }
 
+/** Cache TTL for favorites (2 min) - reduces Jellyfin API load for radio/home */
+const FAVORITES_CACHE_TTL = 120;
+
 export async function getJellyfinFavorites(cfg: JellyfinConfig): Promise<ResolvedTrack[]> {
+    const userId = getJellyfinUserId(cfg);
+    const cacheKey = userId ? `jf:favorites:${userId}` : null;
+    if (cacheKey && redisClient.isReady) {
+        try {
+            const cached = await redisClient.get(cacheKey);
+            if (cached) {
+                return JSON.parse(cached) as ResolvedTrack[];
+            }
+        } catch {
+            /* ignore, fall through */
+        }
+    }
     const token = getEffectiveToken(cfg);
     const client = createClient(cfg.url, token);
-    const userId = getJellyfinUserId(cfg);
     const path = userId ? `/Users/${userId}/Items` : "/Items";
     const res = await client.get<{ Items: JellyfinItem[] }>(path, {
         params: {
@@ -1335,6 +1359,13 @@ export async function getJellyfinFavorites(cfg: JellyfinConfig): Promise<Resolve
                 item.AlbumArtists?.[0] ? `${JELLYFIN_PREFIX}${item.AlbumArtists[0].Id}` : undefined
             )
         );
+    }
+    if (cacheKey && redisClient.isReady && tracks.length > 0) {
+        try {
+            await redisClient.setEx(cacheKey, FAVORITES_CACHE_TTL, JSON.stringify(tracks));
+        } catch {
+            /* ignore */
+        }
     }
     return tracks;
 }

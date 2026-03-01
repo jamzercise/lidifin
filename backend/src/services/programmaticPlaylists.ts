@@ -317,6 +317,25 @@ export class ProgrammaticPlaylistService {
                 weight: 1,
                 name: "Random Discovery Mix",
             },
+            // Jellyfin-only mixes (return null when native library)
+            {
+                fn: () =>
+                    this.generateJellyfinGenreMix(today + seedSuffix),
+                weight: 2,
+                name: "Jellyfin Genre Mix",
+            },
+            {
+                fn: () =>
+                    this.generateJellyfinDiscoveryMix(today + seedSuffix),
+                weight: 2,
+                name: "Jellyfin Discovery Mix",
+            },
+            {
+                fn: () =>
+                    this.generateJellyfinMoodMix(today + seedSuffix),
+                weight: 2,
+                name: "Jellyfin Mood Mix",
+            },
             {
                 fn: () => this.generatePartyMix(userId, today + seedSuffix),
                 weight: 2,
@@ -753,22 +772,51 @@ export class ProgrammaticPlaylistService {
         }
 
         const trackIds = playStats.map((p) => p.trackId);
-        const tracks = await prisma.track.findMany({
-            where: { id: { in: trackIds } },
-            include: {
-                album: { select: { coverUrl: true } },
-            },
-        });
+        const hasJellyfinIds = trackIds.some((id) => id.startsWith("jellyfin:"));
 
-        // Preserve play count order
-        const orderedTracks = trackIds
-            .map((id) => tracks.find((t) => t.id === id))
-            .filter((t) => t !== undefined);
+        let orderedTracks: { id: string; album: { coverUrl: string | null } }[] = [];
+        let coverUrls: string[] = [];
 
-        const coverUrls = orderedTracks
-            .filter((t) => t.album.coverUrl)
-            .slice(0, 4)
-            .map((t) => t.album.coverUrl!);
+        if (hasJellyfinIds) {
+            // Jellyfin tracks: resolve via Jellyfin API (not in Prisma Track table)
+            const { resolveTrackReferences } = await import("./jellyfin");
+            const resolved = await resolveTrackReferences(trackIds);
+            orderedTracks = trackIds
+                .map((id, i) => {
+                    const r = resolved[i];
+                    if (!r) return null;
+                    return {
+                        id: r.id,
+                        album: { coverUrl: r.album.coverArt },
+                    };
+                })
+                .filter((t): t is NonNullable<typeof t> => t !== null);
+            coverUrls = orderedTracks
+                .filter((t) => t.album.coverUrl)
+                .slice(0, 4)
+                .map((t) => t.album.coverUrl!);
+        } else {
+            const tracks = await prisma.track.findMany({
+                where: { id: { in: trackIds } },
+                include: {
+                    album: { select: { coverUrl: true } },
+                },
+            });
+            orderedTracks = trackIds
+                .map((id) => tracks.find((t) => t.id === id))
+                .filter((t): t is NonNullable<typeof t> => t !== undefined);
+            coverUrls = orderedTracks
+                .filter((t) => t.album.coverUrl)
+                .slice(0, 4)
+                .map((t) => t.album.coverUrl!);
+        }
+
+        if (orderedTracks.length < 5) {
+            logger.debug(
+                `[TOP TRACKS MIX] FAILED: Only ${orderedTracks.length} resolvable tracks (need at least 5)`
+            );
+            return null;
+        }
 
         return {
             id: "top-tracks",
@@ -1009,6 +1057,173 @@ export class ProgrammaticPlaylistService {
             coverUrls,
             trackCount: selectedTracks.length,
             color: getMixColor("discovery"),
+        };
+    }
+
+    /**
+     * Jellyfin-only: Genre mix from JellyfinTrackMetadata.genres
+     */
+    async generateJellyfinGenreMix(
+        today: string
+    ): Promise<ProgrammaticMix | null> {
+        const { isJellyfinMusicSource } = await import("./jellyfin");
+        if (!(await isJellyfinMusicSource())) return null;
+
+        const genreCounts = await prisma.$queryRaw<
+            { genre: string; c: number }[]
+        >`
+            SELECT unnest("genres") as genre, COUNT(*)::int as c
+            FROM "JellyfinTrackMetadata"
+            WHERE array_length("genres", 1) > 0
+            GROUP BY genre
+            HAVING COUNT(*) >= 10
+            ORDER BY c DESC
+        `;
+        if (genreCounts.length === 0) return null;
+
+        const seed = getSeededRandom(`jf-genre-${today}`);
+        const idx = seed % genreCounts.length;
+        const genre = genreCounts[idx].genre.toLowerCase();
+
+        const rows = await prisma.jellyfinTrackMetadata.findMany({
+            where: { genres: { has: genre } },
+            select: { jellyfinId: true },
+            take: this.TRACK_LIMIT * 2,
+        });
+        const trackIds = rows.map((r) => r.jellyfinId);
+        if (trackIds.length < 5) return null;
+
+        const selected = randomSample(trackIds, this.TRACK_LIMIT);
+
+        const { resolveTrackReferences } = await import("./jellyfin");
+        const resolved = await resolveTrackReferences(selected);
+        const valid = resolved.filter((t): t is NonNullable<typeof t> => t !== null);
+        if (valid.length < 5) return null;
+
+        const coverUrls = valid
+            .filter((t) => t.album?.coverArt)
+            .slice(0, 4)
+            .map((t) => t.album!.coverArt!);
+
+        const displayGenre = genre.charAt(0).toUpperCase() + genre.slice(1);
+        return {
+            id: `jellyfin-genre-${genre}-${today}`,
+            type: "genre",
+            name: `Your ${displayGenre} Mix`,
+            description: `Random ${displayGenre} picks from your library`,
+            trackIds: valid.map((t) => t.id),
+            coverUrls,
+            trackCount: valid.length,
+            color: getMixColor("genre"),
+        };
+    }
+
+    /**
+     * Jellyfin-only: Random discovery from JellyfinTrackMetadata
+     */
+    async generateJellyfinDiscoveryMix(
+        today: string
+    ): Promise<ProgrammaticMix | null> {
+        const { isJellyfinMusicSource } = await import("./jellyfin");
+        if (!(await isJellyfinMusicSource())) return null;
+
+        const rows = await prisma.$queryRaw<{ jellyfinId: string }[]>`
+            SELECT "jellyfinId" FROM "JellyfinTrackMetadata"
+            WHERE "jellyfinId" IS NOT NULL AND "jellyfinId" != ''
+            ORDER BY RANDOM()
+            LIMIT ${this.TRACK_LIMIT * 2}
+        `;
+        const trackIds = rows.map((r) => r.jellyfinId);
+        if (trackIds.length < 5) return null;
+
+        const selected = trackIds.slice(0, this.TRACK_LIMIT);
+        const { resolveTrackReferences } = await import("./jellyfin");
+        const resolved = await resolveTrackReferences(selected);
+        const valid = resolved.filter((t): t is NonNullable<typeof t> => t !== null);
+        if (valid.length < 5) return null;
+
+        const coverUrls = valid
+            .filter((t) => t.album?.coverArt)
+            .slice(0, 4)
+            .map((t) => t.album!.coverArt!);
+
+        return {
+            id: `jellyfin-discovery-${today}`,
+            type: "discovery",
+            name: "Discovery",
+            description: "Random picks from your library",
+            trackIds: valid.map((t) => t.id),
+            coverUrls,
+            trackCount: valid.length,
+            color: getMixColor("discovery"),
+        };
+    }
+
+    /**
+     * Jellyfin-only: Mood mix from JellyfinTrackMetadata.lastfmTags
+     */
+    async generateJellyfinMoodMix(
+        today: string
+    ): Promise<ProgrammaticMix | null> {
+        const { isJellyfinMusicSource } = await import("./jellyfin");
+        if (!(await isJellyfinMusicSource())) return null;
+
+        const MOOD_TAG_MAP: Record<string, string[]> = {
+            chill: ["chill", "chillout", "relaxing", "calm", "mellow", "ambient"],
+            energetic: ["energetic", "high energy", "upbeat", "powerful"],
+            sad: ["sad", "melancholy", "depressing", "dark", "melancholic"],
+            romantic: ["romantic", "love", "love songs", "romance"],
+            focus: ["focus", "ambient", "instrumental", "background"],
+        };
+        const moods = Object.keys(MOOD_TAG_MAP);
+        const seed = getSeededRandom(`jf-mood-${today}`);
+        const moodKey = moods[seed % moods.length];
+        const tags = MOOD_TAG_MAP[moodKey];
+
+        const rows = await prisma.jellyfinTrackMetadata.findMany({
+            where: {
+                AND: [
+                    { lastfmTags: { hasSome: tags } },
+                    { NOT: { lastfmTags: { has: "_no_mood_tags" } } },
+                    { NOT: { lastfmTags: { has: "_not_found" } } },
+                ],
+            },
+            select: { jellyfinId: true },
+            take: this.TRACK_LIMIT * 2,
+        });
+        const trackIds = rows.map((r) => r.jellyfinId);
+        if (trackIds.length < 5) return null;
+
+        const selected = randomSample(trackIds, this.TRACK_LIMIT);
+
+        const { resolveTrackReferences } = await import("./jellyfin");
+        const resolved = await resolveTrackReferences(selected);
+        const valid = resolved.filter((t): t is NonNullable<typeof t> => t !== null);
+        if (valid.length < 5) return null;
+
+        const coverUrls = valid
+            .filter((t) => t.album?.coverArt)
+            .slice(0, 4)
+            .map((t) => t.album!.coverArt!);
+
+        const moodNames: Record<string, string> = {
+            chill: "Chill & Relaxed",
+            energetic: "High Energy",
+            sad: "Melancholic",
+            romantic: "Romantic",
+            focus: "Focus Mode",
+        };
+        const moodName = moodNames[moodKey] ?? moodKey;
+
+        return {
+            id: `jellyfin-mood-${moodKey}-${today}`,
+            type: "mood",
+            name: `${moodName} Mix`,
+            description: `Tracks that match the ${moodName.toLowerCase()} vibe`,
+            trackIds: valid.map((t) => t.id),
+            coverUrls,
+            trackCount: valid.length,
+            color: getMixColor("chill"),
         };
     }
 

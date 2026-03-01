@@ -92,6 +92,10 @@ export const queryKeys = {
     podcast: (id: string) => ["podcast", id] as const,
     topPodcasts: (limit?: number, genreId?: number) =>
         ["podcasts", "top", limit, genreId] as const,
+    newEpisodes: (limit?: number) =>
+        ["podcasts", "new-episodes", limit] as const,
+    podcastContinueListening: (limit?: number) =>
+        ["podcasts", "continue-listening", limit] as const,
 
     // Browse (Deezer playlists/radios)
     browseAll: () => ["browse", "all"] as const,
@@ -891,6 +895,28 @@ export function useTopPodcastsQuery(limit: number = 20, genreId?: number) {
         queryKey: queryKeys.topPodcasts(limit, genreId),
         queryFn: () => api.getTopPodcasts(limit, genreId),
         staleTime: 10 * 60 * 1000, // 10 minutes
+    });
+}
+
+/**
+ * Hook to fetch new unplayed episodes from subscribed podcasts (≤14 days old, <1% played)
+ */
+export function useNewEpisodesQuery(limit: number = 20) {
+    return useQuery({
+        queryKey: queryKeys.newEpisodes(limit),
+        queryFn: () => api.getNewEpisodes(limit),
+        staleTime: 5 * 60 * 1000, // 5 minutes
+    });
+}
+
+/**
+ * Hook to fetch partially played podcast episodes for continue listening
+ */
+export function usePodcastContinueListeningQuery(limit: number = 20) {
+    return useQuery({
+        queryKey: queryKeys.podcastContinueListening(limit),
+        queryFn: () => api.getPodcastContinueListening(limit),
+        staleTime: 2 * 60 * 1000, // 2 minutes (progress changes frequently)
     });
 }
 

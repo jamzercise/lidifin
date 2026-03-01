@@ -316,7 +316,7 @@ router.get("/discover", async (req, res) => {
  * GET /search/discover/similar?artist=name&mbid=xxx
  * Fetch musically similar artists (Last.fm getSimilar).
  * Separate from discover so main search results return immediately.
- * Cache TTL: 1 hour -- similar artists change very rarely.
+ * Cache TTL: 7 days -- similar artists change very rarely.
  */
 router.get("/discover/similar", async (req, res) => {
     try {
@@ -347,8 +347,8 @@ router.get("/discover/similar", async (req, res) => {
         const payload = { similarArtists };
 
         try {
-            // Cache TTL: 1 hour (3600s) -- similar artists rarely change
-            await redisClient.setEx(cacheKey, 3600, JSON.stringify(payload));
+            // Cache TTL: 7 days -- similar artists rarely change
+            await redisClient.setEx(cacheKey, 7 * 24 * 60 * 60, JSON.stringify(payload));
         } catch (err) {
             logger.warn("[SEARCH SIMILAR] Redis write error:", err);
         }

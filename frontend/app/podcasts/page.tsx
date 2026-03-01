@@ -1,14 +1,24 @@
 "use client";
 
 import { useEffect, useState, useRef, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { Mic2, Search, Plus } from "lucide-react";
 import { useToast } from "@/lib/toast-context";
 import { GradientSpinner } from "@/components/ui/GradientSpinner";
-import { usePodcastsQuery, useTopPodcastsQuery } from "@/hooks/useQueries";
+import {
+    usePodcastsQuery,
+    useTopPodcastsQuery,
+    useNewEpisodesQuery,
+    usePodcastContinueListeningQuery,
+    queryKeys,
+} from "@/hooks/useQueries";
+import { subscribeQueryEvent } from "@/lib/query-events";
+import { SectionHeader } from "@/features/home/components/SectionHeader";
+import { NewEpisodesGrid } from "@/features/home/components/NewEpisodesGrid";
+import { PodcastContinueListeningGrid } from "@/features/home/components/PodcastContinueListeningGrid";
 import Image from "next/image";
 
 // Always proxy images through the backend for caching and mobile compatibility
@@ -31,6 +41,7 @@ interface SearchResult {
 }
 
 export default function PodcastsPage() {
+    const queryClient = useQueryClient();
     const [searchQuery, setSearchQuery] = useState("");
     const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
     const [isSearching, setIsSearching] = useState(false);
@@ -46,6 +57,9 @@ export default function PodcastsPage() {
         usePodcastsQuery();
     const { data: topPodcasts = [], isLoading: isLoadingTopPodcasts } =
         useTopPodcastsQuery(12);
+    const { data: newEpisodes = [] } = useNewEpisodesQuery(20);
+    const { data: continueListeningEpisodes = [] } =
+        usePodcastContinueListeningQuery(20);
 
     // Fetch genre-based discovery podcasts
     const { data: relatedPodcasts = {} } = useQuery({
@@ -94,6 +108,17 @@ export default function PodcastsPage() {
     useEffect(() => {
         setCurrentPage(1);
     }, [sortBy]);
+
+    // Invalidate new episodes and continue listening when podcast progress updates
+    useEffect(() => {
+        const unsubscribe = subscribeQueryEvent("podcast-progress-updated", () => {
+            queryClient.invalidateQueries({ queryKey: queryKeys.newEpisodes() });
+            queryClient.invalidateQueries({
+                queryKey: queryKeys.podcastContinueListening(),
+            });
+        });
+        return unsubscribe;
+    }, [queryClient]);
 
     // Close dropdown when clicking outside
     useEffect(() => {
@@ -276,6 +301,30 @@ export default function PodcastsPage() {
             </div>
 
             <div className="relative px-4 md:px-8 pb-24 space-y-12">
+                {/* Continue Listening - Partially played episodes */}
+                {continueListeningEpisodes.length > 0 && (
+                    <section>
+                        <SectionHeader
+                            title="Continue Listening"
+                            showAllHref="/podcasts"
+                        />
+                        <PodcastContinueListeningGrid
+                            episodes={continueListeningEpisodes}
+                        />
+                    </section>
+                )}
+
+                {/* New Episodes - Unplayed, ≤14 days old */}
+                {newEpisodes.length > 0 && (
+                    <section>
+                        <SectionHeader
+                            title="New Episodes"
+                            showAllHref="/podcasts"
+                        />
+                        <NewEpisodesGrid episodes={newEpisodes} />
+                    </section>
+                )}
+
                 {/* My Podcasts */}
                 {podcasts.length > 0 && (
                     <section>

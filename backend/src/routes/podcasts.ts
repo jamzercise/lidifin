@@ -125,6 +125,185 @@ router.get("/", async (req, res) => {
 });
 
 /**
+ * GET /podcasts/new-episodes
+ * Episodes from subscribed podcasts that are new (≤14 days) and unplayed (<1% listened)
+ */
+router.get("/new-episodes", async (req, res) => {
+    try {
+        const { limit = "20" } = req.query;
+        const limitNum = Math.min(
+            Math.max(1, parseInt(limit as string, 10) || 20),
+            50
+        );
+        const userId = req.user!.id;
+
+        const fourteenDaysAgo = new Date();
+        fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
+
+        const episodes = await prisma.podcastEpisode.findMany({
+            where: {
+                podcast: {
+                    subscriptions: { some: { userId } },
+                },
+                publishedAt: { gte: fourteenDaysAgo },
+            },
+            include: {
+                podcast: {
+                    select: {
+                        id: true,
+                        title: true,
+                        author: true,
+                        imageUrl: true,
+                        localCoverPath: true,
+                    },
+                },
+                progress: {
+                    where: { userId },
+                    take: 1,
+                },
+            },
+            orderBy: { publishedAt: "desc" },
+            take: limitNum * 2,
+        });
+
+        const unplayed = episodes.filter((ep) => {
+            const prog = ep.progress[0];
+            if (!prog) return true;
+            if (prog.duration <= 0) return true;
+            const pct = (prog.currentTime / prog.duration) * 100;
+            return pct < 1;
+        });
+
+        const limited = unplayed.slice(0, limitNum).map((ep) => {
+            const prog = ep.progress[0];
+            return {
+                id: ep.id,
+                title: ep.title,
+                duration: ep.duration,
+                publishedAt: ep.publishedAt,
+                coverUrl: ep.localCoverPath
+                    ? `/podcasts/episodes/${ep.id}/cover`
+                    : ep.imageUrl ?? ep.podcast.imageUrl,
+                podcast: {
+                    id: ep.podcast.id,
+                    title: ep.podcast.title,
+                    author: ep.podcast.author,
+                    coverUrl: ep.podcast.localCoverPath
+                        ? `/podcasts/${ep.podcast.id}/cover`
+                        : ep.podcast.imageUrl,
+                },
+                progress: prog
+                    ? {
+                          currentTime: prog.currentTime,
+                          progress:
+                              prog.duration > 0
+                                  ? (prog.currentTime / prog.duration) * 100
+                                  : 0,
+                          isFinished: prog.isFinished,
+                          lastPlayedAt: prog.lastPlayedAt,
+                      }
+                    : null,
+            };
+        });
+
+        res.json(limited);
+    } catch (error: any) {
+        logger.error("Error fetching new episodes:", error);
+        res.status(500).json({
+            error: "Failed to fetch new episodes",
+            message: error.message,
+        });
+    }
+});
+
+/**
+ * GET /podcasts/continue-listening
+ * Partially played episodes (1% <= progress < 100%), ordered by publishedAt desc
+ */
+router.get("/continue-listening", async (req, res) => {
+    try {
+        const { limit = "20" } = req.query;
+        const limitNum = Math.min(
+            Math.max(1, parseInt(limit as string, 10) || 20),
+            50
+        );
+        const userId = req.user!.id;
+
+        const progressRecords = await prisma.podcastProgress.findMany({
+            where: {
+                userId,
+                isFinished: false,
+                currentTime: { gt: 0 },
+                duration: { gt: 0 },
+            },
+            include: {
+                episode: {
+                    include: {
+                        podcast: {
+                            select: {
+                                id: true,
+                                title: true,
+                                author: true,
+                                imageUrl: true,
+                                localCoverPath: true,
+                            },
+                        },
+                    },
+                },
+            },
+            orderBy: { lastPlayedAt: "desc" },
+            take: limitNum * 3,
+        });
+
+        const partiallyPlayed = progressRecords
+            .filter((pp) => {
+                const pct = (pp.currentTime / pp.duration) * 100;
+                return pct >= 1 && pct < 100;
+            })
+            .sort(
+                (a, b) =>
+                    new Date(b.episode.publishedAt).getTime() -
+                    new Date(a.episode.publishedAt).getTime()
+            )
+            .slice(0, limitNum)
+            .map((pp) => {
+                const ep = pp.episode;
+                return {
+                    id: ep.id,
+                    title: ep.title,
+                    duration: ep.duration,
+                    publishedAt: ep.publishedAt,
+                    coverUrl: ep.localCoverPath
+                        ? `/podcasts/episodes/${ep.id}/cover`
+                        : ep.imageUrl ?? ep.podcast.imageUrl,
+                    podcast: {
+                        id: ep.podcast.id,
+                        title: ep.podcast.title,
+                        author: ep.podcast.author,
+                        coverUrl: ep.podcast.localCoverPath
+                            ? `/podcasts/${ep.podcast.id}/cover`
+                            : ep.podcast.imageUrl,
+                    },
+                    progress: {
+                        currentTime: pp.currentTime,
+                        progress: (pp.currentTime / pp.duration) * 100,
+                        isFinished: pp.isFinished,
+                        lastPlayedAt: pp.lastPlayedAt,
+                    },
+                };
+            });
+
+        res.json(partiallyPlayed);
+    } catch (error: any) {
+        logger.error("Error fetching continue listening:", error);
+        res.status(500).json({
+            error: "Failed to fetch continue listening",
+            message: error.message,
+        });
+    }
+});
+
+/**
  * GET /podcasts/discover/top
  * Get top podcasts - just search iTunes like the search bar does
  */

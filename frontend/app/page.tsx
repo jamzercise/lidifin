@@ -8,10 +8,11 @@ import { useHomeData } from "@/features/home/hooks/useHomeData";
 import { HomeHero } from "@/features/home/components/HomeHero";
 import { SectionHeader } from "@/features/home/components/SectionHeader";
 import { ContinueListening } from "@/features/home/components/ContinueListening";
-import { ArtistsGrid } from "@/features/home/components/ArtistsGrid";
+import { RecentlyAddedAlbumsGrid } from "@/features/home/components/RecentlyAddedAlbumsGrid";
 import { MixesGrid } from "@/features/home/components/MixesGrid";
 import { PopularArtistsGrid } from "@/features/home/components/PopularArtistsGrid";
 import { PodcastsGrid } from "@/features/home/components/PodcastsGrid";
+import { NewEpisodesGrid } from "@/features/home/components/NewEpisodesGrid";
 import { AudiobooksGrid } from "@/features/home/components/AudiobooksGrid";
 import { FeaturedPlaylistsGrid } from "@/features/home/components/FeaturedPlaylistsGrid";
 import { LibraryRadioStations } from "@/features/home/components/LibraryRadioStations";
@@ -38,11 +39,12 @@ export default function HomePage() {
     const [showMoodMixer, setShowMoodMixer] = useState(false);
     const {
         recentlyListened,
-        recentlyAdded,
+        recentlyAddedAlbums,
         recommended,
         mixes,
         popularArtists,
         recentPodcasts,
+        newEpisodes,
         recentAudiobooks,
         featuredPlaylists,
         isLoading,
@@ -77,10 +79,10 @@ export default function HomePage() {
                     )}
 
                     {/* Recently Added - #2 Priority */}
-                    {recentlyAdded.length > 0 && (
+                    {recentlyAddedAlbums.length > 0 && (
                         <section>
-                            <SectionHeader title="Recently Added" showAllHref="/library?tab=artists" />
-                            <ArtistsGrid artists={recentlyAdded} />
+                            <SectionHeader title="Recently Added" showAllHref="/library?tab=albums" />
+                            <RecentlyAddedAlbumsGrid albums={recentlyAddedAlbums} />
                         </section>
                     )}
 
@@ -144,6 +146,14 @@ export default function HomePage() {
                             ) : (
                                 <FeaturedPlaylistsGrid playlists={featuredPlaylists} />
                             )}
+                        </section>
+                    )}
+
+                    {/* New Episodes - Above Popular Podcasts */}
+                    {newEpisodes.length > 0 && (
+                        <section>
+                            <SectionHeader title="New Episodes" showAllHref="/podcasts" />
+                            <NewEpisodesGrid episodes={newEpisodes} />
                         </section>
                     )}
 

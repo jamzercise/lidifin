@@ -11,13 +11,21 @@ import { useAuth } from "@/lib/auth-context";
 import { toast } from "sonner";
 import { subscribeQueryEvent } from "@/lib/query-events";
 import type {
-    Artist,
     ListenedItem,
     Podcast,
     Audiobook,
     Mix,
     PopularArtist,
 } from "../types";
+
+export interface RecentlyAddedAlbum {
+    id: string;
+    title: string;
+    coverArt?: string | null;
+    year?: number;
+    rgMbid?: string | null;
+    artist?: { id: string; name: string };
+}
 import {
     useRecentlyListenedQuery,
     useRecentlyAddedQuery,
@@ -25,6 +33,7 @@ import {
     useMixesQuery,
     usePopularArtistsQuery,
     useTopPodcastsQuery,
+    useNewEpisodesQuery,
     useAudiobooksQuery,
     useRefreshMixesMutation,
     useBrowseAllQuery,
@@ -46,11 +55,12 @@ interface PlaylistPreview {
 export interface UseHomeDataReturn {
     // Data sections
     recentlyListened: ListenedItem[];
-    recentlyAdded: Artist[];
-    recommended: Artist[];
+    recentlyAddedAlbums: RecentlyAddedAlbum[];
+    recommended: import("../types").Artist[];
     mixes: Mix[];
     popularArtists: PopularArtist[];
     recentPodcasts: Podcast[];
+    newEpisodes: import("../components/NewEpisodesGrid").EpisodeWithPodcast[];
     recentAudiobooks: Audiobook[];
     featuredPlaylists: PlaylistPreview[];
 
@@ -69,7 +79,7 @@ export interface UseHomeDataReturn {
  *
  * Loads the following sections with automatic caching:
  * 1. Recently listened (Continue Listening)
- * 2. Recently added artists
+ * 2. Recently added albums
  * 3. Recommended for you
  * 4. Mixes (Made For You)
  * 5. Popular artists
@@ -107,6 +117,15 @@ export function useHomeData(): UseHomeDataReturn {
         return unsubscribe;
     }, [queryClient]);
 
+    // Listen for podcast-progress-updated (fired when playback starts/updates)
+    useEffect(() => {
+        const unsubscribe = subscribeQueryEvent("podcast-progress-updated", () => {
+            queryClient.invalidateQueries({ queryKey: queryKeys.newEpisodes() });
+        });
+
+        return unsubscribe;
+    }, [queryClient]);
+
     // React Query hooks - these automatically handle caching, refetching, and loading states
     const { data: recentlyListenedData, isLoading: isLoadingListened } =
         useRecentlyListenedQuery(10);
@@ -119,6 +138,7 @@ export function useHomeData(): UseHomeDataReturn {
         usePopularArtistsQuery(20);
     const { data: podcastsData, isLoading: isLoadingPodcasts } =
         useTopPodcastsQuery(10);
+    const { data: newEpisodesData } = useNewEpisodesQuery(20);
     const { data: audiobooksData, isLoading: isLoadingAudiobooks } =
         useAudiobooksQuery();
     const { data: browseData, isLoading: isBrowseLoading } =
@@ -167,13 +187,14 @@ export function useHomeData(): UseHomeDataReturn {
 
     return {
         recentlyListened: items,
-        recentlyAdded: recentlyAddedData?.artists || [],
+        recentlyAddedAlbums: recentlyAddedData?.albums || [],
         recommended: recommendedData?.artists || [],
         mixes: Array.isArray(mixesData) ? mixesData : [],
         popularArtists: popularData?.artists || [],
         recentPodcasts: Array.isArray(podcastsData)
             ? podcastsData.slice(0, 10)
             : [],
+        newEpisodes: Array.isArray(newEpisodesData) ? newEpisodesData : [],
         recentAudiobooks: Array.isArray(audiobooksData)
             ? audiobooksData.slice(0, 10)
             : [],

@@ -183,7 +183,7 @@ export function LibraryRadioStations() {
             if (station.filter.value) {
                 params.set("value", station.filter.value);
             }
-            params.set("limit", "100");
+            params.set("limit", "50");
 
             const response = await api.get<{ tracks: Track[] }>(
                 `/library/radio?${params.toString()}`

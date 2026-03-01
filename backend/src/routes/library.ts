@@ -531,73 +531,72 @@ router.get("/recently-listened", async (req, res) => {
 });
 
 // GET /library/recently-added?limit=10
+// Returns recently added albums (from Jellyfin or native library)
 router.get("/recently-added", async (req, res) => {
     try {
         const { limit = "10" } = req.query;
         const limitNum = Math.min(
             Math.max(1, parseInt(limit as string, 10) || 10),
             100
-        ); // Cap to avoid large takes on recently-added
+        );
 
-        // Get the 20 most recently added LIBRARY albums (by lastSynced timestamp)
-        // This limits "Recently Added" to actual recent additions, not the entire library
+        if (await isJellyfinMusicSource()) {
+            const cfg = await getJellyfinConfig();
+            if (!cfg) {
+                return res.status(503).json({
+                    error: JELLYFIN_UNREACHABLE_MESSAGE,
+                    jellyfin: true,
+                });
+            }
+            const { albums } = await getJellyfinAlbums(cfg, {
+                limit: limitNum,
+                offset: 0,
+                sortBy: "DateCreated",
+                sortOrder: "Descending",
+            });
+            return res.json({
+                albums: albums.map((a) => ({
+                    id: a.id,
+                    title: a.title,
+                    coverArt: a.coverArt,
+                    year: a.year,
+                    artist: a.artist,
+                    rgMbid: a.rgMbid,
+                })),
+            });
+        }
+
+        // Native: get most recently added LIBRARY albums (by lastSynced)
         const recentAlbums = await prisma.album.findMany({
             where: {
                 location: "LIBRARY",
-                tracks: { some: {} }, // Only albums with actual tracks
+                tracks: { some: {} },
             },
             orderBy: { lastSynced: "desc" },
-            take: 20, // Hard limit to last 20 albums
+            take: limitNum,
             include: {
                 artist: {
                     select: {
                         id: true,
                         mbid: true,
                         name: true,
-                        heroUrl: true,
-                        userHeroUrl: true,
                     },
                 },
             },
         });
 
-        // Extract unique artists from recent albums (preserving order of most recent)
-        const artistsMap = new Map();
-        for (const album of recentAlbums) {
-            if (!artistsMap.has(album.artist.id)) {
-                artistsMap.set(album.artist.id, album.artist);
-            }
-            if (artistsMap.size >= limitNum) break;
-        }
+        const albums = recentAlbums.map((a) => ({
+            id: a.id,
+            title: a.title,
+            coverArt: a.userCoverUrl ?? a.coverUrl ?? null,
+            year: a.year ?? undefined,
+            artist: a.artist
+                ? { id: a.artist.id, mbid: a.artist.mbid ?? undefined, name: a.artist.name }
+                : undefined,
+            rgMbid: a.rgMbid,
+        }));
 
-        // Get album counts for each artist (only LIBRARY albums)
-        const artistIds = Array.from(artistsMap.keys());
-        const albumCounts = await prisma.album.groupBy({
-            by: ["artistId"],
-            where: {
-                artistId: { in: artistIds },
-                location: "LIBRARY",
-                tracks: { some: {} },
-            },
-            _count: { id: true },
-        });
-        const albumCountMap = new Map(
-            albumCounts.map((ac) => [ac.artistId, ac._count.id])
-        );
-
-        // Map results - no on-demand image fetching for performance
-        // Artists without images will show placeholders until enrichment completes
-        const artistsWithImages = Array.from(artistsMap.values()).map((artist) => {
-            // Use override pattern: userHeroUrl ?? heroUrl
-            const coverArt = artist.userHeroUrl ?? artist.heroUrl ?? null;
-            return {
-                ...artist,
-                coverArt,
-                albumCount: albumCountMap.get(artist.id) || 0,
-            };
-        });
-
-        res.json({ artists: artistsWithImages });
+        res.json({ albums });
     } catch (error) {
         logger.error("Get recently added error:", error);
         res.status(500).json({ error: "Failed to fetch recently added" });
@@ -1728,10 +1727,10 @@ router.get("/artists/:id", async (req, res) => {
 
                     similarArtists = similarWithImages;
 
-                    // Cache for 24 hours
+                    // Cache for 7 days – similar artists rarely change
                     await redisClient.setEx(
                         similarCacheKey,
-                        24 * 60 * 60,
+                        7 * 24 * 60 * 60,
                         JSON.stringify(similarArtists)
                     );
                     logger.debug(
@@ -3867,7 +3866,7 @@ router.get("/radio", async (req, res) => {
             return res.status(400).json({ error: "Radio type is required" });
         }
 
-        // Jellyfin music source: fetch from Jellyfin API or JellyfinTrackMetadata (mood)
+        // Jellyfin music source: prefer JellyfinTrackMetadata (fast DB) over Jellyfin API (slow)
         if (await isJellyfinMusicSource()) {
             const cfg = await getJellyfinConfig();
             if (!cfg) {
@@ -3877,56 +3876,97 @@ router.get("/radio", async (req, res) => {
                 });
             }
             let jellyfinTracks: Awaited<ReturnType<typeof getJellyfinTracks>>["tracks"] = [];
+            const takeCount = limitNum * 2;
+
+            // Genre: JellyfinTrackMetadata.genres (indexed, fast)
             if (type === "genre" && value) {
-                // Genre radio: use JellyfinTrackMetadata.genres (Last.fm artist tags from enrichment)
                 const genreValue = ((value as string) || "").toLowerCase();
                 const genreRows = await prisma.jellyfinTrackMetadata.findMany({
-                    where: {
-                        genres: { has: genreValue },
-                    },
+                    where: { genres: { has: genreValue } },
                     select: { jellyfinId: true },
-                    take: limitNum * 2,
+                    take: takeCount,
                 });
                 const trackIds = genreRows.map((r) => r.jellyfinId);
                 if (trackIds.length > 0) {
                     const resolved = await resolveTrackReferences(trackIds);
                     jellyfinTracks = resolved.filter((t): t is NonNullable<typeof t> => t !== null);
-                    logger.debug(
-                        `[Radio:genre] Jellyfin: Found ${jellyfinTracks.length} tracks for genre "${genreValue}"`,
-                    );
+                    logger.debug(`[Radio:genre] Jellyfin: ${jellyfinTracks.length} tracks for "${genreValue}"`);
                 }
             }
+
+            // Mood: JellyfinTrackMetadata.lastfmTags with expanded synonyms (chill→chillout/relaxing, etc.)
+            const MOOD_TAG_MAP: Record<string, string[]> = {
+                chill: ["chill", "chillout", "relaxing", "calm", "mellow", "ambient", "chill-out"],
+                energetic: ["energetic", "high energy", "upbeat", "powerful"],
+                sad: ["sad", "melancholy", "depressing", "dark", "melancholic"],
+                romantic: ["romantic", "love", "love songs", "romance"],
+                study: ["study", "focus", "ambient", "instrumental", "background", "concentration"],
+                driving: ["driving", "road trip", "road", "highway"],
+            };
             if (type === "mood" && value && jellyfinTracks.length === 0) {
-                // Mood radio: use JellyfinTrackMetadata (Last.fm tags from sync+enrichment)
                 const moodValue = ((value as string) || "").toLowerCase();
+                const tags = MOOD_TAG_MAP[moodValue] ?? [moodValue];
                 const moodRows = await prisma.jellyfinTrackMetadata.findMany({
                     where: {
                         AND: [
-                            { lastfmTags: { has: moodValue } },
+                            { lastfmTags: { hasSome: tags } },
                             { NOT: { lastfmTags: { has: "_no_mood_tags" } } },
                             { NOT: { lastfmTags: { has: "_not_found" } } },
                         ],
                     },
                     select: { jellyfinId: true },
-                    take: limitNum * 2,
+                    take: takeCount,
                 });
                 const trackIds = moodRows.map((r) => r.jellyfinId);
                 if (trackIds.length > 0) {
                     const resolved = await resolveTrackReferences(trackIds);
                     jellyfinTracks = resolved.filter((t): t is NonNullable<typeof t> => t !== null);
+                    logger.debug(`[Radio:mood] Jellyfin: ${jellyfinTracks.length} tracks for "${moodValue}"`);
                 }
             }
-            if (jellyfinTracks.length === 0) {
-                if (type === "favorites") {
-                    jellyfinTracks = await getJellyfinFavorites(cfg);
-                } else {
-                    // all, discovery, workout, genre, decade, or mood with no matches
-                    const { tracks } = await getJellyfinTracks(cfg, {
-                        limit: limitNum * 2,
-                        sortBy: "Random",
-                    });
-                    jellyfinTracks = tracks;
+
+            // Workout: JellyfinTrackMetadata.genres (high-energy genres)
+            const WORKOUT_GENRES = ["rock", "metal", "electronic", "edm", "hip hop", "rap", "punk", "hard rock", "techno", "house"];
+            if (type === "workout" && jellyfinTracks.length === 0) {
+                const workoutRows = await prisma.jellyfinTrackMetadata.findMany({
+                    where: { genres: { hasSome: WORKOUT_GENRES } },
+                    select: { jellyfinId: true },
+                    take: takeCount,
+                });
+                const trackIds = workoutRows.map((r) => r.jellyfinId);
+                if (trackIds.length > 0) {
+                    const resolved = await resolveTrackReferences(trackIds);
+                    jellyfinTracks = resolved.filter((t): t is NonNullable<typeof t> => t !== null);
+                    logger.debug(`[Radio:workout] Jellyfin: ${jellyfinTracks.length} tracks`);
                 }
+            }
+
+            // All / Discovery: random from JellyfinTrackMetadata (avoids slow Jellyfin API)
+            if ((type === "all" || type === "discovery") && jellyfinTracks.length === 0) {
+                const randomRows = await prisma.$queryRaw<{ jellyfinId: string }[]>`
+                    SELECT "jellyfinId" FROM "JellyfinTrackMetadata"
+                    WHERE "jellyfinId" IS NOT NULL AND "jellyfinId" != ''
+                    ORDER BY RANDOM()
+                    LIMIT ${takeCount}
+                `;
+                const trackIds = randomRows.map((r) => r.jellyfinId);
+                if (trackIds.length > 0) {
+                    const resolved = await resolveTrackReferences(trackIds);
+                    jellyfinTracks = resolved.filter((t): t is NonNullable<typeof t> => t !== null);
+                    logger.debug(`[Radio:${type}] Jellyfin: ${jellyfinTracks.length} tracks from metadata`);
+                }
+            }
+
+            // Favorites: Jellyfin API (user-scoped, no local alternative)
+            if (type === "favorites" && jellyfinTracks.length === 0) {
+                jellyfinTracks = await getJellyfinFavorites(cfg);
+            }
+
+            // Fallback: Jellyfin API only when metadata has no matches
+            if (jellyfinTracks.length === 0) {
+                const { tracks } = await getJellyfinTracks(cfg, { limit: takeCount, sortBy: "Random" });
+                jellyfinTracks = tracks;
+                logger.debug(`[Radio] Jellyfin fallback API: ${jellyfinTracks.length} tracks`);
             }
             const sliced = shuffleArray(jellyfinTracks).slice(0, limitNum);
             const transformed = sliced.map((t) => ({
