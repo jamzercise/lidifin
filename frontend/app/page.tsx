@@ -10,6 +10,7 @@ import { SectionHeader } from "@/features/home/components/SectionHeader";
 import { ContinueListening } from "@/features/home/components/ContinueListening";
 import { RecentlyAddedAlbumsGrid } from "@/features/home/components/RecentlyAddedAlbumsGrid";
 import { MixesGrid } from "@/features/home/components/MixesGrid";
+import { ArtistsGrid } from "@/features/home/components/ArtistsGrid";
 import { PopularArtistsGrid } from "@/features/home/components/PopularArtistsGrid";
 import { PodcastsGrid } from "@/features/home/components/PodcastsGrid";
 import { NewEpisodesGrid } from "@/features/home/components/NewEpisodesGrid";
