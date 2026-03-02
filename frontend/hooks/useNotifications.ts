@@ -1,7 +1,12 @@
 "use client";
 
 import { useCallback } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+    useQuery,
+    useMutation,
+    useQueryClient,
+    keepPreviousData,
+} from "@tanstack/react-query";
 import { api } from "@/lib/api";
 
 export interface Notification {
@@ -45,6 +50,9 @@ export function useNotifications() {
         queryKey: ["notifications"],
         queryFn: () => api.get<Notification[]>("/notifications"),
         refetchInterval: 45000, // 45s - reduce load when backend is under stress
+        refetchIntervalInBackground: false,
+        placeholderData: keepPreviousData,
+        retry: 0,
     });
 
     // Derive unread count from data (computed, not stored)
@@ -158,6 +166,9 @@ export function useDownloadHistory() {
         queryKey: ["download-history"],
         queryFn: fetchHistory,
         refetchInterval: 60000, // 60s - history doesn't need frequent updates
+        refetchIntervalInBackground: false,
+        placeholderData: keepPreviousData,
+        retry: 0,
     });
 
     const queryClient = useQueryClient();
@@ -229,6 +240,9 @@ export function useActiveDownloads() {
             const data = query.state.data;
             return data && data.length > 0 ? 15000 : 45000;
         },
+        refetchIntervalInBackground: false,
+        placeholderData: keepPreviousData,
+        retry: 0,
     });
 
     return {

@@ -327,11 +327,19 @@ class ApiClient {
         const url = `${this.getBaseUrl()}/api${endpoint}`;
 
         // Client-side timeout so the UI doesn't hang when the backend is unresponsive (e.g. ECONNRESET / hung).
-        // Slightly longer than typical backend request timeout (90s) so we usually get a proper 503 first.
-        // AudioMuse instant playlist can take 2–3 min (MCP workflow) - use 190s to align with backend.
-        const REQUEST_TIMEOUT_MS =
-            endpoint.includes("/mixes/audiomuse/instant") ? 190 * 1000 : 100 * 1000;
+        // Fail fast (30s) for most requests - user gets feedback instead of waiting minutes.
+        // Exceptions: AudioMuse instant (190s), sync triggers (60s - server returns quickly, work is async).
         const isStream = endpoint.includes("/stream");
+        const isLongRunning =
+            endpoint.includes("/mixes/audiomuse/instant") ||
+            endpoint.includes("/sync") ||
+            endpoint.includes("/enrichment/full") ||
+            endpoint.includes("/enrichment/sync");
+        const REQUEST_TIMEOUT_MS = endpoint.includes("/mixes/audiomuse/instant")
+            ? 190 * 1000
+            : isLongRunning
+              ? 60 * 1000
+              : 30 * 1000;
         let timeoutId: ReturnType<typeof setTimeout> | undefined;
         const controller =
             typeof AbortController !== "undefined" && !fetchOptions.signal && !isStream
@@ -341,14 +349,35 @@ class ApiClient {
             timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
         }
 
-        const response = await fetch(url, {
-            ...fetchOptions,
-            headers,
-            credentials: "include", // Still send cookies for backward compatibility
-            signal: controller?.signal ?? fetchOptions.signal,
-        }).finally(() => {
-            if (timeoutId) clearTimeout(timeoutId);
-        });
+        let response: Response;
+        try {
+            response = await fetch(url, {
+                ...fetchOptions,
+                headers,
+                credentials: "include", // Still send cookies for backward compatibility
+                signal: controller?.signal ?? fetchOptions.signal,
+            }).finally(() => {
+                if (timeoutId) clearTimeout(timeoutId);
+            });
+        } catch (err) {
+            if (err instanceof Error) {
+                if (err.name === "AbortError") {
+                    throw new Error(
+                        "Request timed out. The server may be overloaded. Please try again."
+                    ) as ApiError;
+                }
+                if (
+                    err.message?.includes("ECONNRESET") ||
+                    err.message?.includes("socket hang up") ||
+                    err.message?.includes("Failed to fetch")
+                ) {
+                    throw new Error(
+                        "Connection lost. The server may be busy. Please try again."
+                    ) as ApiError;
+                }
+            }
+            throw err;
+        }
 
         if (!response.ok) {
             const error = await response.json().catch(() => ({

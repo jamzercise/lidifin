@@ -65,6 +65,11 @@ export function useDownloadStatus(
         let errorCount = 0;
 
         const pollDownloads = async () => {
+            // When tab is hidden, poll slowly (60s) to reduce backend load
+            if (typeof document !== "undefined" && document.hidden) {
+                pollTimeout = setTimeout(pollDownloads, 60000);
+                return;
+            }
             try {
                 // Fetch recent download jobs (last 50)
                 const response = await api.getDownloads(50);

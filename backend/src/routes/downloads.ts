@@ -14,6 +14,14 @@ const router = Router();
 
 router.use(requireAuthOrToken);
 
+// Short-lived cache to reduce DB load when downloads are polled frequently (useDownloadStatus)
+const DOWNLOADS_CACHE_MS = 4000;
+const downloadsCache = new Map<string, { data: unknown; expires: number }>();
+
+function getDownloadsCacheKey(userId: string, limit: number, includeDiscovery: string, includeCleared: string): string {
+    return `${userId}:${limit}:${includeDiscovery}:${includeCleared}`;
+}
+
 /**
  * Verify and potentially correct artist name before download
  * Uses multiple sources for canonical name resolution:
@@ -719,6 +727,7 @@ router.delete("/:id", async (req, res) => {
 });
 
 // GET /downloads - List user's download jobs
+// Cached 4s to reduce DB load when polled frequently (useDownloadStatus every 10-45s)
 router.get("/", async (req, res) => {
     try {
         const userId = req.user!.id;
@@ -733,6 +742,18 @@ router.get("/", async (req, res) => {
             Math.max(1, parseInt(limit as string, 10) || 50),
             500
         );
+
+        const cacheKey = getDownloadsCacheKey(
+            userId,
+            rawLimit,
+            (includeDiscovery as string) || "false",
+            (includeCleared as string) || "false"
+        );
+        const now = Date.now();
+        const cached = downloadsCache.get(cacheKey);
+        if (cached && cached.expires > now && !status) {
+            return res.json(cached.data);
+        }
 
         const where: any = { userId };
         if (status) {
@@ -759,6 +780,12 @@ router.get("/", async (req, res) => {
                       return metadata?.downloadType !== "discovery";
                   });
 
+        if (!status) {
+            downloadsCache.set(cacheKey, {
+                data: filteredJobs,
+                expires: now + DOWNLOADS_CACHE_MS,
+            });
+        }
         res.json(filteredJobs);
     } catch (error) {
         logger.error("List download jobs error:", error);

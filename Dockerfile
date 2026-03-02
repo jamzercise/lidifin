@@ -157,7 +157,7 @@ stderr_logfile_maxbytes=0
 priority=10
 
 [program:redis]
-command=/usr/bin/redis-server --dir /data/redis --appendonly yes
+command=/usr/bin/redis-server --dir /data/redis --appendonly yes --save ""
 user=redis
 autostart=true
 autorestart=true

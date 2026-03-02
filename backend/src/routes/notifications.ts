@@ -6,26 +6,41 @@ import { prisma } from "../utils/db";
 
 const router = Router();
 
+// Short-lived cache to reduce DB load when notifications are polled frequently
+const NOTIFICATIONS_CACHE_MS = 4000;
+const notificationsCache = new Map<string, { data: unknown; expires: number }>();
+
+function invalidateNotificationsCache(userId: string) {
+    notificationsCache.delete(userId);
+}
+
 /**
  * GET /notifications
  * Get all uncleared notifications for the current user
+ * Cached 4s to reduce DB load when polled frequently (multiple components poll every 30-45s)
  */
 router.get(
     "/",
     requireAuth,
     async (req: Request, res: Response) => {
         try {
+            const userId = req.user!.id;
+            const now = Date.now();
+            const cached = notificationsCache.get(userId);
+            if (cached && cached.expires > now) {
+                return res.json(cached.data);
+            }
             logger.debug(
-                `[Notifications] Fetching notifications for user ${
-                    req.user!.id
-                }`
+                `[Notifications] Fetching notifications for user ${userId}`
             );
-            const notifications = await notificationService.getForUser(
-                req.user!.id
-            );
+            const notifications = await notificationService.getForUser(userId);
             logger.debug(
                 `[Notifications] Found ${notifications.length} notifications`
             );
+            notificationsCache.set(userId, {
+                data: notifications,
+                expires: now + NOTIFICATIONS_CACHE_MS,
+            });
             res.json(notifications);
         } catch (error: any) {
             logger.error("Error fetching notifications:", error);
@@ -64,6 +79,7 @@ router.post(
     async (req: Request, res: Response) => {
         try {
             await notificationService.markAsRead(req.params.id, req.user!.id);
+            invalidateNotificationsCache(req.user!.id);
             res.json({ success: true });
         } catch (error: any) {
             logger.error("Error marking notification as read:", error);
@@ -84,6 +100,7 @@ router.post(
     async (req: Request, res: Response) => {
         try {
             await notificationService.markAllAsRead(req.user!.id);
+            invalidateNotificationsCache(req.user!.id);
             res.json({ success: true });
         } catch (error: any) {
             logger.error("Error marking all notifications as read:", error);
@@ -104,6 +121,7 @@ router.post(
     async (req: Request, res: Response) => {
         try {
             await notificationService.clear(req.params.id, req.user!.id);
+            invalidateNotificationsCache(req.user!.id);
             res.json({ success: true });
         } catch (error: any) {
             logger.error("Error clearing notification:", error);
@@ -122,6 +140,7 @@ router.post(
     async (req: Request, res: Response) => {
         try {
             await notificationService.clearAll(req.user!.id);
+            invalidateNotificationsCache(req.user!.id);
             res.json({ success: true });
         } catch (error: any) {
             logger.error("Error clearing all notifications:", error);

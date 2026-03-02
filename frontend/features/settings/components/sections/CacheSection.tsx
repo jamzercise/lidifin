@@ -173,7 +173,7 @@ export function CacheSection({ settings, onUpdate }: CacheSectionProps) {
         }
     }, []);
 
-    // Fetch enrichment progress
+    // Fetch enrichment progress (reduced polling to avoid backend event loop stress)
     const {
         data: enrichmentProgress,
         refetch: refetchProgress,
@@ -182,25 +182,32 @@ export function CacheSection({ settings, onUpdate }: CacheSectionProps) {
     } = useQuery({
         queryKey: ["enrichment-progress"],
         queryFn: () => api.getEnrichmentProgress(),
-        refetchInterval: 5000,
-        staleTime: 2000,
+        refetchInterval: 15000, // 15s - was 5s; reduces load when backend is under stress
+        refetchIntervalInBackground: false, // Pause when tab hidden - reduces load, keeps UI responsive
+        staleTime: 5000,
         placeholderData: keepPreviousData,
-        retry: 3,
+        retry: 0, // No retry - next poll cycle will retry; avoids stacking timeouts when backend is hung
     });
 
     // Fetch enrichment state
     const { data: enrichmentState } = useQuery({
         queryKey: ["enrichment-status"],
         queryFn: () => enrichmentApi.getStatus(),
-        refetchInterval: 3000,
-        staleTime: 1000,
+        refetchInterval: 10000, // 10s - was 3s; reduces backend load
+        refetchIntervalInBackground: false,
+        staleTime: 5000,
+        placeholderData: keepPreviousData,
+        retry: 0,
     });
 
     // Fetch failure counts
     const { data: failureCounts } = useQuery({
         queryKey: ["enrichment-failure-counts"],
         queryFn: () => enrichmentApi.getFailureCounts(),
-        refetchInterval: 10000,
+        refetchInterval: 20000, // 20s - was 10s
+        refetchIntervalInBackground: false,
+        placeholderData: keepPreviousData,
+        retry: 0,
     });
 
     // Fetch concurrency config

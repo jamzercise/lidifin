@@ -13,7 +13,12 @@ import {
 import { api } from "@/lib/api";
 import { cn } from "@/utils/cn";
 import Link from "next/link";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+    useQuery,
+    useMutation,
+    useQueryClient,
+    keepPreviousData,
+} from "@tanstack/react-query";
 
 interface Notification {
     id: string;
@@ -40,6 +45,9 @@ export function NotificationsTab() {
             return result;
         },
         refetchInterval: 30000, // Poll every 30 seconds
+        refetchIntervalInBackground: false,
+        placeholderData: keepPreviousData,
+        retry: 0,
     });
 
     // Dispatch events when new playlist-related notifications arrive

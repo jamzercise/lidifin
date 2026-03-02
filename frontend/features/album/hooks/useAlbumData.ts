@@ -1,6 +1,6 @@
 import { useParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import { queryKeys } from "@/hooks/useQueries";
 import { api } from "@/lib/api";
 import { useDownloadContext } from "@/lib/download-context";
@@ -36,6 +36,8 @@ export function useAlbumData(albumId?: string) {
         retry: 1,
         // Poll every 5 seconds when there are active downloads
         refetchInterval: downloadStatus.hasActiveDownloads ? 5000 : false,
+        refetchIntervalInBackground: false,
+        placeholderData: keepPreviousData,
     });
 
     // Refetch when downloads complete (active count decreases)
