@@ -488,16 +488,44 @@ const server = app.listen(config.port, "0.0.0.0", async () => {
 const EVENT_LOOP_CHECK_MS = 30000;
 const EVENT_LOOP_WARN_THRESHOLD_MS = 2000;
 let eventLoopCheckExpected = Date.now();
+const recentDelays: number[] = [];
+const MAX_RECENT_DELAYS = 5;
+
+function getEventLoopDiagnostics(): Record<string, unknown> {
+    const mem = process.memoryUsage();
+    const diagnostics: Record<string, unknown> = {
+        heapUsedMB: Math.round(mem.heapUsed / 1024 / 1024),
+        heapTotalMB: Math.round(mem.heapTotal / 1024 / 1024),
+        rssMB: Math.round(mem.rss / 1024 / 1024),
+        externalMB: Math.round((mem.external || 0) / 1024 / 1024),
+    };
+    try {
+        const handles = (process as NodeJS.Process & { _getActiveHandles?: () => unknown[] })._getActiveHandles?.();
+        const requests = (process as NodeJS.Process & { _getActiveRequests?: () => unknown[] })._getActiveRequests?.();
+        if (handles) diagnostics.activeHandles = handles.length;
+        if (requests) diagnostics.activeRequests = requests.length;
+    } catch {
+        // _getActiveHandles/_getActiveRequests may not exist or can throw
+    }
+    return diagnostics;
+}
+
 setInterval(() => {
     const now = Date.now();
     const delay = now - eventLoopCheckExpected;
     eventLoopCheckExpected = now + EVENT_LOOP_CHECK_MS;
     if (delay > EVENT_LOOP_WARN_THRESHOLD_MS) {
+        recentDelays.push(delay);
+        if (recentDelays.length > MAX_RECENT_DELAYS) recentDelays.shift();
+
         const reqInfo = currentRequestInfo
             ? ` Request in progress: ${currentRequestInfo.method} ${currentRequestInfo.path} (started ${now - currentRequestInfo.at}ms ago).`
             : " (no request in progress when checked)";
+
+        const diagnostics = getEventLoopDiagnostics();
         logger.warn(
-            `[EventLoop] Delay detected: ${delay}ms (expected ~${EVENT_LOOP_CHECK_MS}ms). Backend event loop was blocked.${reqInfo}`
+            `[EventLoop] Delay detected: ${delay}ms (expected ~${EVENT_LOOP_CHECK_MS}ms). Backend event loop was blocked.${reqInfo}`,
+            { diagnostics, recentDelays: [...recentDelays] }
         );
     }
 }, EVENT_LOOP_CHECK_MS);
