@@ -1315,32 +1315,25 @@ router.get("/:id", async (req, res) => {
             return res.status(404).json({ error: "Mix not found" });
         }
 
-        // Load full track details
-        const tracks = await prisma.track.findMany({
-            where: {
-                id: {
-                    in: mix.trackIds,
-                },
-            },
-            include: {
-                album: {
-                    include: {
-                        artist: {
-                            select: {
-                                id: true,
-                                name: true,
-                                mbid: true,
-                            },
-                        },
-                    },
-                },
-            },
-        });
-
-        // Preserve mix order
-        const orderedTracks = mix.trackIds
-            .map((id: string) => tracks.find((t) => t.id === id))
-            .filter((t: any) => t !== undefined);
+        // Resolve tracks (handles both Jellyfin IDs and native Prisma IDs)
+        const resolved = await resolveTrackReferences(mix.trackIds || []);
+        const orderedTracks = resolved
+            .map((t) =>
+                t
+                    ? {
+                          id: t.id,
+                          title: t.title,
+                          duration: t.duration,
+                          albumId: t.album.id,
+                          album: {
+                              title: t.album.title,
+                              coverUrl: t.album.coverArt,
+                              artist: t.artist,
+                          },
+                      }
+                    : null
+            )
+            .filter(Boolean);
 
         res.json({
             ...mix,
