@@ -13,6 +13,7 @@ import {
     ChevronDown,
     Music as MusicIcon,
     ListMusic,
+    Cast,
     Shuffle,
     Repeat,
     Repeat1,
@@ -32,6 +33,7 @@ import { SleepTimerButton } from "./SleepTimerButton";
 import { PlaybackSpeedButton } from "./PlaybackSpeedButton";
 import { useQueuePanel } from "@/lib/queue-panel-context";
 import { useFeatures } from "@/lib/features-context";
+import { useCast } from "@/lib/cast-context";
 import { useFavorites } from "@/hooks/useFavorites";
 
 export function OverlayPlayer() {
@@ -70,6 +72,7 @@ export function OverlayPlayer() {
     } = useAudio();
     const { openQueue } = useQueuePanel();
     const { favoriteIds, addFavorite, removeFavorite } = useFavorites();
+    const { isAvailable, isCasting, requestSession, stopCasting } = useCast();
 
     const isMobile = useIsMobile();
     const isTablet = useIsTablet();
@@ -244,6 +247,22 @@ export function OverlayPlayer() {
                     >
                         <ListMusic className="w-5 h-5" />
                     </button>
+                    {isAvailable && (
+                        <button
+                            type="button"
+                            onClick={isCasting ? stopCasting : requestSession}
+                            className={cn(
+                                "transition-colors p-2 -mr-2 rounded-full hover:bg-white/10",
+                                isCasting
+                                    ? "text-[#B1D2C3] hover:text-[#9bc4b3]"
+                                    : "text-gray-400 hover:text-white"
+                            )}
+                            aria-label={isCasting ? "Stop casting" : "Cast to device"}
+                            title={isCasting ? "Stop casting" : "Cast to device"}
+                        >
+                            <Cast className="w-5 h-5" />
+                        </button>
+                    )}
                 </div>
             </div>
 

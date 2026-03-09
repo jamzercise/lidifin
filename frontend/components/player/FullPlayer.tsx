@@ -25,6 +25,7 @@ import {
     Loader2,
     AudioWaveform,
     RefreshCw,
+    Cast,
 } from "lucide-react";
 import { useState, useMemo } from "react";
 import { toast } from "sonner";
@@ -37,6 +38,7 @@ import { cn } from "@/utils/cn";
 import { useFeatures } from "@/lib/features-context";
 import { formatTime, clampTime, formatTimeRemaining } from "@/utils/formatTime";
 import { SeekSlider } from "./SeekSlider";
+import { useCast } from "@/lib/cast-context";
 
 
 /**
@@ -96,6 +98,7 @@ export function FullPlayer() {
     const { vibeEmbeddings, loading: featuresLoading } = useFeatures();
     const { openQueue } = useQueuePanel();
     const { favoriteIds, addFavorite, removeFavorite } = useFavorites();
+    const { isAvailable, isCasting, requestSession, stopCasting } = useCast();
 
     // Get current track's audio features for vibe comparison
     const currentTrackFeatures = queue[currentIndex]?.audioFeatures || null;
@@ -652,6 +655,25 @@ export function FullPlayer() {
                         >
                             <ListMusic className="w-4 h-4" />
                         </button>
+
+                        {isAvailable && (
+                            <button
+                                onClick={isCasting ? stopCasting : requestSession}
+                                className={cn(
+                                    "transition-all duration-200",
+                                    isCasting
+                                        ? "text-[#B1D2C3] hover:text-[#9bc4b3]"
+                                        : hasMedia
+                                          ? "text-gray-400 hover:text-white hover:scale-110"
+                                          : "text-gray-600 cursor-not-allowed"
+                                )}
+                                disabled={!hasMedia && !isCasting}
+                                aria-label={isCasting ? "Stop casting" : "Cast to device"}
+                                title={isCasting ? "Stop casting" : "Cast to device"}
+                            >
+                                <Cast className="w-4 h-4" />
+                            </button>
+                        )}
 
                         <button
                             onClick={() => setPlayerMode("overlay")}

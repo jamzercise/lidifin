@@ -12,6 +12,7 @@ import {
     Music as MusicIcon,
     ListMusic,
     Heart,
+    Cast,
     SkipBack,
     SkipForward,
     Repeat,
@@ -38,6 +39,7 @@ import { SleepTimerButton } from "./SleepTimerButton";
 import { PlaybackSpeedButton } from "./PlaybackSpeedButton";
 import { useQueuePanel } from "@/lib/queue-panel-context";
 import { useFeatures } from "@/lib/features-context";
+import { useCast } from "@/lib/cast-context";
 import { useFavorites } from "@/hooks/useFavorites";
 
 const EnhancedVibeOverlay = lazy(() => import("./VibeOverlayEnhanced").then(mod => ({ default: mod.EnhancedVibeOverlay })));
@@ -80,6 +82,7 @@ export function MiniPlayer() {
     } = useAudio();
     const { openQueue } = useQueuePanel();
     const { favoriteIds, addFavorite, removeFavorite } = useFavorites();
+    const { isAvailable, isCasting, requestSession, stopCasting } = useCast();
     const isMobile = useIsMobile();
     const isTablet = useIsTablet();
     const isMobileOrTablet = isMobile || isTablet;
@@ -839,6 +842,26 @@ export function MiniPlayer() {
                         >
                             <ListMusic className="w-3.5 h-3.5" />
                         </button>
+
+                        {isAvailable && (
+                            <button
+                                type="button"
+                                onClick={isCasting ? stopCasting : requestSession}
+                                className={cn(
+                                    "transition-all duration-200 hover:scale-110",
+                                    isCasting
+                                        ? "text-[#B1D2C3] hover:text-[#9bc4b3]"
+                                        : hasMedia
+                                          ? "text-gray-400 hover:text-white"
+                                          : "text-gray-600 cursor-not-allowed"
+                                )}
+                                disabled={!hasMedia && !isCasting}
+                                aria-label={isCasting ? "Stop casting" : "Cast to device"}
+                                title={isCasting ? "Stop casting" : "Cast to device"}
+                            >
+                                <Cast className="w-3.5 h-3.5" />
+                            </button>
+                        )}
 
                         {/* Vibe Mode Toggle - only when embeddings available */}
                         {!featuresLoading && vibeEmbeddings && (

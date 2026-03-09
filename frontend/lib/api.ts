@@ -683,6 +683,71 @@ class ApiClient {
         return baseUrl;
     }
 
+    /**
+     * Get absolute stream URL for Chromecast. Chromecast fetches the URL directly,
+     * so it must be reachable from the Cast device (same LAN). Uses
+     * NEXT_PUBLIC_API_URL or window.location.origin - never localhost.
+     */
+    getStreamUrlForCast(trackId: string): string {
+        const base = this.getBaseUrlForCast();
+        const path = `/api/library/tracks/${encodeURIComponent(trackId)}/stream`;
+        const token = this.getCurrentToken();
+        const url = base ? `${base}${path}` : `${path}`;
+        if (token) {
+            return `${url}${url.includes("?") ? "&" : "?"}token=${encodeURIComponent(token)}`;
+        }
+        return url;
+    }
+
+    getAudiobookStreamUrlForCast(id: string): string {
+        const base = this.getBaseUrlForCast();
+        const path = `/api/audiobooks/${id}/stream`;
+        const token = this.getCurrentToken();
+        const url = base ? `${base}${path}` : `${path}`;
+        if (token) {
+            return `${url}${url.includes("?") ? "&" : "?"}token=${encodeURIComponent(token)}`;
+        }
+        return url;
+    }
+
+    getPodcastEpisodeStreamUrlForCast(
+        podcastId: string,
+        episodeId: string
+    ): string {
+        const base = this.getBaseUrlForCast();
+        const path = `/api/podcasts/${podcastId}/episodes/${episodeId}/stream`;
+        const token = this.getCurrentToken();
+        const url = base ? `${base}${path}` : `${path}`;
+        if (token) {
+            return `${url}${url.includes("?") ? "&" : "?"}token=${encodeURIComponent(token)}`;
+        }
+        return url;
+    }
+
+    /**
+     * Base URL for Cast requests. Must be absolute and reachable from Chromecast.
+     * Prefers NEXT_PUBLIC_API_URL; otherwise uses window.location.origin.
+     */
+    private getBaseUrlForCast(): string {
+        if (typeof window === "undefined") return "";
+        if (process.env.NEXT_PUBLIC_API_URL) {
+            return process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, "");
+        }
+        return window.location.origin;
+    }
+
+    /**
+     * Get absolute cover art URL for Chromecast metadata.
+     */
+    getCoverArtUrlForCast(coverId: string, size?: number): string {
+        const url = this.getCoverArtUrl(coverId, size ?? 300);
+        if (url.startsWith("http://") || url.startsWith("https://")) {
+            return url;
+        }
+        const base = this.getBaseUrlForCast();
+        return base ? `${base}${url.startsWith("/") ? "" : "/"}${url}` : url;
+    }
+
     // Jellyfin Favorites (Lidifin)
     async getFavorites() {
         return this.request<{ tracks: ApiData[] }>("/library/favorites");

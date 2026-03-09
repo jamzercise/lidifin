@@ -4,6 +4,7 @@ import { usePathname } from "next/navigation";
 import { AudioStateProvider } from "@/lib/audio-state-context";
 import { AudioPlaybackProvider } from "@/lib/audio-playback-context";
 import { AudioControlsProvider } from "@/lib/audio-controls-context";
+import { CastProvider } from "@/lib/cast-context";
 import { useAuth } from "@/lib/auth-context";
 import { HowlerAudioElement } from "@/components/player/HowlerAudioElement";
 import { AudioErrorBoundary } from "@/components/providers/AudioErrorBoundary";
@@ -32,9 +33,11 @@ export function ConditionalAudioProvider({
             <AudioStateProvider>
                 <AudioPlaybackProvider>
                     <AudioControlsProvider>
-                        {/* HowlerAudioElement handles both web and native platforms */}
-                        <HowlerAudioElement />
-                        {children}
+                        <CastProvider>
+                            {/* HowlerAudioElement handles both web and native platforms */}
+                            <HowlerAudioElement />
+                            {children}
+                        </CastProvider>
                     </AudioControlsProvider>
                 </AudioPlaybackProvider>
             </AudioStateProvider>
