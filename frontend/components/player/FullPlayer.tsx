@@ -355,7 +355,7 @@ export function FullPlayer() {
                             </button>
 
                             <button
-                                onClick={previous}
+                                onClick={() => previous()}
                                 className="text-gray-400 hover:text-white transition-all duration-200 hover:scale-110 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:scale-100"
                                 disabled={!hasMedia || playbackType !== "track"}
                                 aria-label="Previous track"
@@ -422,7 +422,7 @@ export function FullPlayer() {
                             </button>
 
                             <button
-                                onClick={next}
+                                onClick={() => next()}
                                 className="text-gray-400 hover:text-white transition-all duration-200 hover:scale-110 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:scale-100"
                                 disabled={!hasMedia || playbackType !== "track"}
                                 aria-label="Next track"

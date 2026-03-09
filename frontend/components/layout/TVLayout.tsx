@@ -273,7 +273,7 @@ export function TVLayout({ children }: { children: React.ReactNode }) {
                     </button>
 
                     {/* Previous */}
-                    <button onClick={previous} className="tv-np-ctrl" title="Previous">
+                    <button onClick={() => previous()} className="tv-np-ctrl" title="Previous">
                         <SkipBack className="w-4 h-4" />
                     </button>
 
@@ -292,7 +292,7 @@ export function TVLayout({ children }: { children: React.ReactNode }) {
                     </button>
 
                     {/* Next */}
-                    <button onClick={next} className="tv-np-ctrl" title="Next">
+                    <button onClick={() => next()} className="tv-np-ctrl" title="Next">
                         <SkipForward className="w-4 h-4" />
                     </button>
 

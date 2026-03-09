@@ -410,7 +410,7 @@ export function OverlayPlayer() {
                         )}
 
                         <button
-                            onClick={previous}
+                            onClick={() => previous()}
                             className={cn(
                                 "text-white/80 hover:text-white transition-all hover:scale-110",
                                 !canSkip &&
@@ -466,7 +466,7 @@ export function OverlayPlayer() {
                         </button>
 
                         <button
-                            onClick={next}
+                            onClick={() => next()}
                             className={cn(
                                 "text-white/80 hover:text-white transition-all hover:scale-110",
                                 !canSkip &&

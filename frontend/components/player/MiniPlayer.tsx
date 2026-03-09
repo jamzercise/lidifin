@@ -667,7 +667,7 @@ export function MiniPlayer() {
 
                         {/* Previous */}
                         <button
-                            onClick={previous}
+                            onClick={() => previous()}
                             disabled={!hasMedia || !canSkip}
                             className={cn(
                                 "rounded p-1.5 transition-colors",
@@ -721,7 +721,7 @@ export function MiniPlayer() {
 
                         {/* Next */}
                         <button
-                            onClick={next}
+                            onClick={() => next()}
                             disabled={!hasMedia || !canSkip}
                             className={cn(
                                 "rounded p-1.5 transition-colors",
