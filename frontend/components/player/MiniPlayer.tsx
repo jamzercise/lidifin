@@ -12,7 +12,6 @@ import {
     Music as MusicIcon,
     ListMusic,
     Heart,
-    Cast,
     SkipBack,
     SkipForward,
     Repeat,
@@ -40,6 +39,7 @@ import { PlaybackSpeedButton } from "./PlaybackSpeedButton";
 import { useQueuePanel } from "@/lib/queue-panel-context";
 import { useFeatures } from "@/lib/features-context";
 import { useCast } from "@/lib/cast-context";
+import { CastIcon } from "./CastIcon";
 import { useFavorites } from "@/hooks/useFavorites";
 
 const EnhancedVibeOverlay = lazy(() => import("./VibeOverlayEnhanced").then(mod => ({ default: mod.EnhancedVibeOverlay })));
@@ -843,25 +843,29 @@ export function MiniPlayer() {
                             <ListMusic className="w-3.5 h-3.5" />
                         </button>
 
-                        {isAvailable && (
-                            <button
-                                type="button"
-                                onClick={isCasting ? stopCasting : requestSession}
-                                className={cn(
-                                    "transition-all duration-200 hover:scale-110",
-                                    isCasting
-                                        ? "text-[#B1D2C3] hover:text-[#9bc4b3]"
-                                        : hasMedia
-                                          ? "text-gray-400 hover:text-white"
-                                          : "text-gray-600 cursor-not-allowed"
-                                )}
-                                disabled={!hasMedia && !isCasting}
-                                aria-label={isCasting ? "Stop casting" : "Cast to device"}
-                                title={isCasting ? "Stop casting" : "Cast to device"}
-                            >
-                                <Cast className="w-3.5 h-3.5" />
-                            </button>
-                        )}
+                        <button
+                            type="button"
+                            onClick={isAvailable ? (isCasting ? stopCasting : requestSession) : undefined}
+                            className={cn(
+                                "transition-all duration-200 hover:scale-110",
+                                isCasting
+                                    ? "text-[#B1D2C3] hover:text-[#9bc4b3]"
+                                    : isAvailable && hasMedia
+                                      ? "text-gray-400 hover:text-white"
+                                      : "text-gray-500/60 cursor-not-allowed"
+                            )}
+                            disabled={!isAvailable || (!hasMedia && !isCasting)}
+                            aria-label={isCasting ? "Stop casting" : "Cast to device"}
+                            title={
+                                isCasting
+                                    ? "Stop casting"
+                                    : isAvailable
+                                      ? "Cast to device"
+                                      : "Cast requires Chrome or Edge"
+                            }
+                        >
+                            <CastIcon isCasting={isCasting} className="w-3.5 h-3.5" size={14} />
+                        </button>
 
                         {/* Vibe Mode Toggle - only when embeddings available */}
                         {!featuresLoading && vibeEmbeddings && (

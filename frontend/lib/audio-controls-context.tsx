@@ -53,8 +53,8 @@ interface AudioControlsContextType {
     pause: () => void;
     resume: () => void;
     play: () => void;
-    next: () => void;
-    previous: () => void;
+    next: (skipPlayback?: boolean) => void;
+    previous: (skipPlayback?: boolean) => void;
 
     // Queue controls
     addToQueue: (track: Track) => void;
@@ -338,99 +338,111 @@ export function AudioControlsProvider({ children }: { children: ReactNode }) {
         playback.setIsPlaying(true);
     }, [playback]);
 
-    const next = useCallback(() => {
-        if (state.queue.length === 0) return;
+    const next = useCallback(
+        (skipPlayback = false) => {
+            if (state.queue.length === 0) return;
 
-        // Handle repeat one
-        if (state.repeatMode === "one" && state.repeatOneCount === 0) {
-            state.setRepeatOneCount(1);
-            playback.setCurrentTime(0);
-            playback.setIsPlaying(false);
-            // Clear any existing timeout before setting a new one
-            if (repeatTimeoutRef.current) {
-                clearTimeout(repeatTimeoutRef.current);
+            // Handle repeat one
+            if (state.repeatMode === "one" && state.repeatOneCount === 0) {
+                state.setRepeatOneCount(1);
+                if (!skipPlayback) {
+                    playback.setCurrentTime(0);
+                    playback.setIsPlaying(false);
+                    // Clear any existing timeout before setting a new one
+                    if (repeatTimeoutRef.current) {
+                        clearTimeout(repeatTimeoutRef.current);
+                    }
+                    // Short delay for audio element state synchronization
+                    repeatTimeoutRef.current = setTimeout(
+                        () => playback.setIsPlaying(true),
+                        10
+                    );
+                }
+                return;
             }
-            // Short delay for audio element state synchronization
-            repeatTimeoutRef.current = setTimeout(
-                () => playback.setIsPlaying(true),
-                10
-            );
-            return;
-        }
 
-        state.setRepeatOneCount(0);
+            state.setRepeatOneCount(0);
 
-        let nextIndex: number;
-        if (state.isShuffle) {
-            const currentShufflePos = state.shuffleIndices.indexOf(
-                state.currentIndex
-            );
-            queueDebugLog("next() shuffle", {
-                currentIndex: state.currentIndex,
-                currentShufflePos,
-                shuffleIndicesLen: state.shuffleIndices.length,
+            let nextIndex: number;
+            if (state.isShuffle) {
+                const currentShufflePos = state.shuffleIndices.indexOf(
+                    state.currentIndex
+                );
+                queueDebugLog("next() shuffle", {
+                    currentIndex: state.currentIndex,
+                    currentShufflePos,
+                    shuffleIndicesLen: state.shuffleIndices.length,
+                });
+                if (currentShufflePos < state.shuffleIndices.length - 1) {
+                    nextIndex = state.shuffleIndices[currentShufflePos + 1];
+                } else {
+                    if (state.repeatMode === "all") {
+                        nextIndex = state.shuffleIndices[0];
+                    } else {
+                        return;
+                    }
+                }
+            } else {
+                if (state.currentIndex < state.queue.length - 1) {
+                    nextIndex = state.currentIndex + 1;
+                } else {
+                    if (state.repeatMode === "all") {
+                        nextIndex = 0;
+                    } else {
+                        return;
+                    }
+                }
+            }
+
+            queueDebugLog("next() chosen", {
+                isShuffle: state.isShuffle,
+                nextIndex,
+                nextTrackId: state.queue[nextIndex]?.id,
+                queueLen: state.queue.length,
             });
-            if (currentShufflePos < state.shuffleIndices.length - 1) {
-                nextIndex = state.shuffleIndices[currentShufflePos + 1];
+            state.setCurrentIndex(nextIndex);
+            state.setCurrentTrack(state.queue[nextIndex]);
+            if (!skipPlayback) {
+                playback.setCurrentTime(0);
+                playback.setIsPlaying(true);
+            }
+        },
+        [state, playback]
+    );
+
+    const previous = useCallback(
+        (skipPlayback = false) => {
+            if (state.queue.length === 0) return;
+
+            state.setRepeatOneCount(0);
+
+            let prevIndex: number;
+            if (state.isShuffle) {
+                const currentShufflePos = state.shuffleIndices.indexOf(
+                    state.currentIndex
+                );
+                if (currentShufflePos > 0) {
+                    prevIndex = state.shuffleIndices[currentShufflePos - 1];
+                } else {
+                    return;
+                }
             } else {
-                if (state.repeatMode === "all") {
-                    nextIndex = state.shuffleIndices[0];
+                if (state.currentIndex > 0) {
+                    prevIndex = state.currentIndex - 1;
                 } else {
                     return;
                 }
             }
-        } else {
-            if (state.currentIndex < state.queue.length - 1) {
-                nextIndex = state.currentIndex + 1;
-            } else {
-                if (state.repeatMode === "all") {
-                    nextIndex = 0;
-                } else {
-                    return;
-                }
+
+            state.setCurrentIndex(prevIndex);
+            state.setCurrentTrack(state.queue[prevIndex]);
+            if (!skipPlayback) {
+                playback.setCurrentTime(0);
+                playback.setIsPlaying(true);
             }
-        }
-
-        queueDebugLog("next() chosen", {
-            isShuffle: state.isShuffle,
-            nextIndex,
-            nextTrackId: state.queue[nextIndex]?.id,
-            queueLen: state.queue.length,
-        });
-        state.setCurrentIndex(nextIndex);
-        state.setCurrentTrack(state.queue[nextIndex]);
-        playback.setCurrentTime(0);
-        playback.setIsPlaying(true);
-    }, [state, playback]);
-
-    const previous = useCallback(() => {
-        if (state.queue.length === 0) return;
-
-        state.setRepeatOneCount(0);
-
-        let prevIndex: number;
-        if (state.isShuffle) {
-            const currentShufflePos = state.shuffleIndices.indexOf(
-                state.currentIndex
-            );
-            if (currentShufflePos > 0) {
-                prevIndex = state.shuffleIndices[currentShufflePos - 1];
-            } else {
-                return;
-            }
-        } else {
-            if (state.currentIndex > 0) {
-                prevIndex = state.currentIndex - 1;
-            } else {
-                return;
-            }
-        }
-
-        state.setCurrentIndex(prevIndex);
-        state.setCurrentTrack(state.queue[prevIndex]);
-        playback.setCurrentTime(0);
-        playback.setIsPlaying(true);
-    }, [state, playback]);
+        },
+        [state, playback]
+    );
 
     const addToQueue = useCallback(
         (track: Track) => {

@@ -2,7 +2,7 @@
 
 import { useAudioState } from "@/lib/audio-state-context";
 import { useAudioPlayback } from "@/lib/audio-playback-context";
-import { useAudioControls } from "@/lib/audio-controls-context";
+import { useCastAwareAudioControls } from "@/lib/useCastAwareAudioControls";
 import { useMediaInfo } from "@/hooks/useMediaInfo";
 import Image from "next/image";
 import Link from "next/link";
@@ -25,8 +25,8 @@ import {
     Loader2,
     AudioWaveform,
     RefreshCw,
-    Cast,
 } from "lucide-react";
+import { CastIcon } from "./CastIcon";
 import { useState, useMemo } from "react";
 import { toast } from "sonner";
 import { KeyboardShortcutsTooltip } from "./KeyboardShortcutsTooltip";
@@ -92,7 +92,7 @@ export function FullPlayer() {
         startVibeMode,
         stopVibeMode,
         setSleepTimer,
-    } = useAudioControls();
+    } = useCastAwareAudioControls();
 
     const [isVibeLoading, setIsVibeLoading] = useState(false);
     const { vibeEmbeddings, loading: featuresLoading } = useFeatures();
@@ -656,24 +656,28 @@ export function FullPlayer() {
                             <ListMusic className="w-4 h-4" />
                         </button>
 
-                        {isAvailable && (
-                            <button
-                                onClick={isCasting ? stopCasting : requestSession}
-                                className={cn(
-                                    "transition-all duration-200",
-                                    isCasting
-                                        ? "text-[#B1D2C3] hover:text-[#9bc4b3]"
-                                        : hasMedia
-                                          ? "text-gray-400 hover:text-white hover:scale-110"
-                                          : "text-gray-600 cursor-not-allowed"
-                                )}
-                                disabled={!hasMedia && !isCasting}
-                                aria-label={isCasting ? "Stop casting" : "Cast to device"}
-                                title={isCasting ? "Stop casting" : "Cast to device"}
-                            >
-                                <Cast className="w-4 h-4" />
-                            </button>
-                        )}
+                        <button
+                            onClick={isAvailable ? (isCasting ? stopCasting : requestSession) : undefined}
+                            className={cn(
+                                "transition-all duration-200",
+                                isCasting
+                                    ? "text-[#B1D2C3] hover:text-[#9bc4b3]"
+                                    : isAvailable && hasMedia
+                                      ? "text-gray-400 hover:text-white hover:scale-110"
+                                      : "text-gray-500/60 cursor-not-allowed"
+                            )}
+                            disabled={!isAvailable || (!hasMedia && !isCasting)}
+                            aria-label={isCasting ? "Stop casting" : "Cast to device"}
+                            title={
+                                isCasting
+                                    ? "Stop casting"
+                                    : isAvailable
+                                      ? "Cast to device"
+                                      : "Cast requires Chrome or Edge"
+                            }
+                        >
+                            <CastIcon isCasting={isCasting} className="w-4 h-4" size={16} />
+                        </button>
 
                         <button
                             onClick={() => setPlayerMode("overlay")}

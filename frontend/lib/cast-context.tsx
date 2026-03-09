@@ -108,6 +108,7 @@ interface RemotePlayer {
     duration: number;
     canPause: boolean;
     canControlVolume: boolean;
+    canSeek?: boolean;
 }
 
 interface RemotePlayerController {
@@ -123,6 +124,11 @@ interface CastContextType {
     requestSession: () => Promise<void>;
     stopCasting: () => void;
     loadMedia: () => Promise<boolean>;
+    castPlay: () => void;
+    castPause: () => void;
+    castSeek: (time: number) => void;
+    castSkipForward: (seconds: number) => void;
+    castSkipBackward: (seconds: number) => void;
 }
 
 const CastContextContext = createContext<CastContextType | undefined>(undefined);
@@ -192,9 +198,12 @@ export function CastProvider({ children }: { children: ReactNode }) {
         setDuration,
         setIsPlaying,
     } = useAudioPlayback();
-    const { pause, resume } = useAudioControls();
+    const { pause, resume, next } = useAudioControls();
     const wasPlayingRef = useRef(false);
     const statusIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const remotePlayerRef = useRef<RemotePlayer | null>(null);
+    const remoteControllerRef = useRef<RemotePlayerController | null>(null);
+    const finishedHandledRef = useRef(false);
 
     useEffect(() => {
         loadCastScript().then((loaded) => {
@@ -203,6 +212,53 @@ export function CastProvider({ children }: { children: ReactNode }) {
             }
         });
     }, []);
+
+    // Create RemotePlayer and RemotePlayerController when Cast is available
+    useEffect(() => {
+        if (!isAvailable || typeof window === "undefined" || !window.cast?.framework) return;
+        try {
+            const player = new window.cast.framework.RemotePlayer() as RemotePlayer;
+            const controller = new window.cast.framework.RemotePlayerController(player) as RemotePlayerController;
+            remotePlayerRef.current = player;
+            remoteControllerRef.current = controller;
+        } catch {
+            // Ignore
+        }
+    }, [isAvailable]);
+
+    const castPlay = useCallback(() => {
+        const ctrl = remoteControllerRef.current;
+        if (ctrl) ctrl.playOrPause();
+    }, []);
+
+    const castPause = useCallback(() => {
+        const ctrl = remoteControllerRef.current;
+        if (ctrl) ctrl.playOrPause();
+    }, []);
+
+    const castSeek = useCallback((time: number) => {
+        const ctrl = remoteControllerRef.current;
+        const player = remotePlayerRef.current;
+        if (!ctrl || !player) return;
+        player.currentTime = Math.max(0, time);
+        ctrl.seek();
+    }, []);
+
+    const castSkipForward = useCallback(
+        (seconds: number) => {
+            const player = remotePlayerRef.current;
+            if (player) castSeek(player.currentTime + seconds);
+        },
+        [castSeek]
+    );
+
+    const castSkipBackward = useCallback(
+        (seconds: number) => {
+            const player = remotePlayerRef.current;
+            if (player) castSeek(Math.max(0, player.currentTime - seconds));
+        },
+        [castSeek]
+    );
 
     const stopCasting = useCallback(() => {
         if (typeof window === "undefined" || !window.cast?.framework) return;
@@ -348,10 +404,29 @@ export function CastProvider({ children }: { children: ReactNode }) {
                     const sess = context.getCurrentSession();
                     const mediaSession = sess?.getMediaSession();
                     if (mediaSession) {
-                        setCurrentTime(mediaSession.getCurrentTime());
-                        const info = mediaSession.getMediaInformation();
-                        if (info.duration) setDuration(info.duration);
                         const state = mediaSession.getPlayerState();
+                        const pos = mediaSession.getCurrentTime();
+                        const info = mediaSession.getMediaInformation();
+                        const dur = info.duration ?? 0;
+                        const isFinished =
+                            state === "IDLE" ||
+                            state === "FINISHED" ||
+                            (dur > 0 && pos >= dur - 0.5 && state !== "PLAYING");
+                        if (
+                            isFinished &&
+                            !finishedHandledRef.current &&
+                            playbackType === "track"
+                        ) {
+                            finishedHandledRef.current = true;
+                            next(true);
+                            loadMedia().then(() => {
+                                finishedHandledRef.current = false;
+                            });
+                        } else if (state === "PLAYING" || state === "BUFFERING") {
+                            finishedHandledRef.current = false;
+                        }
+                        setCurrentTime(pos);
+                        if (dur > 0) setDuration(dur);
                         setIsPlaying(state === "PLAYING");
                     }
                 }, 500);
@@ -386,7 +461,26 @@ export function CastProvider({ children }: { children: ReactNode }) {
                 clearInterval(statusIntervalRef.current);
             }
         };
-    }, [isAvailable, pause, resume, loadMedia, setCurrentTime, setDuration, setIsPlaying]);
+    }, [isAvailable, pause, resume, loadMedia, next, playbackType, setCurrentTime, setDuration, setIsPlaying]);
+
+    // When casting and current media changes (e.g. user clicked next/previous), load the new media
+    const currentMediaId =
+        playbackType === "track"
+            ? currentTrack?.id
+            : playbackType === "audiobook"
+              ? currentAudiobook?.id
+              : currentPodcast?.id;
+    const prevMediaIdRef = useRef<string | null>(null);
+    useEffect(() => {
+        if (!isCasting || !currentMediaId) return;
+        if (
+            prevMediaIdRef.current !== null &&
+            prevMediaIdRef.current !== currentMediaId
+        ) {
+            loadMedia();
+        }
+        prevMediaIdRef.current = currentMediaId;
+    }, [isCasting, currentMediaId, loadMedia]);
 
     const value: CastContextType = {
         isAvailable,
@@ -395,6 +489,11 @@ export function CastProvider({ children }: { children: ReactNode }) {
         requestSession,
         stopCasting,
         loadMedia,
+        castPlay,
+        castPause,
+        castSeek,
+        castSkipForward,
+        castSkipBackward,
     };
 
     return (

@@ -2,21 +2,22 @@
 
 import { useAudioState } from "./audio-state-context";
 import { useAudioPlayback } from "./audio-playback-context";
-import { useAudioControls } from "./audio-controls-context";
+import { useCastAwareAudioControls } from "./useCastAwareAudioControls";
 
 /**
  * Unified hook that combines all audio contexts.
  * Use this for backward compatibility with existing code.
+ * Uses cast-aware controls so player controls affect casted audio when casting.
  *
  * For optimal performance, prefer using the individual hooks:
  * - useAudioState() - for rarely changing data (currentTrack, queue, etc.)
  * - useAudioPlayback() - for frequently changing data (currentTime, isPlaying)
- * - useAudioControls() - for actions only (play, pause, next, etc.)
+ * - useCastAwareAudioControls() - for actions (play, pause, next, etc.)
  */
 export function useAudio() {
     const state = useAudioState();
     const playback = useAudioPlayback();
-    const controls = useAudioControls();
+    const controls = useCastAwareAudioControls();
 
     return {
         // State
