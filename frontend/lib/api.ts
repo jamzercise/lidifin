@@ -1710,6 +1710,16 @@ class ApiClient {
         return this.request<ApiData>(`/mixes/${id}`);
     }
 
+    /** Get URL for generated mix cover image (gradient + abstract art) */
+    getMixCoverUrl(mixId: string, size = 300): string {
+        const baseUrl = this.getBaseUrl();
+        const token = this.getCurrentToken();
+        const params = new URLSearchParams();
+        params.append("size", size.toString());
+        if (token) params.append("token", token);
+        return `${baseUrl}/api/mixes/${encodeURIComponent(mixId)}/cover?${params.toString()}`;
+    }
+
     async refreshMixes() {
         return this.request<{ message: string; mixes: ApiData[] }>(
             "/mixes/refresh",

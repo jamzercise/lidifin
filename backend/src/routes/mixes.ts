@@ -20,6 +20,8 @@ import { getJellyfinConfig } from "../services/jellyfin";
 import { resolveTrackReferences } from "../services/jellyfin";
 import { prisma } from "../utils/db";
 import { redisClient } from "../utils/redis";
+import { generateMixCoverSvg } from "../services/mixCoverService";
+import { config } from "../config";
 
 const router = Router();
 
@@ -1288,6 +1290,61 @@ router.post("/:id/save", async (req, res) => {
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
+router.get("/:id/cover", async (req, res) => {
+    try {
+        const userId = getRequestUserId(req);
+        if (!userId) {
+            return res.status(401).json({ error: "Not authenticated" });
+        }
+        const mixId = req.params.id;
+
+        const cacheKey = `mixes:${userId}`;
+        let mixes;
+        const cached = await redisClient.get(cacheKey);
+        if (cached) {
+            mixes = JSON.parse(cached);
+        } else {
+            mixes = await programmaticPlaylistService.generateAllMixes(userId);
+            await redisClient.setEx(cacheKey, 3600, JSON.stringify(mixes));
+        }
+
+        const mix = mixes.find((m: any) => m.id === mixId);
+        if (!mix) {
+            return res.status(404).json({ error: "Mix not found" });
+        }
+
+        const apiBaseUrl =
+            process.env.API_URL || `http://localhost:${config.port}`;
+        const size = parseInt(String(req.query.size || "400"), 10) || 400;
+        const clampedSize = Math.min(600, Math.max(100, size));
+
+        const dataUrl = await generateMixCoverSvg(
+            {
+                id: mix.id,
+                type: mix.type,
+                name: mix.name,
+                color: mix.color,
+                coverUrls: mix.coverUrls || [],
+            },
+            clampedSize,
+            apiBaseUrl
+        );
+
+        const base64 = dataUrl.replace(/^data:image\/svg\+xml;base64,/, "");
+        const svg = Buffer.from(base64, "base64").toString("utf-8");
+
+        res.setHeader("Content-Type", "image/svg+xml");
+        res.setHeader(
+            "Cache-Control",
+            "public, max-age=3600, s-maxage=3600"
+        );
+        res.send(svg);
+    } catch (error) {
+        logger.error("Get mix cover error:", error);
+        res.status(500).json({ error: "Failed to generate mix cover" });
+    }
+});
+
 router.get("/:id", async (req, res) => {
     try {
         const userId = getRequestUserId(req);

@@ -19,7 +19,12 @@ const SectionHeader = memo(function SectionHeader({
     return (
         <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
-                <h2 className="text-2xl font-bold text-white">{title}</h2>
+                <h2
+                    className="text-2xl font-bold text-white"
+                    style={{ fontFamily: "var(--font-archivo-black)" }}
+                >
+                    {title}
+                </h2>
                 {badge && <Badge variant="ai">{badge}</Badge>}
             </div>
             {rightAction ? (

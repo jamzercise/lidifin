@@ -31,7 +31,17 @@ export function HomeHero({ onRefresh }: HomeHeroProps) {
             {/* Hero Section - Compact */}
             <div className="relative">
                 <div className="relative max-w-[1800px] mx-auto px-4 pt-6 pb-4 flex items-center justify-between gap-4">
-                    <h1 className="text-2xl md:text-3xl font-bold text-white tracking-tight">
+                    <h1
+                        className="text-[1.725rem] md:text-[2.16rem] font-bold tracking-tight"
+                        style={{
+                            fontFamily: "var(--font-archivo-black)",
+                            background:
+                                "linear-gradient(to bottom, rgb(255 255 255) 0%, rgb(255 255 255) 70%, rgb(188 208 194) 100%)",
+                            backgroundClip: "text",
+                            WebkitBackgroundClip: "text",
+                            color: "transparent",
+                        }}
+                    >
                         {getGreeting()}
                     </h1>
                     {onRefresh && (

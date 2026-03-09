@@ -1179,37 +1179,76 @@ async function executeVibePhase(): Promise<number> {
     return result;
 }
 
- /**
-  * Get comprehensive enrichment progress
+/**
+ * Get comprehensive enrichment progress
  *
  * Returns separate progress for:
  * - Artists & Track Tags: "Core" enrichment (must complete before app is fully usable)
  * - Audio Analysis: "Background" enrichment (runs in separate container, non-blocking)
+ *
+ * When Jellyfin is music source: uses JellyfinTrackMetadata for Mood Tags instead of native Track.
  */
 export async function getEnrichmentProgress() {
-    // Artist progress
-    const artistCounts = await prisma.artist.groupBy({
-        by: ["enrichmentStatus"],
-        _count: true,
-    });
+    const { isJellyfinMusicSource } = await import("../services/jellyfin");
+    const isJellyfin = await isJellyfinMusicSource();
 
-    const artistTotal = artistCounts.reduce((sum, s) => sum + s._count, 0);
-    const artistCompleted =
-        artistCounts.find((s) => s.enrichmentStatus === "completed")?._count ||
-        0;
-    const artistPending =
-        artistCounts.find((s) => s.enrichmentStatus === "pending")?._count || 0;
+    let artistTotal = 0;
+    let artistCompleted = 0;
+    let artistPending = 0;
+    let artistFailed = 0;
+    let trackTotal = 0;
+    let trackTagsEnriched = 0;
+    let jellyfinJobStatus: { status: string; lastSynced?: number; lastEnriched?: number } | null = null;
 
-    // Track tag progress
-    const trackTotal = await prisma.track.count();
-    const trackTagsEnriched = await prisma.track.count({
-        where: {
-            AND: [
-                { NOT: { lastfmTags: { equals: [] } } },
-                { NOT: { lastfmTags: { equals: null } } },
-            ],
-        },
-    });
+    if (isJellyfin) {
+        // Jellyfin: use JellyfinTrackMetadata for Mood Tags
+        const [jellyfinTotal, jellyfinEnriched, jobState] = await Promise.all([
+            prisma.jellyfinTrackMetadata.count(),
+            prisma.jellyfinTrackMetadata.count({
+                where: { lastfmTags: { isEmpty: false } },
+            }),
+            (async () => {
+                try {
+                    const { getJobStatus } = await import("../services/jellyfinMetadataJob");
+                    return await getJobStatus();
+                } catch {
+                    return null;
+                }
+            })(),
+        ]);
+        trackTotal = jellyfinTotal;
+        trackTagsEnriched = jellyfinEnriched;
+        // Jellyfin artists are enriched on-demand when viewing - no bulk progress
+        artistTotal = 0;
+        artistCompleted = 0;
+        artistPending = 0;
+        artistFailed = 0;
+        if (jobState) {
+            jellyfinJobStatus = {
+                status: jobState.status,
+                lastSynced: jobState.lastSynced,
+                lastEnriched: jobState.lastEnriched,
+            };
+        }
+    } else {
+        // Native: use Artist and Track tables
+        const artistCounts = await prisma.artist.groupBy({
+            by: ["enrichmentStatus"],
+            _count: true,
+        });
+        artistTotal = artistCounts.reduce((sum, s) => sum + s._count, 0);
+        artistCompleted =
+            artistCounts.find((s) => s.enrichmentStatus === "completed")?._count || 0;
+        artistPending =
+            artistCounts.find((s) => s.enrichmentStatus === "pending")?._count || 0;
+        artistFailed =
+            artistCounts.find((s) => s.enrichmentStatus === "failed")?._count || 0;
+
+        trackTotal = await prisma.track.count();
+        trackTagsEnriched = await prisma.track.count({
+            where: { lastfmTags: { isEmpty: false } },
+        });
+    }
 
     // Audio analysis progress (background task)
     const audioCompleted = await prisma.track.count({
@@ -1247,14 +1286,16 @@ export async function getEnrichmentProgress() {
         artistPending === 0 && trackTotal - trackTagsEnriched === 0;
 
     return {
+        // Music source: native (prisma) vs jellyfin
+        musicSource: isJellyfin ? "jellyfin" : "native",
+        jellyfinJobStatus: jellyfinJobStatus ?? undefined,
+
         // Core enrichment (blocking)
         artists: {
             total: artistTotal,
             completed: artistCompleted,
             pending: artistPending,
-            failed:
-                artistCounts.find((s) => s.enrichmentStatus === "failed")
-                    ?._count || 0,
+            failed: artistFailed,
             progress:
                 artistTotal > 0 ?
                     Math.round((artistCompleted / artistTotal) * 100)

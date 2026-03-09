@@ -146,7 +146,13 @@ export function MobileSidebar({ isOpen, onClose }: MobileSidebarProps) {
                             )}
                         >
                             <Radio className="w-5 h-5" />
-                            <span className="text-[15px] font-medium">
+                            <span
+                                className="text-[15px] font-medium"
+                                style={{
+                                    fontFamily:
+                                        "var(--font-archivo-black)",
+                                }}
+                            >
                                 Radio
                             </span>
                         </Link>

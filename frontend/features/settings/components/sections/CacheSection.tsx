@@ -5,7 +5,6 @@ import { SettingsSection, SettingsRow, SettingsToggle } from "../ui";
 import { SystemSettings } from "../../types";
 import { api } from "@/lib/api";
 import { enrichmentApi } from "@/lib/enrichmentApi";
-import { useFeatures } from "@/lib/features-context";
 import {
     useQueryClient,
     useQuery,
@@ -17,19 +16,29 @@ import {
     Loader2,
     User,
     Heart,
-    Activity,
     Pause,
     Play,
     StopCircle,
     AlertTriangle,
-    Waves,
 } from "lucide-react";
+import { toast } from "sonner";
 import { EnrichmentFailuresModal } from "@/components/EnrichmentFailuresModal";
 
 interface CacheSectionProps {
     settings: SystemSettings;
     onUpdate: (updates: Partial<SystemSettings>) => void;
 }
+
+type EnrichmentProgressData = {
+    musicSource?: "native" | "jellyfin";
+    artists: { completed: number; total: number; progress: number; failed?: number };
+    trackTags: { enriched: number; total: number; progress: number };
+    jellyfinJobStatus?: {
+        status: string;
+        lastSynced?: number;
+        lastEnriched?: number;
+    };
+};
 
 // Progress bar component
 function ProgressBar({
@@ -141,17 +150,12 @@ function EnrichmentStage({
 }
 
 export function CacheSection({ settings, onUpdate }: CacheSectionProps) {
-    const { musicCNN, vibeEmbeddings, loading: featuresLoading } = useFeatures();
     const [syncing, setSyncing] = useState(false);
     const [clearingCaches, setClearingCaches] = useState(false);
     const [reEnriching, setReEnriching] = useState(false);
     const [cleaningStaleJobs, setCleaningStaleJobs] = useState(false);
     const [resettingArtists, setResettingArtists] = useState(false);
     const [resettingMoodTags, setResettingMoodTags] = useState(false);
-    const [resettingAudio, setResettingAudio] = useState(false);
-    const [resettingVibe, setResettingVibe] = useState(false);
-    const [retryingFailed, setRetryingFailed] = useState(false);
-    const [retryResult, setRetryResult] = useState<{ reset: number } | null>(null);
     const [cleanupResult, setCleanupResult] = useState<{
         totalCleaned: number;
         cleaned: {
@@ -174,6 +178,7 @@ export function CacheSection({ settings, onUpdate }: CacheSectionProps) {
     }, []);
 
     // Fetch enrichment progress (reduced polling to avoid backend event loop stress)
+    // Poll more frequently when Jellyfin job is running or when we just triggered a reset
     const {
         data: enrichmentProgress,
         refetch: refetchProgress,
@@ -182,11 +187,16 @@ export function CacheSection({ settings, onUpdate }: CacheSectionProps) {
     } = useQuery({
         queryKey: ["enrichment-progress"],
         queryFn: () => api.getEnrichmentProgress(),
-        refetchInterval: 15000, // 15s - was 5s; reduces load when backend is under stress
-        refetchIntervalInBackground: false, // Pause when tab hidden - reduces load, keeps UI responsive
+        refetchInterval: (query) => {
+            if (resettingArtists || resettingMoodTags) return 3000;
+            const d = query.state.data as EnrichmentProgressData | undefined;
+            const j = d?.jellyfinJobStatus?.status;
+            return j === "syncing" || j === "enriching" ? 3000 : 15000;
+        },
+        refetchIntervalInBackground: false,
         staleTime: 5000,
         placeholderData: keepPreviousData,
-        retry: 0, // No retry - next poll cycle will retry; avoids stacking timeouts when backend is hung
+        retry: 0,
     });
 
     // Fetch enrichment state
@@ -217,13 +227,6 @@ export function CacheSection({ settings, onUpdate }: CacheSectionProps) {
             queryFn: () => enrichmentApi.getConcurrency(),
             staleTime: 0,
         });
-
-    // Fetch audio analyzer workers config
-    const { data: workersConfig, isLoading: isWorkersLoading } = useQuery({
-        queryKey: ["analysis-workers"],
-        queryFn: () => enrichmentApi.getAnalysisWorkers(),
-        staleTime: 0,
-    });
 
     // Update concurrency mutation with optimistic updates
     // Note: We do NOT invalidate on onSettled because the optimistic update
@@ -261,77 +264,6 @@ export function CacheSection({ settings, onUpdate }: CacheSectionProps) {
         },
         // Removed onSettled invalidation - optimistic update handles UI,
         // and the query will refetch naturally based on staleTime
-    });
-
-    // Update audio analyzer workers mutation with optimistic updates
-    const setAnalysisWorkersMutation = useMutation({
-        mutationFn: (workers: number) =>
-            enrichmentApi.setAnalysisWorkers(workers),
-        onMutate: async (newWorkers) => {
-            await queryClient.cancelQueries({
-                queryKey: ["analysis-workers"],
-            });
-
-            const previousWorkers = queryClient.getQueryData([
-                "analysis-workers",
-            ]);
-
-            queryClient.setQueryData(["analysis-workers"], {
-                workers: newWorkers,
-                cpuCores: workersConfig?.cpuCores || 4,
-                recommended: workersConfig?.recommended || 2,
-                description: `Using ${newWorkers} of ${
-                    workersConfig?.cpuCores || 4
-                } available CPU cores`,
-            });
-
-            return { previousWorkers };
-        },
-        onError: (err, newWorkers, context) => {
-            queryClient.setQueryData(
-                ["analysis-workers"],
-                context?.previousWorkers
-            );
-        },
-    });
-
-    // Fetch CLAP analyzer workers config
-    const { data: clapWorkersConfig, isLoading: isClapWorkersLoading } = useQuery({
-        queryKey: ["clap-workers"],
-        queryFn: () => enrichmentApi.getClapWorkers(),
-        staleTime: 0,
-    });
-
-    // Update CLAP analyzer workers mutation with optimistic updates
-    const setClapWorkersMutation = useMutation({
-        mutationFn: (workers: number) =>
-            enrichmentApi.setClapWorkers(workers),
-        onMutate: async (newWorkers) => {
-            await queryClient.cancelQueries({
-                queryKey: ["clap-workers"],
-            });
-
-            const previousWorkers = queryClient.getQueryData([
-                "clap-workers",
-            ]);
-
-            queryClient.setQueryData(["clap-workers"], {
-                workers: newWorkers,
-                cpuCores: clapWorkersConfig?.cpuCores || 4,
-                recommended: clapWorkersConfig?.recommended || 1,
-                description: `Using ${newWorkers} of ${
-                    clapWorkersConfig?.cpuCores || 4
-                } available CPU cores`,
-            });
-
-            return { previousWorkers };
-        },
-        onError: (err, newWorkers, context) => {
-            queryClient.setQueryData(
-                ["clap-workers"],
-                context?.previousWorkers
-            );
-        },
     });
 
     // Use query data directly instead of local state
@@ -428,16 +360,21 @@ export function CacheSection({ settings, onUpdate }: CacheSectionProps) {
         }
     };
 
+    const isJellyfin = (enrichmentProgress as EnrichmentProgressData)?.musicSource === "jellyfin";
+
     const handleResetArtists = async () => {
+        if (isJellyfin) return; // Jellyfin artists are on-demand
         setResettingArtists(true);
         setError(null);
         try {
-            await api.resetArtistsOnly();
+            const result = await api.resetArtistsOnly();
+            toast.success(result.description || `${result.count} artists queued for re-enrichment`);
             refreshNotifications();
             refetchProgress();
         } catch (err) {
             console.error("Reset artists error:", err);
             setError("Failed to reset artist enrichment");
+            toast.error("Failed to reset artist enrichment");
         } finally {
             setResettingArtists(false);
         }
@@ -447,44 +384,31 @@ export function CacheSection({ settings, onUpdate }: CacheSectionProps) {
         setResettingMoodTags(true);
         setError(null);
         try {
-            await api.resetMoodTagsOnly();
-            refreshNotifications();
+            if (isJellyfin) {
+                try {
+                    await api.enrichJellyfinMetadata();
+                    toast.success("Mood tag enrichment started");
+                } catch (e: unknown) {
+                    const status = (e as { status?: number })?.status;
+                    if (status === 409) {
+                        toast.info("Enrichment already in progress");
+                    } else {
+                        throw e;
+                    }
+                }
+                queryClient.invalidateQueries({ queryKey: ["enrichment-progress"] });
+            } else {
+                const result = await api.resetMoodTagsOnly();
+                toast.success(result.description || `${result.count} tracks queued for mood tag re-enrichment`);
+                refreshNotifications();
+            }
             refetchProgress();
         } catch (err) {
             console.error("Reset mood tags error:", err);
             setError("Failed to reset mood tags");
+            toast.error("Failed to reset mood tags");
         } finally {
             setResettingMoodTags(false);
-        }
-    };
-
-    const handleResetAudioAnalysis = async () => {
-        setResettingAudio(true);
-        setError(null);
-        try {
-            await api.resetAudioAnalysisOnly();
-            refreshNotifications();
-            refetchProgress();
-        } catch (err) {
-            console.error("Reset audio analysis error:", err);
-            setError("Failed to reset audio analysis");
-        } finally {
-            setResettingAudio(false);
-        }
-    };
-
-    const handleResetVibeEmbeddings = async () => {
-        setResettingVibe(true);
-        setError(null);
-        try {
-            await enrichmentApi.resetVibeEmbeddings();
-            refreshNotifications();
-            refetchProgress();
-        } catch (err) {
-            console.error("Reset vibe embeddings error:", err);
-            setError("Failed to reset vibe embeddings");
-        } finally {
-            setResettingVibe(false);
         }
     };
 
@@ -514,22 +438,6 @@ export function CacheSection({ settings, onUpdate }: CacheSectionProps) {
             setError("Failed to cleanup stale jobs");
         } finally {
             setCleaningStaleJobs(false);
-        }
-    };
-
-    const handleRetryFailedAnalysis = async () => {
-        setRetryingFailed(true);
-        setRetryResult(null);
-        setError(null);
-        try {
-            const result = await api.retryFailedAnalysis();
-            setRetryResult({ reset: result.reset });
-            refetchProgress();
-        } catch (err) {
-            console.error("Retry failed analysis error:", err);
-            setError("Failed to retry analysis");
-        } finally {
-            setRetryingFailed(false);
         }
     };
 
@@ -596,14 +504,7 @@ export function CacheSection({ settings, onUpdate }: CacheSectionProps) {
                             <h3 className="text-sm font-medium text-white">
                                 Library Enrichment
                             </h3>
-                            {enrichmentProgress.coreComplete &&
-                                !enrichmentProgress.isFullyComplete && (
-                                    <span className="text-xs text-purple-400 flex items-center gap-1">
-                                        <Loader2 className="w-3 h-3 animate-spin" />
-                                        Audio analysis running
-                                    </span>
-                                )}
-                            {enrichmentProgress.isFullyComplete && (
+                            {enrichmentProgress.coreComplete && (
                                 <span className="text-xs text-green-400 flex items-center gap-1">
                                     <CheckCircle className="w-3 h-3" />
                                     Complete
@@ -612,27 +513,46 @@ export function CacheSection({ settings, onUpdate }: CacheSectionProps) {
                         </div>
 
                         <div className="space-y-1">
-                            {/* Artist Metadata with Re-run button */}
+                            {/* Artist Metadata with Re-run button (native only; Jellyfin is on-demand) */}
                             <div className="flex items-start gap-2">
                                 <div className="flex-1">
-                                    <EnrichmentStage
-                                        icon={User}
-                                        label="Artist Metadata"
-                                        description="Bios, images, and similar artists from Last.fm"
-                                        completed={enrichmentProgress.artists.completed}
-                                        total={enrichmentProgress.artists.total}
-                                        progress={enrichmentProgress.artists.progress}
-                                        failed={enrichmentProgress.artists.failed}
-                                    />
+                                    {isJellyfin ? (
+                                        <div className="flex items-start gap-3 py-2">
+                                            <div className="mt-0.5 p-1.5 rounded-lg bg-white/5">
+                                                <User className="w-4 h-4 text-white/40" />
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                <span className="text-sm font-medium text-white">Artist Metadata</span>
+                                                <p className="text-xs text-white/40 mt-0.5">
+                                                    On-demand when viewing artists
+                                                </p>
+                                                <p className="text-[10px] text-white/30 mt-1">
+                                                    Jellyfin artists are enriched from Last.fm when you open an artist page
+                                                </p>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <EnrichmentStage
+                                            icon={User}
+                                            label="Artist Metadata"
+                                            description="Bios, images, and similar artists from Last.fm"
+                                            completed={enrichmentProgress.artists.completed}
+                                            total={enrichmentProgress.artists.total}
+                                            progress={enrichmentProgress.artists.progress}
+                                            failed={enrichmentProgress.artists.failed}
+                                        />
+                                    )}
                                 </div>
-                                <button
-                                    onClick={handleResetArtists}
-                                    disabled={resettingArtists || syncing || reEnriching || isEnrichmentActive}
-                                    className="mt-1 px-2 py-1 text-[10px] bg-white/5 text-white/60 rounded-full
-                                        hover:bg-white/10 hover:text-white/80 disabled:opacity-30 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
-                                >
-                                    {resettingArtists ? "Resetting..." : "Re-run"}
-                                </button>
+                                {!isJellyfin && (
+                                    <button
+                                        onClick={handleResetArtists}
+                                        disabled={resettingArtists || syncing || reEnriching || isEnrichmentActive}
+                                        className="mt-1 px-2 py-1 text-[10px] bg-white/5 text-white/60 rounded-full
+                                            hover:bg-white/10 hover:text-white/80 disabled:opacity-30 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
+                                    >
+                                        {resettingArtists ? "Resetting..." : "Re-run"}
+                                    </button>
+                                )}
                             </div>
 
                             {/* Mood Tags with Re-run button */}
@@ -641,101 +561,58 @@ export function CacheSection({ settings, onUpdate }: CacheSectionProps) {
                                     <EnrichmentStage
                                         icon={Heart}
                                         label="Mood Tags"
-                                        description="Vibes and mood data from Last.fm"
-                                        completed={
-                                            enrichmentProgress.trackTags.enriched
+                                        description={
+                                            enrichmentProgress.trackTags.total === 0
+                                                ? "Run Sync New first to load library, then Re-run to enrich"
+                                                : "Vibes and mood data from Last.fm"
                                         }
+                                        completed={enrichmentProgress.trackTags.enriched}
                                         total={enrichmentProgress.trackTags.total}
                                         progress={enrichmentProgress.trackTags.progress}
                                     />
                                 </div>
                                 <button
                                     onClick={handleResetMoodTags}
-                                    disabled={resettingMoodTags || syncing || reEnriching || isEnrichmentActive}
+                                    disabled={
+                                        resettingMoodTags ||
+                                        syncing ||
+                                        reEnriching ||
+                                        isEnrichmentActive ||
+                                        (isJellyfin &&
+                                            (enrichmentProgress as EnrichmentProgressData)?.jellyfinJobStatus?.status !== "idle")
+                                    }
                                     className="mt-1 px-2 py-1 text-[10px] bg-white/5 text-white/60 rounded-full
                                         hover:bg-white/10 hover:text-white/80 disabled:opacity-30 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
                                 >
-                                    {resettingMoodTags ? "Resetting..." : "Re-run"}
+                                    {resettingMoodTags
+                                        ? "Starting..."
+                                        : (enrichmentProgress as EnrichmentProgressData)?.jellyfinJobStatus?.status === "enriching"
+                                        ? "Enriching..."
+                                        : "Re-run"}
                                 </button>
                             </div>
 
-                            {/* Audio Analysis with Re-run button */}
-                            {!featuresLoading && musicCNN ? (
-                                <div className="flex items-start gap-2">
-                                    <div className="flex-1">
-                                        <EnrichmentStage
-                                            icon={Activity}
-                                            label="Audio Analysis"
-                                            description="BPM, key, energy, and danceability from audio files"
-                                            completed={
-                                                enrichmentProgress.audioAnalysis.completed
-                                            }
-                                            total={enrichmentProgress.audioAnalysis.total}
-                                            progress={
-                                                enrichmentProgress.audioAnalysis.progress
-                                            }
-                                            processing={
-                                                enrichmentProgress.audioAnalysis.processing
-                                            }
-                                            failed={enrichmentProgress.audioAnalysis.failed}
-                                            isBackground={true}
-                                        />
-                                    </div>
-                                    <button
-                                        onClick={handleResetAudioAnalysis}
-                                        disabled={resettingAudio || syncing || reEnriching || isEnrichmentActive}
-                                        className="mt-1 px-2 py-1 text-[10px] bg-white/5 text-white/60 rounded-full
-                                            hover:bg-white/10 hover:text-white/80 disabled:opacity-30 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
-                                    >
-                                        {resettingAudio ? "Resetting..." : "Re-run"}
-                                    </button>
+                            {/* Jellyfin: Last synced / Last enriched */}
+                            {(enrichmentProgress as EnrichmentProgressData)?.jellyfinJobStatus && (
+                                <div className="mt-2 pt-2 border-t border-white/10 flex flex-wrap gap-x-4 gap-y-0.5 text-[10px] text-white/40">
+                                    {(enrichmentProgress as EnrichmentProgressData)?.jellyfinJobStatus?.lastSynced != null && (
+                                        <span>
+                                            Last synced:{" "}
+                                            {new Date(
+                                                (enrichmentProgress as EnrichmentProgressData).jellyfinJobStatus!.lastSynced!
+                                            ).toLocaleString()}
+                                        </span>
+                                    )}
+                                    {(enrichmentProgress as EnrichmentProgressData)?.jellyfinJobStatus?.lastEnriched != null && (
+                                        <span>
+                                            Last enriched:{" "}
+                                            {new Date(
+                                                (enrichmentProgress as EnrichmentProgressData).jellyfinJobStatus!.lastEnriched!
+                                            ).toLocaleString()}
+                                        </span>
+                                    )}
                                 </div>
-                            ) : !featuresLoading ? (
-                                <div className="opacity-50 py-2">
-                                    <h4 className="text-sm font-medium text-gray-300">Audio Analysis</h4>
-                                    <p className="text-sm text-gray-500">Not available (lite mode)</p>
-                                    <p className="text-xs text-gray-600 mt-1">
-                                        All-in-one image: wait 1–2 min and refresh. Repo Compose: remove docker-compose.override.yml and restart.
-                                    </p>
-                                </div>
-                            ) : null}
-
-                            {/* CLAP Embeddings (Vibe Similarity) with Re-run button */}
-                            {!featuresLoading && vibeEmbeddings ? (
-                                enrichmentProgress.clapEmbeddings && (
-                                    <div className="flex items-start gap-2">
-                                        <div className="flex-1">
-                                            <EnrichmentStage
-                                                icon={Waves}
-                                                label="Vibe Embeddings"
-                                                description="CLAP audio embeddings for similarity search"
-                                                completed={enrichmentProgress.clapEmbeddings.completed}
-                                                total={enrichmentProgress.clapEmbeddings.total}
-                                                progress={enrichmentProgress.clapEmbeddings.progress}
-                                                processing={enrichmentProgress.clapEmbeddings.processing}
-                                                failed={enrichmentProgress.clapEmbeddings.failed}
-                                                isBackground={true}
-                                            />
-                                        </div>
-                                        <button
-                                            onClick={handleResetVibeEmbeddings}
-                                            disabled={resettingVibe || syncing || reEnriching || isEnrichmentActive}
-                                            className="mt-1 px-2 py-1 text-[10px] bg-white/5 text-white/60 rounded-full
-                                                hover:bg-white/10 hover:text-white/80 disabled:opacity-30 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
-                                        >
-                                            {resettingVibe ? "Resetting..." : "Re-run"}
-                                        </button>
-                                    </div>
-                                )
-                            ) : !featuresLoading ? (
-                                <div className="opacity-50 py-2">
-                                    <h4 className="text-sm font-medium text-gray-300">Vibe Similarity</h4>
-                                    <p className="text-sm text-gray-500">Not available (lite mode)</p>
-                                    <p className="text-xs text-gray-600 mt-1">
-                                        All-in-one image: wait 1–2 min and refresh. Repo Compose: remove docker-compose.override.yml and restart.
-                                    </p>
-                                </div>
-                            ) : null}
+                            )}
                         </div>
 
                         {/* Control Buttons */}
@@ -808,7 +685,20 @@ export function CacheSection({ settings, onUpdate }: CacheSectionProps) {
                             )}
                         </div>
 
-                        {/* Status Message */}
+                        {/* Status Message: native enrichment or Jellyfin job */}
+                        {((enrichmentProgress as EnrichmentProgressData)?.jellyfinJobStatus?.status === "syncing" ||
+                            (enrichmentProgress as EnrichmentProgressData)?.jellyfinJobStatus?.status === "enriching") && (
+                            <div className="mt-3 p-2 bg-white/5 rounded text-xs">
+                                <div className="flex items-center gap-2">
+                                    <Loader2 className="w-3 h-3 animate-spin text-[#B1D2C3]" />
+                                    <span className="text-white/70">
+                                        {(enrichmentProgress as EnrichmentProgressData)?.jellyfinJobStatus?.status === "syncing"
+                                            ? "Syncing Jellyfin library..."
+                                            : "Enriching mood tags..."}
+                                    </span>
+                                </div>
+                            </div>
+                        )}
                         {enrichmentState &&
                             enrichmentState.status !== "idle" && (
                                 <div className="mt-3 p-2 bg-white/5 rounded text-xs">
@@ -1003,99 +893,6 @@ export function CacheSection({ settings, onUpdate }: CacheSectionProps) {
                     </SettingsRow>
                 )}
 
-                {/* Audio Analyzer Workers Control */}
-                {settings.autoEnrichMetadata && !featuresLoading && musicCNN && (
-                    <SettingsRow
-                        label="Audio Analysis Workers"
-                        description="CPU workers for Essentia ML analysis (BPM, key, mood, energy). Lower values reduce CPU usage on older systems."
-                    >
-                        <div className="flex items-center gap-3">
-                            <input
-                                type="range"
-                                min={1}
-                                max={8}
-                                value={workersConfig?.workers ?? 2}
-                                disabled={isWorkersLoading}
-                                onChange={(e) => {
-                                    const newWorkers = parseInt(e.target.value);
-                                    setAnalysisWorkersMutation.mutate(
-                                        newWorkers
-                                    );
-                                }}
-                                className="w-32 h-1 bg-[#404040] rounded-lg appearance-none cursor-pointer
-                                disabled:opacity-50 disabled:cursor-not-allowed
-                                [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3
-                                [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white"
-                            />
-                            <div className="flex flex-col items-end gap-0.5">
-                                {isWorkersLoading ? (
-                                    <span className="text-sm text-white/50 w-24 text-right">
-                                        Loading...
-                                    </span>
-                                ) : (
-                                    <>
-                                        <span className="text-sm text-white w-24 text-right">
-                                            {workersConfig?.workers ?? 2}{" "}
-                                            workers
-                                        </span>
-                                        {workersConfig && (
-                                            <span className="text-xs text-white/50 w-24 text-right">
-                                                {workersConfig.cpuCores} cores
-                                                available
-                                            </span>
-                                        )}
-                                    </>
-                                )}
-                            </div>
-                        </div>
-                    </SettingsRow>
-                )}
-
-                {/* CLAP Analyzer Workers Control */}
-                {settings.autoEnrichMetadata && !featuresLoading && vibeEmbeddings && (
-                    <SettingsRow
-                        label="Vibe Embedding Workers"
-                        description="CPU workers for CLAP embeddings (vibe similarity). More memory intensive - reduce on systems with less RAM."
-                    >
-                        <div className="flex items-center gap-3">
-                            <input
-                                type="range"
-                                min={1}
-                                max={8}
-                                value={clapWorkersConfig?.workers ?? 2}
-                                disabled={isClapWorkersLoading}
-                                onChange={(e) => {
-                                    const newWorkers = parseInt(e.target.value);
-                                    setClapWorkersMutation.mutate(newWorkers);
-                                }}
-                                className="w-32 h-1 bg-[#404040] rounded-lg appearance-none cursor-pointer
-                                disabled:opacity-50 disabled:cursor-not-allowed
-                                [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3
-                                [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white"
-                            />
-                            <div className="flex flex-col items-end gap-0.5">
-                                {isClapWorkersLoading ? (
-                                    <span className="text-sm text-white/50 w-24 text-right">
-                                        Loading...
-                                    </span>
-                                ) : (
-                                    <>
-                                        <span className="text-sm text-white w-24 text-right">
-                                            {clapWorkersConfig?.workers ?? 2}{" "}
-                                            workers
-                                        </span>
-                                        {clapWorkersConfig && (
-                                            <span className="text-xs text-white/50 w-24 text-right">
-                                                {clapWorkersConfig.cpuCores} cores
-                                                available
-                                            </span>
-                                        )}
-                                    </>
-                                )}
-                            </div>
-                        </div>
-                    </SettingsRow>
-                )}
                 {/* Cache Actions */}
                 <div className="flex flex-col gap-3 pt-4">
                     <button
@@ -1116,23 +913,6 @@ export function CacheSection({ settings, onUpdate }: CacheSectionProps) {
                             ? "Cleaning..."
                             : "Cleanup Stale Jobs"}
                     </button>
-                    {enrichmentProgress?.audioAnalysis?.failed > 0 && (
-                        <button
-                            onClick={handleRetryFailedAnalysis}
-                            disabled={retryingFailed || isEnrichmentActive}
-                            className="px-4 py-1.5 text-sm bg-[#333] text-white rounded-full w-fit
-                            hover:bg-[#404040] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                        >
-                            {retryingFailed
-                                ? "Retrying..."
-                                : `Retry Failed Analysis (${enrichmentProgress.audioAnalysis.failed})`}
-                        </button>
-                    )}
-                    {retryResult && (
-                        <p className="text-sm text-green-400">
-                            Reset {retryResult.reset} failed tracks to pending
-                        </p>
-                    )}
                     {cleanupResult && cleanupResult.totalCleaned > 0 && (
                         <p className="text-sm text-green-400">
                             Cleaned:{" "}

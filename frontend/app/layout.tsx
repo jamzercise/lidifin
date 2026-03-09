@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Montserrat } from "next/font/google";
+import { Montserrat, Archivo_Black } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/lib/auth-context";
 import { ThemeProvider } from "@/lib/theme-context";
@@ -17,6 +17,13 @@ const montserrat = Montserrat({
     subsets: ["latin"],
     display: "swap",
     variable: "--font-montserrat",
+});
+
+const archivoBlack = Archivo_Black({
+    weight: "400",
+    subsets: ["latin"],
+    display: "swap",
+    variable: "--font-archivo-black",
 });
 
 // Viewport configuration - separate export for Next.js 14+
@@ -62,7 +69,7 @@ export default function RootLayout({
                 />
             </head>
             <body
-                className={`${montserrat.variable} antialiased`}
+                className={`${montserrat.variable} ${archivoBlack.variable} antialiased`}
                 style={{ fontFamily: "var(--font-montserrat)" }}
             >
                 <GlobalErrorBoundary>
