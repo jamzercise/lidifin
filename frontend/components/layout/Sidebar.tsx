@@ -327,15 +327,6 @@ export function Sidebar() {
                                         ),
                                         isActive && "text-white",
                                     )}
-                                    style={
-                                        item.name === "Library" ||
-                                        item.name === "Radio"
-                                            ? {
-                                                  fontFamily:
-                                                      "var(--font-archivo-black)",
-                                              }
-                                            : undefined
-                                    }
                                 >
                                     {item.name}
                                 </span>
