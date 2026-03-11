@@ -166,8 +166,7 @@ body {
 
 /* Titles and headers use Archivo Black (matches Home page) */
 h1,
-h2,
-h3 {
+h2 {
     font-family: var(--font-archivo-black), var(--font-montserrat), sans-serif;
 }
 
