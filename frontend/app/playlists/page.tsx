@@ -38,13 +38,15 @@ interface Playlist {
     };
 }
 
-// Generate mosaic cover from playlist tracks
+// Generate mosaic cover from playlist tracks, or generated cover when no track covers
 function PlaylistMosaic({
     items,
+    playlistId,
     size = 4,
     greyed = false,
 }: {
     items?: PlaylistItem[];
+    playlistId?: string;
     size?: number;
     greyed?: boolean;
 }) {
@@ -63,6 +65,20 @@ function PlaylistMosaic({
 
         return uniqueCovers.map((cover) => api.getCoverArtUrl(cover!, 200));
     }, [items, size]);
+
+    // No track covers: use generated cover (same style as Made For You mixes)
+    if (coverUrls.length === 0 && playlistId) {
+        return (
+            <Image
+                src={api.getPlaylistCoverUrl(playlistId, 400)}
+                alt=""
+                fill
+                className={cn("object-cover", greyed && "opacity-50")}
+                sizes="400px"
+                unoptimized
+            />
+        );
+    }
 
     if (coverUrls.length === 0) {
         return (
@@ -165,6 +181,7 @@ function PlaylistCard({
                 <div className="relative aspect-square mb-3 rounded-md overflow-hidden bg-[#282828] shadow-lg">
                     <PlaylistMosaic
                         items={playlist.items}
+                        playlistId={playlist.id}
                         greyed={isHiddenView}
                     />
 

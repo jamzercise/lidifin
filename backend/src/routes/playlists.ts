@@ -4,6 +4,8 @@ import { z } from "zod";
 import { requireAuthOrToken } from "../middleware/auth";
 import { prisma } from "../utils/db";
 import { sessionLog } from "../utils/playlistLogger";
+import { config } from "../config";
+import { generatePlaylistCoverSvg } from "../services/mixCoverService";
 import {
     getJellyfinConfig,
     resolveTrackReference,
@@ -211,6 +213,59 @@ router.post("/", async (req, res) => {
         }
         logger.error("Create playlist error:", error);
         res.status(500).json({ error: "Failed to create playlist" });
+    }
+});
+
+// GET /playlists/:id/cover - Generated cover for playlists without track covers (must be before /:id)
+router.get("/:id/cover", async (req, res) => {
+    try {
+        if (!req.user) {
+            return res.status(401).json({ error: "Unauthorized" });
+        }
+        const userId = req.user.id;
+        const playlistId = req.params.id;
+
+        const playlist = await prisma.playlist.findUnique({
+            where: { id: playlistId },
+            select: { id: true, name: true, userId: true, isPublic: true, items: { orderBy: { sort: "asc" }, take: 3, select: { trackId: true } } },
+        });
+
+        if (!playlist) {
+            return res.status(404).json({ error: "Playlist not found" });
+        }
+        if (!playlist.isPublic && playlist.userId !== userId) {
+            return res.status(403).json({ error: "Access denied" });
+        }
+
+        let coverUrls: string[] = [];
+        if (playlist.items.length > 0) {
+            const trackIds = playlist.items.map((i) => i.trackId);
+            const resolved = await resolveTrackReferences(trackIds);
+            coverUrls = resolved
+                .filter((t) => t?.album?.coverArt)
+                .map((t) => t!.album!.coverArt!)
+                .slice(0, 2);
+        }
+
+        const apiBaseUrl = process.env.API_URL || `http://localhost:${config.port}`;
+        const size = parseInt(String(req.query.size || "400"), 10) || 400;
+        const clampedSize = Math.min(600, Math.max(100, size));
+
+        const dataUrl = await generatePlaylistCoverSvg(
+            { id: playlist.id, name: playlist.name, coverUrls },
+            clampedSize,
+            apiBaseUrl
+        );
+
+        const base64 = dataUrl.replace(/^data:image\/svg\+xml;base64,/, "");
+        const svg = Buffer.from(base64, "base64").toString("utf-8");
+
+        res.setHeader("Content-Type", "image/svg+xml");
+        res.setHeader("Cache-Control", "public, max-age=3600, s-maxage=3600");
+        res.send(svg);
+    } catch (error) {
+        logger.error("Get playlist cover error:", error);
+        res.status(500).json({ error: "Failed to generate playlist cover" });
     }
 });
 

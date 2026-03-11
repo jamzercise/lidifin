@@ -407,7 +407,7 @@ export default function PlaylistDetailPage() {
             <div className="relative bg-gradient-to-b from-[#3d2a1e] via-[#1a1a1a] to-transparent pt-16 pb-10 px-4 md:px-8">
                 <div className="flex items-end gap-6">
                     {/* Cover Art */}
-                    <div className="w-[140px] h-[140px] md:w-[192px] md:h-[192px] bg-[#282828] rounded shadow-2xl shrink-0 overflow-hidden">
+                    <div className="relative w-[140px] h-[140px] md:w-[192px] md:h-[192px] bg-[#282828] rounded shadow-2xl shrink-0 overflow-hidden">
                         {coverUrls && coverUrls.length > 0 ? (
                             <div className="grid grid-cols-2 gap-0 w-full h-full">
                                 {coverUrls
@@ -450,7 +450,14 @@ export default function PlaylistDetailPage() {
                                 ))}
                             </div>
                         ) : (
-                            <div className="w-full h-full bg-[#282828]" />
+                            <Image
+                                src={api.getPlaylistCoverUrl(playlistId, 400)}
+                                alt=""
+                                fill
+                                className="object-cover"
+                                sizes="192px"
+                                unoptimized
+                            />
                         )}
                     </div>
 

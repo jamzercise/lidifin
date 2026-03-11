@@ -298,6 +298,8 @@ model JellyfinTrackMetadata {
   artistName   String
   trackTitle   String
   albumTitle   String?
+  artistMbid   String?  // MusicBrainz artist ID from Jellyfin ProviderIds
+  rgMbid       String?  // MusicBrainz release group ID from Jellyfin ProviderIds
   lastfmTags   String[] @default([])
   genres      String[] @default([])
   lastEnriched DateTime?
@@ -306,6 +308,7 @@ model JellyfinTrackMetadata {
 
   @@index([lastfmTags], type: Gin)
   @@index([genres], type: Gin)
+  @@index([artistMbid])
 }
 
 model Play {

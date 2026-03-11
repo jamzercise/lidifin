@@ -58,11 +58,15 @@ export async function syncJellyfinTrackMetadata(): Promise<SyncResult | null> {
                         artistName: item.artistName,
                         trackTitle: item.trackTitle,
                         albumTitle: item.albumTitle,
+                        artistMbid: item.artistMbid,
+                        rgMbid: item.rgMbid,
                     },
                     update: {
                         artistName: item.artistName,
                         trackTitle: item.trackTitle,
                         albumTitle: item.albumTitle,
+                        artistMbid: item.artistMbid,
+                        rgMbid: item.rgMbid,
                         updatedAt: new Date(),
                     },
                 });

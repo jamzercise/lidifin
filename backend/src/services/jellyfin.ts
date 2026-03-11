@@ -1271,10 +1271,12 @@ export async function removeJellyfinFavorite(cfg: JellyfinConfig, itemId: string
 
 /**
  * Fetch multiple Jellyfin items by ID in batch (avoids N+1).
+ * @param fields - Optional Fields param; default "Id,Name,ImageTags"
  */
 async function getJellyfinItemsBatch(
     cfg: JellyfinConfig,
-    itemIds: string[]
+    itemIds: string[],
+    fields: string = "Id,Name,ImageTags"
 ): Promise<Map<string, JellyfinItem>> {
     const unique = [...new Set(itemIds)].filter(Boolean);
     if (unique.length === 0) return new Map();
@@ -1290,7 +1292,7 @@ async function getJellyfinItemsBatch(
         const batch = unique.slice(i, i + BATCH_SIZE);
         try {
             const res = await client.get<{ Items: JellyfinItem[] }>(path, {
-                params: { Ids: batch.join(","), Fields: "Id,Name,ImageTags" },
+                params: { Ids: batch.join(","), Fields: fields },
             });
             const items = res.data?.Items ?? [];
             for (const item of items) result.set(item.Id, item);
@@ -1372,12 +1374,23 @@ export async function getJellyfinFavorites(cfg: JellyfinConfig): Promise<Resolve
 
 /**
  * Fetch a batch of Jellyfin tracks with minimal metadata for sync (no cover art).
- * Used by JellyfinTrackMetadata sync. Returns { jellyfinId, artistName, trackTitle, albumTitle }.
+ * Used by JellyfinTrackMetadata sync. Returns { jellyfinId, artistName, trackTitle, albumTitle, artistMbid?, rgMbid? }.
+ * MBIDs are extracted from Jellyfin ProviderIds when available (MusicBrainzArtist, MusicBrainzReleaseGroup).
  */
 export async function getJellyfinTracksForSync(
     cfg: JellyfinConfig,
     options: { limit?: number; offset?: number }
-): Promise<{ items: { jellyfinId: string; artistName: string; trackTitle: string; albumTitle: string | null }[]; total: number }> {
+): Promise<{
+    items: {
+        jellyfinId: string;
+        artistName: string;
+        trackTitle: string;
+        albumTitle: string | null;
+        artistMbid: string | null;
+        rgMbid: string | null;
+    }[];
+    total: number;
+}> {
     const token = getEffectiveToken(cfg);
     const userId = getEffectiveUserId(cfg);
     const client = createClient(cfg.url, token);
@@ -1399,17 +1412,38 @@ export async function getJellyfinTracksForSync(
     const total = res.data?.TotalRecordCount ?? items.length;
 
     const albumIds = [...new Set(items.map((i) => i.AlbumId).filter(Boolean))] as string[];
-    const albumsById = await getJellyfinItemsBatch(cfg, albumIds);
+    const artistIds = [
+        ...new Set(
+            items.flatMap((i) => (i.AlbumArtists ?? []).map((a) => a.Id).filter(Boolean))
+        ),
+    ] as string[];
+
+    const albumsById = await getJellyfinItemsBatch(
+        cfg,
+        albumIds,
+        "Id,Name,ProviderIds"
+    );
+    const artistsById = await getJellyfinItemsBatch(
+        cfg,
+        artistIds,
+        "Id,Name,ProviderIds"
+    );
 
     const result = items.map((item) => {
-        const artistName = item.AlbumArtists?.[0]?.Name ?? item.AlbumArtist ?? "Unknown Artist";
+        const artistRef = item.AlbumArtists?.[0];
+        const artistName = artistRef?.Name ?? item.AlbumArtist ?? "Unknown Artist";
         const albumItem = item.AlbumId ? albumsById.get(item.AlbumId) : undefined;
+        const artistItem = artistRef?.Id ? artistsById.get(artistRef.Id) : undefined;
         const albumTitle = albumItem?.Name ?? null;
+        const artistMbid = artistItem ? extractArtistMbid(artistItem.ProviderIds) ?? null : null;
+        const rgMbid = albumItem ? extractRgMbid(albumItem.ProviderIds) ?? null : null;
         return {
             jellyfinId: `${JELLYFIN_PREFIX}${item.Id}`,
             artistName,
             trackTitle: item.Name,
             albumTitle,
+            artistMbid: artistMbid ?? null,
+            rgMbid: rgMbid ?? null,
         };
     });
 

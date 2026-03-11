@@ -164,6 +164,13 @@ body {
     min-height: 100vh;
 }
 
+/* Titles and headers use Archivo Black (matches Home page) */
+h1,
+h2,
+h3 {
+    font-family: var(--font-archivo-black), var(--font-montserrat), sans-serif;
+}
+
 /* Make all buttons have pointer cursor */
 button {
     cursor: pointer;

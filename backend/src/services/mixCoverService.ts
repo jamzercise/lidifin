@@ -19,6 +19,13 @@ export interface MixCoverInput {
     coverUrls: string[];
 }
 
+/** Input for playlist cover generation (no color/gradient from mix metadata) */
+export interface PlaylistCoverInput {
+    id: string;
+    name: string;
+    coverUrls: string[];
+}
+
 /** Parse rgba(...) from gradient string, return hex */
 function parseRgbaFromGradient(gradientStr: string): string[] {
     const hexColors: string[] = [];
@@ -297,4 +304,23 @@ export async function generateMixCoverSvg(
     const svg = buildSvg(colors, mix, size);
     const base64 = Buffer.from(svg).toString("base64");
     return `data:image/svg+xml;base64,${base64}`;
+}
+
+/**
+ * Generate playlist cover as SVG data URL (same style as mix covers).
+ * Uses deterministic colors from id+name, or extracts from track album art when available.
+ */
+export async function generatePlaylistCoverSvg(
+    playlist: PlaylistCoverInput,
+    size = 400,
+    apiBaseUrl?: string
+): Promise<string> {
+    const mixInput: MixCoverInput = {
+        id: playlist.id,
+        type: "playlist",
+        name: playlist.name,
+        color: "", // Not used; getDeterministicColors uses id+name
+        coverUrls: playlist.coverUrls,
+    };
+    return generateMixCoverSvg(mixInput, size, apiBaseUrl);
 }

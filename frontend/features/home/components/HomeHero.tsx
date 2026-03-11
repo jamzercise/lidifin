@@ -34,7 +34,6 @@ export function HomeHero({ onRefresh }: HomeHeroProps) {
                     <h1
                         className="text-[1.725rem] md:text-[2.16rem] font-bold tracking-tight"
                         style={{
-                            fontFamily: "var(--font-archivo-black)",
                             background:
                                 "linear-gradient(to bottom, rgb(255 255 255) 0%, rgb(255 255 255) 70%, rgb(188 208 194) 100%)",
                             backgroundClip: "text",

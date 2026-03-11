@@ -1720,6 +1720,16 @@ class ApiClient {
         return `${baseUrl}/api/mixes/${encodeURIComponent(mixId)}/cover?${params.toString()}`;
     }
 
+    /** Get URL for generated playlist cover (gradient + low-poly, when no track covers) */
+    getPlaylistCoverUrl(playlistId: string, size = 300): string {
+        const baseUrl = this.getBaseUrl();
+        const token = this.getCurrentToken();
+        const params = new URLSearchParams();
+        params.append("size", size.toString());
+        if (token) params.append("token", token);
+        return `${baseUrl}/api/playlists/${encodeURIComponent(playlistId)}/cover?${params.toString()}`;
+    }
+
     async refreshMixes() {
         return this.request<{ message: string; mixes: ApiData[] }>(
             "/mixes/refresh",
