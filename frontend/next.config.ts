@@ -6,6 +6,11 @@ const withBundleAnalyzer = bundleAnalyzer({
 });
 
 const nextConfig: NextConfig = {
+    // Proxy timeout: default 30s causes "socket hang up" when backend is slow (e.g. Jellyfin
+    // resolution, event loop blocked). 60s gives more headroom without excessive resource hogging.
+    experimental: {
+        proxyTimeout: 60 * 1000,
+    },
     // Allow dev origins for local network testing
     allowedDevOrigins: [
         "http://127.0.0.1:3030",
