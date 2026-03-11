@@ -49,7 +49,7 @@
         "fuzzball": "^2.2.3",
         "helmet": "^7.1.0",
         "jsonwebtoken": "^9.0.2",
-        "music-metadata": "^11.10.0",
+        "music-metadata": "^7.12.0",
         "node-cron": "^4.2.1",
         "p-limit": "^7.2.0",
         "p-queue": "^9.0.0",
