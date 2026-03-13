@@ -181,6 +181,7 @@ router.get("/new-episodes", async (req, res) => {
                 title: ep.title,
                 duration: ep.duration,
                 publishedAt: ep.publishedAt,
+                mimeType: ep.mimeType ?? undefined,
                 coverUrl: ep.localCoverPath
                     ? `/podcasts/episodes/${ep.id}/cover`
                     : ep.imageUrl ?? ep.podcast.imageUrl,
@@ -273,6 +274,7 @@ router.get("/continue-listening", async (req, res) => {
                     title: ep.title,
                     duration: ep.duration,
                     publishedAt: ep.publishedAt,
+                    mimeType: ep.mimeType ?? undefined,
                     coverUrl: ep.localCoverPath
                         ? `/podcasts/episodes/${ep.id}/cover`
                         : ep.imageUrl ?? ep.podcast.imageUrl,

@@ -17,6 +17,7 @@ export interface EpisodeWithPodcast {
     duration: number;
     publishedAt: string;
     coverUrl?: string | null;
+    mimeType?: string;
     podcast: {
         id: string;
         title: string;
