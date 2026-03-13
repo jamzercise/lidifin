@@ -14,6 +14,7 @@ export interface Episode {
     episodeNumber?: number;
     season?: number;
     progress?: EpisodeProgress;
+    mimeType?: string;
 }
 
 export interface Podcast {

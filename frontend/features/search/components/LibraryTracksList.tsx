@@ -38,21 +38,24 @@ export function LibraryTracksList({ tracks, favoriteIds, onToggleFavorite }: Lib
 
     const handlePlayTrack = (track: LibraryTrack, index: number) => {
         // Format tracks for playback
-        const formattedTracks = tracks.map((t) => ({
+        const formattedTracks = tracks.map((t) => {
+            const artist = t.artist ?? t.album.artist;
+            return {
             id: t.id,
             title: t.title,
             displayTitle: t.displayTitle,
             duration: t.duration,
             artist: {
-                id: t.album.artist.id,
-                name: t.album.artist.name,
+                id: artist.id,
+                name: artist.name,
             },
             album: {
                 id: t.album.id,
                 title: t.album.title,
                 coverArt: t.album.coverUrl,
             },
-        }));
+        };
+        });
 
         if (currentTrack?.id === track.id) {
             // Toggle play/pause if clicking the same track
@@ -139,12 +142,12 @@ export function LibraryTracksList({ tracks, favoriteIds, onToggleFavorite }: Lib
                             </p>
                             <p className="text-xs text-gray-400 truncate">
                                 <Link
-                                    href={`/artist/${encodeURIComponent(toArtistRouteId(track.album.artist))}`}
-                                    onMouseEnter={() => prefetchArtist(toArtistRouteId(track.album.artist), track.album.artist)}
+                                    href={`/artist/${encodeURIComponent(toArtistRouteId(track.artist ?? track.album.artist))}`}
+                                    onMouseEnter={() => prefetchArtist(toArtistRouteId(track.artist ?? track.album.artist), track.artist ?? track.album.artist)}
                                     className="hover:underline hover:text-white"
                                     onClick={(e) => e.stopPropagation()}
                                 >
-                                    {track.album.artist.name}
+                                    {(track.artist ?? track.album.artist).name}
                                 </Link>
                                 <span className="mx-1">•</span>
                                 <Link
@@ -162,10 +165,10 @@ export function LibraryTracksList({ tracks, favoriteIds, onToggleFavorite }: Lib
                             <button
                                 onClick={(e) => {
                                     e.stopPropagation();
-                                    setFindSimilarTrack({
+                                        setFindSimilarTrack({
                                         id: track.id,
                                         title: track.title,
-                                        artist: track.album.artist.name,
+                                        artist: (track.artist ?? track.album.artist).name,
                                     });
                                 }}
                                 className="p-1.5 rounded-full opacity-0 group-hover:opacity-100 hover:bg-white/10 text-gray-400 hover:text-purple-400 transition-all flex-shrink-0"

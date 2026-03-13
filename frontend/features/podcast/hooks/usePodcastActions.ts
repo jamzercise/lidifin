@@ -70,6 +70,7 @@ export function usePodcastActions(podcastId: string, sortedEpisodes?: Episode[])
                 podcastTitle: podcast.title,
                 coverUrl: podcast.coverUrl,
                 duration: episode.duration,
+                mimeType: episode.mimeType,
                 progress: episode.progress || null,
             });
         },

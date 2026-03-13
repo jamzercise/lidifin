@@ -320,6 +320,7 @@ export function CastProvider({ children }: { children: ReactNode }) {
                 podcastId,
                 episodeId
             );
+            contentType = currentPodcast.mimeType || "audio/mpeg";
             duration = currentPodcast.duration;
             metadata = {
                 title: currentPodcast.title,

@@ -5,6 +5,7 @@
  */
 
 import axios, { AxiosInstance } from "axios";
+import { shuffleArray } from "../utils/shuffle";
 import { getSystemSettings } from "../utils/systemSettings";
 import { prisma } from "../utils/db";
 import { logger } from "../utils/logger";
@@ -31,6 +32,8 @@ export interface ResolvedTrack {
     title: string;
     duration: number;
     artist: { id: string; name: string };
+    /** Album artist (e.g. "Various Artists" on compilations) - when different from track artist */
+    albumArtist?: { id: string; name: string };
     album: { id: string; title: string; coverArt: string | null };
 }
 
@@ -60,11 +63,15 @@ interface JellyfinItem {
     AlbumId?: string;
     AlbumArtist?: string;
     AlbumArtists?: { Id: string; Name: string }[];
+    /** Track artists (performing artists) - differs from AlbumArtists on compilations */
+    ArtistItems?: { Id: string; Name: string }[];
+    Artists?: string[];
     RunTimeTicks?: number;
     ImageTags?: { Primary?: string };
     ProductionYear?: number;
     ParentId?: string;
     ProviderIds?: Record<string, string | null>;
+    ChildCount?: number;
 }
 
 const MBID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -173,6 +180,7 @@ function getEffectiveUserId(cfg: JellyfinConfig): string {
 
 /**
  * Map Jellyfin Audio item to frontend track shape. Optionally pass album/artist if already loaded.
+ * Prefers ArtistItems (track artist) over AlbumArtists for compilations; adds albumArtist when they differ.
  */
 function mapJellyfinItemToTrack(
     item: JellyfinItem,
@@ -180,13 +188,33 @@ function mapJellyfinItemToTrack(
     artistName?: string,
     artistId?: string
 ): ResolvedTrack {
-    const aid = artistId ?? item.AlbumArtists?.[0]?.Id ?? item.AlbumArtist ?? "unknown";
-    const aname = artistName ?? item.AlbumArtists?.[0]?.Name ?? item.AlbumArtist ?? "Unknown Artist";
+    const albumArtistRef = item.AlbumArtists?.[0];
+    const albumArtistId = albumArtistRef?.Id;
+    const albumArtistName = albumArtistRef?.Name ?? item.AlbumArtist ?? "Unknown Artist";
+    // Prefer track artist (ArtistItems/Artists) over album artist for compilations
+    const trackArtistItem = item.ArtistItems?.[0];
+    const trackArtistStr = item.Artists?.[0]?.trim();
+    const trackArtistName = trackArtistItem?.Name?.trim() || trackArtistStr;
+    const useTrackArtist = !!trackArtistName;
+    const aid = artistId
+        ?? (useTrackArtist && trackArtistItem ? trackArtistItem.Id : undefined)
+        ?? albumArtistId
+        ?? "unknown";
+    const aname = artistName
+        ?? (useTrackArtist ? trackArtistName : undefined)
+        ?? albumArtistName;
+    const artistIdFinal = aid.startsWith("jellyfin:") ? aid : `${JELLYFIN_PREFIX}${aid}`;
+    // Include albumArtist when it differs from track artist (compilations)
+    const albumArtist =
+        albumArtistId && albumArtistName && albumArtistName !== aname
+            ? { id: albumArtistId.startsWith("jellyfin:") ? albumArtistId : `${JELLYFIN_PREFIX}${albumArtistId}`, name: albumArtistName }
+            : undefined;
     return {
         id: `${JELLYFIN_PREFIX}${item.Id}`,
         title: item.Name,
         duration: runTimeTicksToSeconds(item.RunTimeTicks),
-        artist: { id: aid.startsWith("jellyfin:") ? aid : `${JELLYFIN_PREFIX}${aid}`, name: aname },
+        artist: { id: artistIdFinal, name: aname },
+        ...(albumArtist && { albumArtist }),
         album: album ?? {
             id: item.AlbumId ? `${JELLYFIN_PREFIX}${item.AlbumId}` : "",
             title: "Unknown Album",
@@ -369,6 +397,128 @@ export async function getJellyfinAlbums(
 }
 
 const ALBUMS_PAGE_SIZE = 200;
+
+/**
+ * Get decades with track counts from Jellyfin library.
+ * Paginates through albums, aggregates by ProductionYear decade.
+ * Returns only decades with 15+ tracks.
+ */
+export async function getJellyfinDecades(
+    cfg: JellyfinConfig
+): Promise<{ decade: number; count: number }[]> {
+    const userId = getEffectiveUserId(cfg);
+    const cacheKey = userId ? `jf:decades:${userId}` : null;
+
+    if (cacheKey && redisClient.isReady) {
+        try {
+            const cached = await redisClient.get(cacheKey);
+            if (cached) {
+                return JSON.parse(cached) as { decade: number; count: number }[];
+            }
+        } catch {
+            /* ignore Redis errors */
+        }
+    }
+
+    const token = getEffectiveToken(cfg);
+    const client = createClient(cfg.url, token);
+    const path = userId ? `/Users/${userId}/Items` : "/Items";
+    const decadeMap = new Map<number, number>();
+    let offset = 0;
+    const limit = 200;
+
+    while (true) {
+        const res = await client.get<{
+            Items?: Array<{ ProductionYear?: number; ChildCount?: number }>;
+            TotalRecordCount?: number;
+        }>(path, {
+            params: {
+                IncludeItemTypes: "MusicAlbum",
+                Recursive: "true",
+                Limit: limit,
+                StartIndex: offset,
+                Fields: "ProductionYear,ChildCount",
+                EnableTotalRecordCount: false,
+            },
+        });
+
+        const items = res.data?.Items ?? [];
+        for (const item of items) {
+            const year = item.ProductionYear;
+            if (year == null || year <= 0) continue;
+            const decade = Math.floor(year / 10) * 10;
+            const trackCount = item.ChildCount ?? 1;
+            decadeMap.set(decade, (decadeMap.get(decade) ?? 0) + trackCount);
+        }
+
+        if (items.length < limit) break;
+        offset += limit;
+    }
+
+    const decades = Array.from(decadeMap.entries())
+        .filter(([, count]) => count >= 15)
+        .map(([decade, count]) => ({ decade, count }))
+        .sort((a, b) => b.decade - a.decade);
+
+    if (cacheKey && redisClient.isReady) {
+        try {
+            await redisClient.setEx(
+                cacheKey,
+                JF_CACHE_TTL,
+                JSON.stringify(decades)
+            );
+        } catch {
+            /* ignore Redis errors */
+        }
+    }
+
+    return decades;
+}
+
+/**
+ * Get tracks from Jellyfin filtered by decade (ProductionYear of parent album).
+ * Uses Years filter on MusicAlbum, then fetches tracks from those albums.
+ */
+export async function getJellyfinTracksByDecade(
+    cfg: JellyfinConfig,
+    decadeStart: number,
+    limit: number
+): Promise<ResolvedTrack[]> {
+    const years = Array.from(
+        { length: 10 },
+        (_, i) => decadeStart + i
+    );
+    const userId = getEffectiveUserId(cfg);
+    const token = getEffectiveToken(cfg);
+    const client = createClient(cfg.url, token);
+    const path = userId ? `/Users/${userId}/Items` : "/Items";
+
+    const res = await client.get<{ Items?: JellyfinItem[] }>(path, {
+        params: {
+            IncludeItemTypes: "MusicAlbum",
+            Recursive: "true",
+            Limit: 500,
+            Fields: "Id",
+            Years: years.join(","),
+        },
+    });
+
+    const albumIds = (res.data?.Items ?? []).map((a) => a.Id);
+    if (albumIds.length === 0) return [];
+
+    const allTracks: ResolvedTrack[] = [];
+    for (let i = 0; i < Math.min(albumIds.length, 50); i++) {
+        const { tracks } = await getJellyfinTracks(cfg, {
+            albumId: `${JELLYFIN_PREFIX}${albumIds[i]}`,
+            limit: 20,
+        });
+        allTracks.push(...tracks);
+        if (allTracks.length >= limit * 2) break;
+    }
+
+    const shuffled = shuffleArray(allTracks);
+    return shuffled.slice(0, limit);
+}
 
 /**
  * Get album count for a single Jellyfin artist (lightweight - Limit: 1, only needs TotalRecordCount).
@@ -560,7 +710,7 @@ export async function getJellyfinTracks(
         Recursive: "true",
         Limit: options?.limit ?? 100,
         StartIndex: options?.offset ?? 0,
-        Fields: "Id,Name,RunTimeTicks,AlbumId,AlbumArtist,AlbumArtists,ImageTags,ParentId",
+        Fields: "Id,Name,RunTimeTicks,AlbumId,AlbumArtist,AlbumArtists,ArtistItems,Artists,ImageTags,ParentId",
         EnableTotalRecordCount: true,
     };
     if (options?.sortBy) params.SortBy = options.sortBy;
@@ -862,7 +1012,7 @@ export async function resolveTrackReferences(
                         params: {
                             Ids: batchIds.join(","),
                             IncludeItemTypes: "Audio",
-                            Fields: "Id,Name,RunTimeTicks,AlbumId,AlbumArtist,AlbumArtists,ImageTags,ParentId",
+                            Fields: "Id,Name,RunTimeTicks,AlbumId,AlbumArtist,AlbumArtists,ArtistItems,Artists,ImageTags,ParentId",
                         },
                     });
                     const items = (res.data?.Items ?? []) as JellyfinItem[];
@@ -1161,7 +1311,7 @@ export async function getJellyfinPlaylistItemsWithMetadata(
         }>(`/Playlists/${playlistId}/Items`, {
             params: {
                 UserId: getJellyfinUserId(cfg),
-                Fields: "Id,Name,RunTimeTicks,AlbumId,AlbumArtist,AlbumArtists,ImageTags,ParentId",
+                Fields: "Id,Name,RunTimeTicks,AlbumId,AlbumArtist,AlbumArtists,ArtistItems,Artists,ImageTags,ParentId",
             },
         });
         const items = (res.data?.Items ?? []) as (JellyfinItem & { PlaylistItemId?: string })[];
@@ -1328,7 +1478,7 @@ export async function getJellyfinFavorites(cfg: JellyfinConfig): Promise<Resolve
             Recursive: "true",
             Filters: "IsFavorite",
             Limit: 500,
-            Fields: "Id,Name,RunTimeTicks,AlbumId,AlbumArtist,AlbumArtists,ImageTags,ParentId",
+            Fields: "Id,Name,RunTimeTicks,AlbumId,AlbumArtist,AlbumArtists,ArtistItems,Artists,ImageTags,ParentId",
         },
     });
     const items = res.data?.Items ?? [];
@@ -1404,7 +1554,7 @@ export async function getJellyfinTracksForSync(
             Recursive: "true",
             Limit: limit,
             StartIndex: offset,
-            Fields: "Id,Name,AlbumId,AlbumArtist,AlbumArtists",
+            Fields: "Id,Name,AlbumId,AlbumArtist,AlbumArtists,ArtistItems,Artists",
             EnableTotalRecordCount: true,
         },
     });

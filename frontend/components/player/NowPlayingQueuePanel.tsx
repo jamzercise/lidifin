@@ -65,6 +65,7 @@ export function NowPlayingQueuePanel() {
             podcastTitle: currentPodcast.podcastTitle,
             coverUrl: currentPodcast.coverUrl,
             duration: episode.duration,
+            mimeType: episode.mimeType,
             progress: episode.progress || null,
         });
         closeQueue();

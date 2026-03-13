@@ -55,6 +55,8 @@ export interface Track {
     id: string;
     title: string;
     artist: { name: string; id?: string; mbid?: string };
+    /** Album artist (e.g. "Various Artists" on compilations) - when different from track artist */
+    albumArtist?: { name: string; id?: string };
     album: { title: string; coverArt?: string; id?: string };
     duration: number;
     filePath?: string;
@@ -104,6 +106,7 @@ export interface Podcast {
     podcastTitle: string;
     coverUrl: string | null;
     duration: number;
+    mimeType?: string;
     progress?: {
         currentTime: number;
         progress: number;
@@ -327,6 +330,7 @@ export function AudioStateProvider({ children }: { children: ReactNode }) {
                                 setCurrentPodcast({
                                     ...podcastData,
                                     progress: episode.progress,
+                                    mimeType: episode.mimeType,
                                 });
                             }
                         })
@@ -395,6 +399,7 @@ export function AudioStateProvider({ children }: { children: ReactNode }) {
                                 podcastTitle: podcast.title,
                                 coverUrl: podcast.coverUrl,
                                 duration: episode.duration,
+                                mimeType: episode.mimeType,
                                 progress: episode.progress,
                             });
                             setPlaybackType("podcast");
@@ -646,6 +651,7 @@ export function AudioStateProvider({ children }: { children: ReactNode }) {
                                 podcastTitle: podcast.title,
                                 coverUrl: podcast.coverUrl,
                                 duration: episode.duration,
+                                mimeType: episode.mimeType,
                                 progress: episode.progress,
                             });
                             setPlaybackType("podcast");

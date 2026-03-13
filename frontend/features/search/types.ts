@@ -64,6 +64,10 @@ export interface LibraryTrack {
             name: string;
         };
     };
+    /** Track artist (performing artist) - may differ from album.artist on compilations */
+    artist?: { id: string; name: string };
+    /** Album artist when different from track artist (e.g. "Various Artists") */
+    albumArtist?: { id: string; name: string };
     // Metadata override fields
     displayTitle?: string | null;
     displayTrackNo?: number | null;

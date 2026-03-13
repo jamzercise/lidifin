@@ -30,6 +30,7 @@ import {
     AlertCircle,
     X,
     Loader2,
+    Pencil,
 } from "lucide-react";
 
 interface Track {
@@ -85,6 +86,9 @@ export default function PlaylistDetailPage() {
 
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
     const [isHiding, setIsHiding] = useState(false);
+    const [isEditingName, setIsEditingName] = useState(false);
+    const [editingName, setEditingName] = useState("");
+    const nameInputRef = useRef<HTMLInputElement>(null);
     const [playingPreviewId, setPlayingPreviewId] = useState<string | null>(
         null
     );
@@ -101,6 +105,14 @@ export default function PlaylistDetailPage() {
             }
         };
     }, []);
+
+    // Focus name input when editing
+    useEffect(() => {
+        if (isEditingName && nameInputRef.current) {
+            nameInputRef.current.focus();
+            nameInputRef.current.select();
+        }
+    }, [isEditingName]);
 
     // Handle Deezer preview playback
     const handlePlayPreview = async (pendingId: string) => {
@@ -466,9 +478,110 @@ export default function PlaylistDetailPage() {
                         <p className="text-xs font-medium text-white/90 mb-1">
                             {isShared ? "Public Playlist" : "Playlist"}
                         </p>
-                        <h1 className="text-2xl md:text-4xl lg:text-5xl font-bold text-white leading-tight line-clamp-2 mb-2">
-                            {playlist.name}
-                        </h1>
+                        {!isShared && isEditingName ? (
+                            <div className="flex items-center gap-2 mb-2">
+                                <input
+                                    ref={nameInputRef}
+                                    type="text"
+                                    value={editingName}
+                                    onChange={(e) =>
+                                        setEditingName(e.target.value)
+                                    }
+                                    onKeyDown={(e) => {
+                                        if (e.key === "Enter") {
+                                            const trimmed =
+                                                editingName.trim();
+                                            if (trimmed) {
+                                                api.updatePlaylist(
+                                                    playlistId,
+                                                    { name: trimmed }
+                                                ).then(() => {
+                                                    queryClient.setQueryData(
+                                                        [
+                                                            "playlist",
+                                                            playlistId,
+                                                        ],
+                                                        (old: Record<string, unknown>) =>
+                                                            old
+                                                                ? {
+                                                                      ...old,
+                                                                      name: trimmed,
+                                                                  }
+                                                                : old
+                                                    );
+                                                    window.dispatchEvent(
+                                                        new CustomEvent(
+                                                            "playlist-updated",
+                                                            {
+                                                                detail: {
+                                                                    playlistId,
+                                                                },
+                                                            }
+                                                        )
+                                                    );
+                                                    setIsEditingName(false);
+                                                });
+                                            }
+                                        }
+                                        if (e.key === "Escape") {
+                                            setEditingName(playlist.name);
+                                            setIsEditingName(false);
+                                        }
+                                    }}
+                                    onBlur={() => {
+                                        const trimmed =
+                                            editingName.trim();
+                                        if (trimmed && trimmed !== playlist.name) {
+                                            api.updatePlaylist(
+                                                playlistId,
+                                                { name: trimmed }
+                                            ).then(() => {
+                                                queryClient.setQueryData(
+                                                    ["playlist", playlistId],
+                                                    (old: Record<string, unknown>) =>
+                                                        old
+                                                            ? {
+                                                                  ...old,
+                                                                  name: trimmed,
+                                                              }
+                                                            : old
+                                                );
+                                                window.dispatchEvent(
+                                                    new CustomEvent(
+                                                        "playlist-updated",
+                                                        {
+                                                            detail: {
+                                                                playlistId,
+                                                            },
+                                                        }
+                                                    )
+                                                );
+                                            });
+                                        }
+                                        setIsEditingName(false);
+                                    }}
+                                    className="flex-1 min-w-0 text-2xl md:text-4xl lg:text-5xl font-bold text-white bg-white/10 px-2 py-1 rounded border border-white/20 focus:outline-none focus:border-[#B1D2C3]"
+                                />
+                            </div>
+                        ) : (
+                            <div className="flex items-center gap-2 mb-2 group/title">
+                                <h1 className="text-2xl md:text-4xl lg:text-5xl font-bold text-white leading-tight line-clamp-2">
+                                    {playlist.name}
+                                </h1>
+                                {!isShared && (
+                                    <button
+                                        onClick={() => {
+                                            setEditingName(playlist.name);
+                                            setIsEditingName(true);
+                                        }}
+                                        className="p-2 rounded opacity-0 group-hover/title:opacity-100 hover:bg-white/10 transition-all flex-shrink-0"
+                                        title="Rename playlist"
+                                    >
+                                        <Pencil className="w-5 h-5 text-white/50 hover:text-white" />
+                                    </button>
+                                )}
+                            </div>
+                        )}
                         <div className="flex items-center gap-1 text-sm text-white/70">
                             {isShared && playlist.user?.username && (
                                 <>

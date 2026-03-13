@@ -970,10 +970,9 @@ class SoulseekService {
                 } for ${match.filename}`
             );
 
-            // Build destination path: Singles/Artist/Album/filename
+            // Build destination path: Artist/Album/filename (Lidarr format)
             const destPath = path.join(
                 musicPath,
-                "Singles",
                 sanitize(artistName),
                 sanitize(albumName),
                 sanitize(match.filename)
@@ -1052,10 +1051,9 @@ class SoulseekService {
                 }: Trying ${match.username}`
             );
 
-            // Build destination path: Singles/Artist/Album/filename
+            // Build destination path: Artist/Album/filename (Lidarr format)
             const destPath = path.join(
                 musicPath,
-                "Singles",
                 sanitize(artistName),
                 sanitize(albumName),
                 sanitize(match.filename)
@@ -1225,9 +1223,9 @@ class SoulseekService {
                 }: Trying ${match.username}`
             );
 
+            // Build destination path: Artist/Album/filename (Lidarr format)
             const destPath = path.join(
                 musicPath,
-                "Singles",
                 sanitize(artistName),
                 sanitize(albumName),
                 sanitize(match.filename)

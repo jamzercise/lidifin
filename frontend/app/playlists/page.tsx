@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
@@ -9,7 +9,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/hooks/useQueries";
 import { useAuth } from "@/lib/auth-context";
 import { useAudioControls } from "@/lib/audio-context";
-import { Play, Music, Eye, EyeOff } from "lucide-react";
+import { Play, Music, Eye, EyeOff, Pencil } from "lucide-react";
 import { GradientSpinner } from "@/components/ui/GradientSpinner";
 import { api } from "@/lib/api";
 import { cn } from "@/utils/cn";
@@ -144,16 +144,38 @@ function PlaylistCard({
     index,
     onPlay,
     onToggleHide,
+    onRename,
     isHiddenView = false,
+    isEditing,
+    editingName,
+    onEditingNameChange,
+    onStartEdit,
+    onSaveEdit,
+    onCancelEdit,
 }: {
     playlist: Playlist;
     index: number;
     onPlay: (playlistId: string) => void;
     onToggleHide: (playlistId: string, hide: boolean) => void;
+    onRename?: (playlistId: string, name: string) => void;
     isHiddenView?: boolean;
+    isEditing?: boolean;
+    editingName?: string;
+    onEditingNameChange?: (name: string) => void;
+    onStartEdit?: (playlistId: string) => void;
+    onSaveEdit?: () => void;
+    onCancelEdit?: () => void;
 }) {
     const isShared = playlist.isOwner === false;
     const [isHiding, setIsHiding] = useState(false);
+    const inputRef = useRef<HTMLInputElement>(null);
+
+    useEffect(() => {
+        if (isEditing && inputRef.current) {
+            inputRef.current.focus();
+            inputRef.current.select();
+        }
+    }, [isEditing]);
 
     const handleToggleHide = async (e: React.MouseEvent) => {
         e.preventDefault();
@@ -164,6 +186,12 @@ function PlaylistCard({
         } finally {
             setIsHiding(false);
         }
+    };
+
+    const handleRenameClick = (e: React.MouseEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onStartEdit?.(playlist.id);
     };
 
     return (
@@ -234,14 +262,48 @@ function PlaylistCard({
                 </div>
 
                 {/* Title and info */}
-                <h3
-                    className={cn(
-                        "text-sm font-semibold truncate",
-                        isHiddenView ? "text-gray-400" : "text-white"
-                    )}
+                <div
+                    className="flex items-center gap-1.5 min-w-0"
+                    onClick={(e) => isEditing && e.stopPropagation()}
                 >
-                    {playlist.name}
-                </h3>
+                    {isEditing ? (
+                        <input
+                            ref={inputRef}
+                            type="text"
+                            value={editingName ?? playlist.name}
+                            onChange={(e) =>
+                                onEditingNameChange?.(e.target.value)
+                            }
+                            onKeyDown={(e) => {
+                                if (e.key === "Enter") onSaveEdit?.();
+                                if (e.key === "Escape") onCancelEdit?.();
+                            }}
+                            onBlur={() => onSaveEdit?.()}
+                            className="flex-1 min-w-0 text-sm font-semibold bg-white/10 text-white px-1.5 py-0.5 rounded border border-white/20 focus:outline-none focus:border-[#B1D2C3]"
+                            onClick={(e) => e.stopPropagation()}
+                        />
+                    ) : (
+                        <>
+                            <h3
+                                className={cn(
+                                    "flex-1 min-w-0 text-sm font-semibold truncate",
+                                    isHiddenView ? "text-gray-400" : "text-white"
+                                )}
+                            >
+                                {playlist.name}
+                            </h3>
+                            {!isShared && onRename && (
+                                <button
+                                    onClick={handleRenameClick}
+                                    className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-white/10 transition-all flex-shrink-0"
+                                    title="Rename playlist"
+                                >
+                                    <Pencil className="w-3 h-3 text-white/50 hover:text-white" />
+                                </button>
+                            )}
+                        </>
+                    )}
+                </div>
                 <p className="text-xs text-gray-400 mt-0.5 truncate">
                     {isShared && playlist.user?.username ? (
                         <span className="text-gray-500">
@@ -262,6 +324,10 @@ export default function PlaylistsPage() {
     const { playTracks } = useAudioControls();
     const queryClient = useQueryClient();
     const [showHiddenTab, setShowHiddenTab] = useState(false);
+    const [editingPlaylistId, setEditingPlaylistId] = useState<string | null>(
+        null
+    );
+    const [editingName, setEditingName] = useState("");
 
     // Use React Query hook for playlists
     const { data: playlists = [], isLoading } = usePlaylistsQuery();
@@ -336,6 +402,40 @@ export default function PlaylistsPage() {
         } catch (error) {
             console.error("Failed to toggle playlist visibility:", error);
         }
+    };
+
+    const handleRename = async (playlistId: string, name: string) => {
+        const trimmed = name.trim();
+        if (!trimmed) return;
+        try {
+            await api.updatePlaylist(playlistId, { name: trimmed });
+            queryClient.invalidateQueries({ queryKey: queryKeys.playlists() });
+            window.dispatchEvent(
+                new CustomEvent("playlist-updated", { detail: { playlistId } })
+            );
+        } catch (error) {
+            console.error("Failed to rename playlist:", error);
+        } finally {
+            setEditingPlaylistId(null);
+        }
+    };
+
+    const handleStartEdit = (playlistId: string) => {
+        const p = playlists.find((x: Playlist) => x.id === playlistId);
+        if (p) {
+            setEditingPlaylistId(playlistId);
+            setEditingName(p.name);
+        }
+    };
+
+    const handleSaveEdit = () => {
+        if (editingPlaylistId) {
+            handleRename(editingPlaylistId, editingName);
+        }
+    };
+
+    const handleCancelEdit = () => {
+        setEditingPlaylistId(null);
     };
 
     if (isLoading) {
@@ -433,7 +533,16 @@ export default function PlaylistsPage() {
                                     index={index}
                                     onPlay={handlePlayPlaylist}
                                     onToggleHide={handleToggleHide}
+                                    onRename={handleRename}
                                     isHiddenView={showHiddenTab}
+                                    isEditing={
+                                        editingPlaylistId === playlist.id
+                                    }
+                                    editingName={editingName}
+                                    onEditingNameChange={setEditingName}
+                                    onStartEdit={handleStartEdit}
+                                    onSaveEdit={handleSaveEdit}
+                                    onCancelEdit={handleCancelEdit}
                                 />
                             )
                         )}

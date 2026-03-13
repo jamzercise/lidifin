@@ -50,11 +50,13 @@ import {
     isJellyfinMusicSource,
     getJellyfinArtists,
     getJellyfinAlbums,
+    getJellyfinDecades,
     getJellyfinAlbumsAllForArtist,
     getJellyfinAlbumByRgMbid,
     getJellyfinArtistAlbumCounts,
     getJellyfinArtistImagesBatch,
     getJellyfinTracks,
+    getJellyfinTracksByDecade,
     getJellyfinTracksAllForAlbum,
     getJellyfinItem,
     getJellyfinArtistByName,
@@ -3623,10 +3625,20 @@ router.get("/genres", async (req, res) => {
  * GET /library/decades
  * Get available decades in the library with track counts
  * Returns only decades with enough tracks (15+)
+ * When Jellyfin is music source, fetches from Jellyfin; otherwise uses Prisma.
  */
 router.get("/decades", async (req, res) => {
     try {
-        // Compute decades in the database to avoid loading all albums into Node (unbounded query caused backend hang).
+        if (await isJellyfinMusicSource()) {
+            const cfg = await getJellyfinConfig();
+            if (!cfg) {
+                return res.json({ decades: [] });
+            }
+            const decades = await getJellyfinDecades(cfg);
+            return res.json({ decades });
+        }
+
+        // Prisma/Lidarr: compute decades from Album table
         const decadeRows = await prisma.$queryRaw<
             { decade_start: number; track_count: bigint }[]
         >`
@@ -3647,7 +3659,6 @@ router.get("/decades", async (req, res) => {
             decadeMap.set(row.decade_start, Number(row.track_count));
         }
 
-        // Build response in same shape as before (array of { decade, count }), newest first
         const decades = Array.from(decadeMap.entries())
             .map(([decade, count]) => ({ decade, count }))
             .sort((a, b) => b.decade - a.decade);
@@ -3962,6 +3973,19 @@ router.get("/radio", async (req, res) => {
                 jellyfinTracks = await getJellyfinFavorites(cfg);
             }
 
+            // Decade: Jellyfin API filtered by ProductionYear
+            if (type === "decade" && value && jellyfinTracks.length === 0) {
+                const decadeStart = parseInt(value as string) || 2000;
+                jellyfinTracks = await getJellyfinTracksByDecade(
+                    cfg,
+                    decadeStart,
+                    limitNum
+                );
+                logger.debug(
+                    `[Radio:decade] Jellyfin: ${jellyfinTracks.length} tracks for ${decadeStart}s`
+                );
+            }
+
             // Fallback: Jellyfin API only when metadata has no matches
             if (jellyfinTracks.length === 0) {
                 const { tracks } = await getJellyfinTracks(cfg, { limit: takeCount, sortBy: "Random" });
@@ -3974,6 +3998,9 @@ router.get("/radio", async (req, res) => {
                 title: t.title,
                 duration: t.duration,
                 artist: { id: t.artist.id, name: t.artist.name },
+                ...(t.albumArtist && {
+                    albumArtist: { id: t.albumArtist.id, name: t.albumArtist.name },
+                }),
                 album: {
                     id: t.album.id,
                     title: t.album.title,

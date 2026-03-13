@@ -321,6 +321,7 @@ export function AudioControlsProvider({ children }: { children: ReactNode }) {
                 podcastTitle: state.currentPodcast.podcastTitle,
                 coverUrl: state.currentPodcast.coverUrl,
                 duration: nextEpisode.duration,
+                mimeType: nextEpisode.mimeType,
                 progress: nextEpisode.progress || null,
             });
         } else {

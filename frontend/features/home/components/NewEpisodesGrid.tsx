@@ -81,6 +81,7 @@ const EpisodeCard = memo(function EpisodeCard({
             podcastTitle: episode.podcast.title,
             coverUrl: coverUrl ?? null,
             duration: episode.duration,
+            mimeType: episode.mimeType,
             progress: episode.progress
                 ? {
                       currentTime: episode.progress.currentTime,
