@@ -192,10 +192,12 @@ export default function PlaylistDetailPage() {
         setRemovingTrackId(pendingId);
         try {
             await api.removePendingTrack(playlistId, pendingId);
-            // Refresh playlist data
             queryClient.invalidateQueries({
                 queryKey: ["playlist", playlistId],
             });
+            window.dispatchEvent(
+                new CustomEvent("playlist-updated", { detail: { playlistId } })
+            );
         } catch (error) {
             console.error("Failed to remove pending track:", error);
         } finally {
@@ -261,7 +263,11 @@ export default function PlaylistDetailPage() {
     const handleRemoveTrack = async (trackId: string) => {
         try {
             await api.removeTrackFromPlaylist(playlistId, trackId);
-            // Track disappearing from list is feedback enough
+            // Invalidate single playlist and notify list/sidebar to refresh
+            queryClient.invalidateQueries({ queryKey: ["playlist", playlistId] });
+            window.dispatchEvent(
+                new CustomEvent("playlist-updated", { detail: { playlistId } })
+            );
         } catch (error) {
             console.error("Failed to remove track:", error);
         }

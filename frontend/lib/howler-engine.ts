@@ -206,8 +206,9 @@ class HowlerEngine {
             autoplay: false, // We'll handle autoplay with fade
             preload: true,
             volume: this.state.isMuted ? 0 : this.state.volume,
-            // On Android WebView, increase the xhr timeout
-            ...(isAndroidWebView && { xhr: { timeout: 30000 } }),
+            // XHR timeout prevents indefinite hangs when backend/network is unresponsive.
+            // 60s for streams (long enough for slow connections), 30s on Android WebView.
+            xhr: { timeout: isAndroidWebView ? 30000 : 60000 },
         };
 
         // Store for potential retry

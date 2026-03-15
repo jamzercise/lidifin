@@ -152,14 +152,42 @@ export const HowlerAudioElement = memo(function HowlerAudioElement() {
     // Heartbeat monitor for detecting stalled playback
     const heartbeatRef = useRef<HeartbeatMonitor | null>(null);
 
+    // Ref for buffer-timeout recovery - must use ref so callback sees latest values
+    const recoveryRef = useRef({
+        next,
+        pause,
+        nextPodcastEpisode,
+        queue,
+        playbackType,
+        setCurrentTrack,
+        setCurrentAudiobook,
+        setCurrentPodcast,
+        setPlaybackType,
+    });
+    recoveryRef.current = {
+        next,
+        pause,
+        nextPodcastEpisode,
+        queue,
+        playbackType,
+        setCurrentTrack,
+        setCurrentAudiobook,
+        setCurrentPodcast,
+        setPlaybackType,
+    };
+
     // Initialize heartbeat monitor
     useEffect(() => {
-        heartbeatRef.current = new HeartbeatMonitor({
+        heartbeatRef.current = new HeartbeatMonitor(
+            {
             onStall: () => {
                 // Playback stalled - time not moving but Howler says playing
                 console.warn("[HowlerAudioElement] Heartbeat detected stall");
                 playbackStateMachine.transition("BUFFERING");
                 setIsBuffering(true);
+                // Try seek-to-current to force range request - can unfreeze stuck streams
+                const t = howlerEngine.getCurrentTime();
+                if (t > 0) howlerEngine.seek(t);
                 heartbeatRef.current?.startBufferTimeout();
             },
             onUnexpectedStop: () => {
@@ -172,14 +200,30 @@ export const HowlerAudioElement = memo(function HowlerAudioElement() {
                 }
             },
             onBufferTimeout: () => {
-                // Been buffering too long - likely connection lost
-                console.error("[HowlerAudioElement] Buffer timeout - connection may be lost");
+                // Been buffering too long - likely connection lost. Auto-recover by skipping to next.
+                console.error("[HowlerAudioElement] Buffer timeout - auto-skipping to next");
                 playbackStateMachine.transition("ERROR", {
                     error: "Connection lost - audio stream timed out",
                     errorCode: 408,
                 });
                 setIsPlaying(false);
                 setIsBuffering(false);
+                lastTrackIdRef.current = null;
+                isLoadingRef.current = false;
+
+                const r = recoveryRef.current;
+                if (r.playbackType === "track" && r.queue.length > 1) {
+                    r.next();
+                } else if (r.playbackType === "track" && r.queue.length <= 1) {
+                    r.setCurrentTrack(null);
+                    r.setPlaybackType(null);
+                } else if (r.playbackType === "audiobook") {
+                    r.setCurrentAudiobook(null);
+                    r.setPlaybackType(null);
+                } else if (r.playbackType === "podcast") {
+                    r.setCurrentPodcast(null);
+                    r.setPlaybackType(null);
+                }
             },
             onRecovery: () => {
                 // Recovered from stall
@@ -191,7 +235,9 @@ export const HowlerAudioElement = memo(function HowlerAudioElement() {
             },
             getCurrentTime: () => howlerEngine.getCurrentTime(),
             isActuallyPlaying: () => howlerEngine.isPlaying(),
-        });
+        },
+            { bufferTimeout: 15000 } // 15s - more time for transient network blips to recover
+        );
 
         return () => {
             heartbeatRef.current?.destroy();

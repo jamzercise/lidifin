@@ -19,12 +19,14 @@ const BATCH_SIZE = 50;
 const WORKER_INTERVAL_MS = 30 * 1000; // Run every 30 seconds
 
 let isRunning = false;
-let workerInterval: NodeJS.Timeout | null = null;
+let workerTimeoutId: NodeJS.Timeout | null = null;
+let isStopping = false;
 
 /**
  * Start the mood bucket worker
  */
 export async function startMoodBucketWorker() {
+    isStopping = false;
     logger.debug("\n=== Starting Mood Bucket Worker ===");
     logger.debug(`   Batch size: ${BATCH_SIZE}`);
     logger.debug(`   Interval: ${WORKER_INTERVAL_MS / 1000}s`);
@@ -33,19 +35,26 @@ export async function startMoodBucketWorker() {
     // Run immediately
     await processNewlyAnalyzedTracks();
 
-    // Then run at interval
-    workerInterval = setInterval(async () => {
-        await processNewlyAnalyzedTracks();
-    }, WORKER_INTERVAL_MS);
+    // Self-rescheduling timeout - prevents pile-up if a cycle runs long
+    function scheduleNext() {
+        if (isStopping) return;
+        workerTimeoutId = setTimeout(async () => {
+            workerTimeoutId = null;
+            await processNewlyAnalyzedTracks();
+            scheduleNext();
+        }, WORKER_INTERVAL_MS);
+    }
+    scheduleNext();
 }
 
 /**
  * Stop the mood bucket worker
  */
 export function stopMoodBucketWorker() {
-    if (workerInterval) {
-        clearInterval(workerInterval);
-        workerInterval = null;
+    isStopping = true;
+    if (workerTimeoutId) {
+        clearTimeout(workerTimeoutId);
+        workerTimeoutId = null;
         logger.debug("[Mood Bucket] Worker stopped");
     }
 }

@@ -94,6 +94,10 @@ export function useLibraryActions() {
     const addTrackToPlaylist = useCallback(async (playlistId: string, trackId: string) => {
         try {
             await api.addTrackToPlaylist(playlistId, trackId);
+            // Notify Sidebar and Playlists page to refresh (name, track count, etc.)
+            window.dispatchEvent(
+                new CustomEvent("playlist-updated", { detail: { playlistId } })
+            );
         } catch (error) {
             console.error("Error adding track to playlist:", error);
         }

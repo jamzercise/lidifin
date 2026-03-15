@@ -126,6 +126,10 @@ export default function AlbumPage({ params }: AlbumPageProps) {
             setPendingTrackIds([]);
             setIsBulkAdd(false);
             setShowPlaylistSelector(false);
+            // Notify Sidebar and Playlists page to refresh (PlaylistSelector also dispatches, but we dispatch here for bulk-add path)
+            window.dispatchEvent(
+                new CustomEvent("playlist-updated", { detail: { playlistId } })
+            );
         } catch (error) {
             console.error("Failed to add track(s) to playlist:", error);
         } finally {

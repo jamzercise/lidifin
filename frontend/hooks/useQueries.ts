@@ -724,7 +724,8 @@ export function usePlaylistsQuery() {
     return useQuery({
         queryKey: queryKeys.playlists(),
         queryFn: () => api.getPlaylists(),
-        staleTime: 1 * 60 * 1000, // 1 minute
+        staleTime: 30 * 1000, // 30 seconds - playlists change frequently when editing
+        refetchOnWindowFocus: true, // Refetch when user returns to tab (e.g. after editing elsewhere)
     });
 }
 
@@ -970,6 +971,12 @@ export function useAddToPlaylistMutation() {
             queryClient.invalidateQueries({
                 queryKey: queryKeys.playlists(),
             });
+            // Notify Sidebar and other listeners to refresh
+            window.dispatchEvent(
+                new CustomEvent("playlist-updated", {
+                    detail: { playlistId: variables.playlistId },
+                })
+            );
         },
     });
 }

@@ -348,10 +348,10 @@ export default function PlaylistsPage() {
         return { visiblePlaylists: visible, hiddenPlaylists: hidden };
     }, [playlists]);
 
-    // Listen for playlist events and invalidate cache
+    // Listen for playlist events and refetch immediately so name/track count stay in sync
     useEffect(() => {
         const handlePlaylistEvent = () => {
-            queryClient.invalidateQueries({ queryKey: queryKeys.playlists() });
+            queryClient.refetchQueries({ queryKey: queryKeys.playlists() });
         };
 
         window.addEventListener("playlist-created", handlePlaylistEvent);
@@ -397,8 +397,10 @@ export default function PlaylistsPage() {
             } else {
                 await api.unhidePlaylist(playlistId);
             }
-            // Invalidate and refetch playlists
-            queryClient.invalidateQueries({ queryKey: queryKeys.playlists() });
+            queryClient.refetchQueries({ queryKey: queryKeys.playlists() });
+            window.dispatchEvent(
+                new CustomEvent("playlist-updated", { detail: { playlistId } })
+            );
         } catch (error) {
             console.error("Failed to toggle playlist visibility:", error);
         }
@@ -409,7 +411,7 @@ export default function PlaylistsPage() {
         if (!trimmed) return;
         try {
             await api.updatePlaylist(playlistId, { name: trimmed });
-            queryClient.invalidateQueries({ queryKey: queryKeys.playlists() });
+            queryClient.refetchQueries({ queryKey: queryKeys.playlists() });
             window.dispatchEvent(
                 new CustomEvent("playlist-updated", { detail: { playlistId } })
             );

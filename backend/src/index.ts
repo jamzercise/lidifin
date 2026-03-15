@@ -491,6 +491,20 @@ let eventLoopCheckExpected = Date.now();
 const recentDelays: number[] = [];
 const MAX_RECENT_DELAYS = 5;
 
+// Auto-recovery: exit on severe degradation so Docker can restart the container.
+// When event loop is blocked for minutes or request pile-up hits ~800+, the process
+// is unrecoverable in-place. Exiting triggers restart (restart: unless-stopped).
+const EVENT_LOOP_EXIT_DELAY_MS =
+    typeof process.env.EVENT_LOOP_EXIT_DELAY_MS !== "undefined"
+        ? parseInt(process.env.EVENT_LOOP_EXIT_DELAY_MS, 10)
+        : 5 * 60 * 1000; // 5 minutes
+const EVENT_LOOP_EXIT_REQUESTS =
+    typeof process.env.EVENT_LOOP_EXIT_REQUESTS !== "undefined"
+        ? parseInt(process.env.EVENT_LOOP_EXIT_REQUESTS, 10)
+        : 800;
+const EVENT_LOOP_EXIT_ENABLED =
+    process.env.EVENT_LOOP_EXIT_ON_SEVERE_DEGRADATION !== "false";
+
 function getEventLoopDiagnostics(): Record<string, unknown> {
     const mem = process.memoryUsage();
     const diagnostics: Record<string, unknown> = {
@@ -527,6 +541,20 @@ setInterval(() => {
             `[EventLoop] Delay detected: ${delay}ms (expected ~${EVENT_LOOP_CHECK_MS}ms). Backend event loop was blocked.${reqInfo}`,
             { diagnostics, recentDelays: [...recentDelays] }
         );
+
+        // Auto-recovery: exit on severe degradation so Docker restarts a fresh process
+        if (EVENT_LOOP_EXIT_ENABLED) {
+            const activeRequests = (diagnostics.activeRequests as number) ?? 0;
+            const shouldExit =
+                delay >= EVENT_LOOP_EXIT_DELAY_MS || activeRequests >= EVENT_LOOP_EXIT_REQUESTS;
+            if (shouldExit) {
+                logger.error(
+                    `[EventLoop] Severe degradation detected (delay=${delay}ms, activeRequests=${activeRequests}). ` +
+                        `Exiting to trigger container restart. Set EVENT_LOOP_EXIT_ON_SEVERE_DEGRADATION=false to disable.`
+                );
+                process.exit(1);
+            }
+        }
     }
 }, EVENT_LOOP_CHECK_MS);
 

@@ -33,7 +33,7 @@ const ENRICHMENT_INTERVAL_MS = 5 * 1000; // 5 seconds - rate limiter handles API
 const MAX_CONSECUTIVE_SYSTEM_FAILURES = 5; // Circuit breaker threshold
 
 let isRunning = false;
-let enrichmentInterval: NodeJS.Timeout | null = null;
+let enrichmentTimeoutId: NodeJS.Timeout | null = null;
 let redis: Redis | null = null;
 let controlSubscriber: Redis | null = null;
 let isPaused = false;
@@ -213,6 +213,7 @@ async function setupControlChannel() {
  * Start the unified enrichment worker (incremental mode)
  */
 export async function startUnifiedEnrichmentWorker() {
+    isStopping = false;
     logger.debug("\n=== Starting Unified Enrichment Worker ===");
     logger.debug(`   Artist batch: ${ARTIST_BATCH_SIZE}`);
     logger.debug(`   Track batch: ${TRACK_BATCH_SIZE}`);
@@ -237,19 +238,27 @@ export async function startUnifiedEnrichmentWorker() {
     // Run immediately
     await runEnrichmentCycle(false);
 
-    // Then run at interval
-    enrichmentInterval = setInterval(async () => {
-        await runEnrichmentCycle(false);
-    }, ENRICHMENT_INTERVAL_MS);
+    // Self-rescheduling timeout (like reconciliation cycle) - prevents pile-up if a cycle
+    // runs long. setInterval would fire unconditionally and create zombie operations.
+    function scheduleNextCycle() {
+        if (isStopping) return;
+        enrichmentTimeoutId = setTimeout(async () => {
+            enrichmentTimeoutId = null;
+            await runEnrichmentCycle(false);
+            scheduleNextCycle();
+        }, ENRICHMENT_INTERVAL_MS);
+    }
+    scheduleNextCycle();
 }
 
 /**
  * Stop the enrichment worker
  */
 export function stopUnifiedEnrichmentWorker() {
-    if (enrichmentInterval) {
-        clearInterval(enrichmentInterval);
-        enrichmentInterval = null;
+    isStopping = true;
+    if (enrichmentTimeoutId) {
+        clearTimeout(enrichmentTimeoutId);
+        enrichmentTimeoutId = null;
         logger.debug("[Enrichment] Worker stopped");
     }
     if (redis) {
