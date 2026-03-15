@@ -250,9 +250,13 @@ export function AudioStateProvider({ children }: { children: ReactNode }) {
     );
     const [previousPlayerMode, setPreviousPlayerMode] =
         useState<PlayerMode>("full");
-    const [volume, setVolume] = useState(
-        () => { const v = readStorage(STORAGE_KEYS.VOLUME); return v ? parseFloat(v) : 0.5; }
-    );
+    const [volume, setVolume] = useState(() => {
+        if (typeof window === "undefined") return 0.5;
+        const isMobile = window.innerWidth < 768 || "ontouchstart" in window;
+        if (isMobile) return 1; // Mobile: always 100% (no volume UI)
+        const v = readStorage(STORAGE_KEYS.VOLUME);
+        return v ? parseFloat(v) : 0.5;
+    });
     const [isMuted, setIsMuted] = useState(
         () => readStorage(STORAGE_KEYS.IS_MUTED) === "true"
     );
@@ -276,6 +280,15 @@ export function AudioStateProvider({ children }: { children: ReactNode }) {
     const [isHydrated] = useState(
         () => typeof window !== "undefined"
     );
+
+    // On mobile: force volume to 100% (no volume control in mobile player UI)
+    useEffect(() => {
+        if (typeof window === "undefined" || !isHydrated) return;
+        const isMobile = window.innerWidth < 768 || "ontouchstart" in window;
+        if (isMobile) {
+            setVolume(1);
+        }
+    }, [isHydrated]);
     const [lastServerSync, setLastServerSync] = useState<Date | null>(null);
 
     // Vibe mode state

@@ -100,7 +100,7 @@ export function PWAInstallPrompt() {
                     </div>
                     <div className="flex-1">
                         <h3 className="text-white font-semibold text-sm mb-1">
-                            Install Lidify
+                            Install Lidifin
                         </h3>
                         {isIOS ? (
                             <p className="text-white/60 text-xs leading-relaxed">
@@ -109,7 +109,7 @@ export function PWAInstallPrompt() {
                             </p>
                         ) : (
                             <p className="text-white/60 text-xs leading-relaxed">
-                                Add Lidify to your home screen for quick access and background audio.
+                                Add Lidifin to your home screen for quick access and background audio.
                             </p>
                         )}
                     </div>

@@ -37,7 +37,7 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-    title: "Lidify - Your Music",
+    title: "Lidifin - Your Music",
     description: "Self-hosted music streaming platform",
     manifest: "/manifest.webmanifest",
     icons: {
@@ -50,7 +50,7 @@ export const metadata: Metadata = {
     appleWebApp: {
         capable: true,
         statusBarStyle: "black-translucent",
-        title: "Lidify",
+        title: "Lidifin",
     },
 };
 

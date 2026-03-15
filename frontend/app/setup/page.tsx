@@ -24,7 +24,7 @@ export default function SetupPage() {
             <div className="mb-8">
                 <Image
                     src="/assets/images/LIDIFY.webp"
-                    alt="Lidify"
+                    alt="Lidifin"
                     width={120}
                     height={120}
                     className="opacity-90"

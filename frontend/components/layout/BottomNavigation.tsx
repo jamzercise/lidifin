@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Library, BookOpen, Mic, ListMusic } from "lucide-react";
+import { Library, BookOpen, Mic, ListMusic, Radio } from "lucide-react";
 import { cn } from "@/utils/cn";
 import { useIsMobile, useIsTablet } from "@/hooks/useMediaQuery";
 
@@ -12,6 +12,12 @@ const navigationItems = [
         href: "/library", 
         icon: Library,
         matchPattern: "/library"
+    },
+    { 
+        name: "Radio", 
+        href: "/radio", 
+        icon: Radio,
+        matchPattern: "/radio"
     },
     { 
         name: "Audiobooks", 

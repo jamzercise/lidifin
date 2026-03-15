@@ -48,7 +48,10 @@ export interface AlbumToDownload {
     tracksNeeded: SpotifyTrack[];
 }
 
+export type PlaylistSource = "spotify" | "deezer" | "youtube-music";
+
 export interface ImportPreview {
+    source: PlaylistSource;
     playlist: {
         id: string;
         name: string;
@@ -910,6 +913,12 @@ class SpotifyImportService {
         },
         source: "Spotify" | "Deezer" | "YouTube Music"
     ): Promise<ImportPreview> {
+        const sourceKey: PlaylistSource =
+            source === "Spotify"
+                ? "spotify"
+                : source === "Deezer"
+                ? "deezer"
+                : "youtube-music";
         const logPrefix =
             source === "Spotify"
                 ? "[Spotify Import]"
@@ -1134,6 +1143,7 @@ class SpotifyImportService {
         );
 
         return {
+            source: sourceKey,
             playlist: playlistMeta,
             matchedTracks,
             albumsToDownload,

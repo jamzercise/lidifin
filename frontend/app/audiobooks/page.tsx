@@ -352,7 +352,7 @@ export default function AudiobooksPage() {
                             </h3>
                             <p className="text-gray-400 text-sm leading-relaxed">
                                 Enter your Audiobookshelf URL and API key in
-                                Lidify settings
+                                Lidifin settings
                             </p>
                         </div>
                     </div>

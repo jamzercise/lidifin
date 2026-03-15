@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Generate PWA icons and Lidify branding images from icon-only.png.
+Generate PWA icons and Lidifin branding images from icon-only.png.
 """
 
 import os
@@ -36,7 +36,7 @@ def main():
     img.resize((192, 192), Image.Resampling.LANCZOS).save(favicon_path, "PNG")
     print(f"✓ Generated favicon-192.png")
 
-    # Lidify branding images (used in Sidebar, login, etc.)
+    # Lidifin branding images (used in Sidebar, login, etc.)
     lidify_96 = img.resize((96, 96), Image.Resampling.LANCZOS)
     lidify_96.save(os.path.join(IMAGES_DIR, "LIDIFY.webp"), "WEBP", quality=90)
     print("✓ Generated LIDIFY.webp (96x96)")

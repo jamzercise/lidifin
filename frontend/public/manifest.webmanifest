@@ -1,6 +1,6 @@
 {
-  "name": "Lidify",
-  "short_name": "Lidify",
+  "name": "Lidifin",
+  "short_name": "Lidifin",
   "description": "Self-hosted music streaming with Lidarr integration",
   "start_url": "/",
   "display": "standalone",

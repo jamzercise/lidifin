@@ -198,7 +198,7 @@ export default function OnboardingPage() {
         <div className="min-h-screen relative overflow-hidden">
             {/* Dark background (matches login) */}
             <div className="absolute inset-0 bg-[#000]">
-                <div className="absolute inset-0 bg-gradient-to-br from-[#fca200]/5 via-transparent to-transparent" />
+                <div className="absolute inset-0 bg-gradient-to-br from-[#B1D2C3]/5 via-transparent to-transparent" />
             </div>
 
             {/* Show loading spinner while checking session */}
@@ -219,14 +219,14 @@ export default function OnboardingPage() {
                                     <div className="absolute inset-0 bg-white/10 blur-xl rounded-full" />
                                     <Image
                                         src="/assets/images/LIDIFY.webp"
-                                        alt="Lidify"
+                                        alt="Lidifin"
                                         width={48}
                                         height={48}
                                         className="relative z-10 drop-shadow-2xl"
                                     />
                                 </div>
                                 <h1 className="text-4xl font-bold bg-gradient-to-r from-white via-white to-gray-200 bg-clip-text text-transparent drop-shadow-2xl">
-                                    Lidify
+                                    Lidifin
                                 </h1>
                             </div>
                             <p className="text-white/60 text-lg">
@@ -247,7 +247,7 @@ export default function OnboardingPage() {
                                         <div
                                             className={`w-9 h-9 rounded-lg flex items-center justify-center font-bold text-sm transition-all ${
                                                 s.num === step
-                                                    ? "bg-[#fca200] text-black shadow-lg shadow-[#fca200]/20 scale-110"
+                                                    ? "bg-[#B1D2C3] text-black shadow-lg shadow-[#B1D2C3]/20 scale-110"
                                                     : s.num < step
                                                     ? "bg-white/5 text-white/80 border border-white/10"
                                                     : "bg-white/5 text-white/40 border border-white/10"
@@ -269,7 +269,7 @@ export default function OnboardingPage() {
                                         <div
                                             className={`w-16 h-0.5 mx-4 mb-6 transition-all ${
                                                 s.num < step
-                                                    ? "bg-[#fca200]/25"
+                                                    ? "bg-[#B1D2C3]/25"
                                                     : "bg-white/10"
                                             }`}
                                         />
@@ -689,9 +689,9 @@ export default function OnboardingPage() {
 
                                         <div className="bg-[#0f0f0f] border border-white/10 rounded-lg p-6">
                                             <div className="flex items-start gap-4">
-                                                <div className="w-12 h-12 bg-[#fca200]/10 border border-[#fca200]/20 rounded-lg flex items-center justify-center flex-shrink-0">
+                                                <div className="w-12 h-12 bg-[#B1D2C3]/10 border border-[#B1D2C3]/20 rounded-lg flex items-center justify-center flex-shrink-0">
                                                     <svg
-                                                        className="w-6 h-6 text-[#fca200]"
+                                                        className="w-6 h-6 text-[#B1D2C3]"
                                                         fill="none"
                                                         stroke="currentColor"
                                                         viewBox="0 0 24 24"
@@ -752,7 +752,7 @@ export default function OnboardingPage() {
 
                         {/* Footer */}
                         <p className="text-center text-white/40 text-sm mt-6">
-                            © 2025 Lidify. Your music, your way.
+                            © 2025 Lidifin. Your music, your way.
                         </p>
                     </div>
                 </div>
@@ -820,7 +820,7 @@ function IntegrationCard({
                         <div
                             className={`w-9 h-9 rounded-lg flex items-center justify-center ${
                                 enabled
-                                    ? "bg-[#fca200]/10 border border-[#fca200]/20 text-[#fca200]"
+                                    ? "bg-[#B1D2C3]/10 border border-[#B1D2C3]/20 text-[#B1D2C3]"
                                     : "bg-white/5 border border-white/10 text-white/40"
                             }`}
                         >
@@ -838,11 +838,11 @@ function IntegrationCard({
                         onKeyDown={(e) => e.key === 'Enter' && onToggle()}
                         tabIndex={0}
                         className={`relative w-11 h-6 rounded-lg transition-all ${
-                            enabled ? "bg-[#fca200]" : "bg-white/20"
+                            enabled ? "bg-[#B1D2C3]" : "bg-white/20"
                         } focus:outline-none focus:ring-2 focus:ring-brand/30`}
                     >
                         <div
-                            className={`absolute top-0.5 left-0.5 w-5 h-5 bg-[#fca200] rounded-lg transition-all shadow-lg ${
+                            className={`absolute top-0.5 left-0.5 w-5 h-5 bg-[#B1D2C3] rounded-lg transition-all shadow-lg ${
                                 enabled ? "translate-x-5" : ""
                             }`}
                         />
@@ -979,7 +979,7 @@ function SoulseekCard({
                         <div
                             className={`w-9 h-9 rounded-lg flex items-center justify-center ${
                                 enabled
-                                    ? "bg-[#fca200]/10 border border-[#fca200]/20 text-[#fca200]"
+                                    ? "bg-[#B1D2C3]/10 border border-[#B1D2C3]/20 text-[#B1D2C3]"
                                     : "bg-white/5 border border-white/10 text-white/40"
                             }`}
                         >
@@ -1009,11 +1009,11 @@ function SoulseekCard({
                         onKeyDown={(e) => e.key === 'Enter' && onToggle()}
                         tabIndex={0}
                         className={`relative w-11 h-6 rounded-lg transition-all ${
-                            enabled ? "bg-[#fca200]" : "bg-white/20"
+                            enabled ? "bg-[#B1D2C3]" : "bg-white/20"
                         } focus:outline-none focus:ring-2 focus:ring-brand/30`}
                     >
                         <div
-                            className={`absolute top-0.5 left-0.5 w-5 h-5 bg-[#fca200] rounded-lg transition-all shadow-lg ${
+                            className={`absolute top-0.5 left-0.5 w-5 h-5 bg-[#B1D2C3] rounded-lg transition-all shadow-lg ${
                                 enabled ? "translate-x-5" : ""
                             }`}
                         />
@@ -1042,7 +1042,7 @@ function SoulseekCard({
                                 href="https://www.slsknet.org/news/node/1"
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="text-[#fca200] hover:underline"
+                                className="text-[#B1D2C3] hover:underline"
                             >
                                 slsknet.org
                             </a>

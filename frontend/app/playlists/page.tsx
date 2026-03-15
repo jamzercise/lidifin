@@ -14,7 +14,7 @@ import { GradientSpinner } from "@/components/ui/GradientSpinner";
 import { api } from "@/lib/api";
 import { cn } from "@/utils/cn";
 
-// Lidify brand yellow
+// Lidifin brand
 const LIDIFY_YELLOW = "#B1D2C3";
 
 interface PlaylistItem {

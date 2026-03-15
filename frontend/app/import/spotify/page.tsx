@@ -18,6 +18,29 @@ import {
 import { api } from "@/lib/api";
 import { useToast } from "@/lib/toast-context";
 
+// Deezer icon
+const DeezerIcon = ({ className }: { className?: string }) => (
+    <svg viewBox="0 0 24 24" className={className} fill="currentColor">
+        <path d="M18.81 4.16v3.03H24V4.16h-5.19zM6.27 8.38v3.027h5.189V8.38h-5.19zm12.54 0v3.027H24V8.38h-5.19zM6.27 12.595v3.027h5.189v-3.027h-5.19zm6.27 0v3.027h5.19v-3.027h-5.19zm6.27 0v3.027H24v-3.027h-5.19zM0 16.81v3.029h5.19v-3.03H0zm6.27 0v3.029h5.189v-3.03h-5.19zm6.27 0v3.029h5.19v-3.03h-5.19zm6.27 0v3.029H24v-3.03h-5.19z" />
+    </svg>
+);
+
+// YouTube Music icon (official red #FF0000 per YouTube branding guidelines)
+const YouTubeMusicIcon = ({ className }: { className?: string }) => (
+    <svg
+        className={className}
+        viewBox="0 0 24 24"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+    >
+        <path
+            d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0z"
+            fill="#FF0000"
+        />
+        <path d="M10 8l6 4-6 4V8z" fill="white" />
+    </svg>
+);
+
 // Types for Spotify Import
 interface SpotifyTrack {
     spotifyId: string;
@@ -57,7 +80,10 @@ interface AlbumToDownload {
     tracksNeeded: SpotifyTrack[];
 }
 
+type PlaylistSource = "spotify" | "deezer" | "youtube-music";
+
 interface ImportPreview {
+    source?: PlaylistSource;
     playlist: {
         id: string;
         name: string;
@@ -453,12 +479,18 @@ function SpotifyImportPageContent() {
                                 </div>
                             ) : (
                                 <div className="w-20 h-20 rounded-md bg-white/10 flex items-center justify-center">
-                                    <Image
-                                        src="/assets/images/SpotIcon.png"
-                                        alt="Spotify"
-                                        width={32}
-                                        height={32}
-                                    />
+                                    {preview.source === "youtube-music" ? (
+                                        <YouTubeMusicIcon className="w-10 h-10" />
+                                    ) : preview.source === "deezer" ? (
+                                        <DeezerIcon className="w-10 h-10 text-[#AD47FF]" />
+                                    ) : (
+                                        <Image
+                                            src="/assets/images/SpotIcon.png"
+                                            alt="Spotify"
+                                            width={32}
+                                            height={32}
+                                        />
+                                    )}
                                 </div>
                             )}
                             <div className="flex-1 min-w-0">
@@ -468,6 +500,22 @@ function SpotifyImportPageContent() {
                                 <p className="text-sm text-gray-400">
                                     {preview.playlist.owner} ·{" "}
                                     {preview.playlist.trackCount} songs
+                                    {preview.source && (
+                                        <span className="ml-2">
+                                            {preview.source === "youtube-music" && (
+                                                <span className="inline-flex items-center gap-1 text-[#FF0000]">
+                                                    <YouTubeMusicIcon className="w-3.5 h-3.5" />
+                                                    YouTube Music
+                                                </span>
+                                            )}
+                                            {preview.source === "deezer" && (
+                                                <span className="text-[#AD47FF]">Deezer</span>
+                                            )}
+                                            {preview.source === "spotify" && (
+                                                <span className="text-[#1DB954]">Spotify</span>
+                                            )}
+                                        </span>
+                                    )}
                                 </p>
                                 {preview.playlist.description && (
                                     <p className="text-sm text-gray-500 mt-1 line-clamp-1">
@@ -478,11 +526,22 @@ function SpotifyImportPageContent() {
                             <a
                                 href={
                                     url ||
-                                    `https://open.spotify.com/playlist/${preview.playlist.id}`
+                                    (preview.source === "youtube-music"
+                                        ? `https://music.youtube.com/playlist?list=${preview.playlist.id}`
+                                        : preview.source === "deezer"
+                                        ? `https://www.deezer.com/playlist/${preview.playlist.id}`
+                                        : `https://open.spotify.com/playlist/${preview.playlist.id}`)
                                 }
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="text-gray-400 hover:text-[#1DB954] transition-colors"
+                                className={`text-gray-400 transition-colors ${
+                                    preview.source === "youtube-music"
+                                        ? "hover:text-[#FF0000]"
+                                        : preview.source === "deezer"
+                                        ? "hover:text-[#AD47FF]"
+                                        : "hover:text-[#1DB954]"
+                                }`}
+                                aria-label={`Open in ${preview.source === "youtube-music" ? "YouTube Music" : preview.source === "deezer" ? "Deezer" : "Spotify"}`}
                             >
                                 <ExternalLink className="w-4 h-4" />
                             </a>

@@ -177,7 +177,7 @@ export function TopBar() {
         <header
             className="fixed top-0 left-0 right-0 bg-theme-primary flex items-center px-3 z-50"
             style={{
-                height: isMobileOrTablet ? "58px" : "64px",
+                height: isMobileOrTablet ? "64px" : "64px",
                 paddingTop: isMobileOrTablet
                     ? "env(safe-area-inset-top)"
                     : undefined,
@@ -186,7 +186,7 @@ export function TopBar() {
             {/* Mobile/Tablet Layout: Hamburger + Home + Search + Bell */}
             {isMobileOrTablet ? (
                 <>
-                    {/* Hamburger menu button */}
+                    {/* Hamburger menu button - larger tap target on mobile */}
                     <button
                         onClick={() => {
                             // Dispatch custom event to toggle mobile menu
@@ -194,17 +194,17 @@ export function TopBar() {
                                 new CustomEvent("toggle-mobile-menu")
                             );
                         }}
-                        className="w-10 h-10 flex items-center justify-center bg-[#0f0f0f] border border-[#262626] rounded-md text-white hover:bg-[#141414] transition-colors mr-2 flex-shrink-0"
+                        className="w-12 h-12 flex items-center justify-center bg-[#0f0f0f] border border-[#262626] rounded-md text-white hover:bg-[#141414] transition-colors mr-2 flex-shrink-0"
                         aria-label="Open menu"
                     >
-                        <Menu className="w-5 h-5" />
+                        <Menu className="w-6 h-6" />
                     </button>
 
-                    {/* Home */}
+                    {/* Home - larger tap target on mobile */}
                     <Link
                         href="/"
                         className={cn(
-                            "w-10 h-10 rounded-full flex items-center justify-center transition-all flex-shrink-0 mr-2",
+                            "w-12 h-12 rounded-full flex items-center justify-center transition-all flex-shrink-0 mr-2",
                             pathname === "/"
                                 ? "bg-white text-black"
                                 : "bg-[#0a0a0a] text-gray-400 hover:bg-[#1a1a1a] hover:text-white"
@@ -212,16 +212,16 @@ export function TopBar() {
                         aria-label="Home"
                         title="Home"
                     >
-                        <Home className="w-5 h-5" />
+                        <Home className="w-6 h-6" />
                     </Link>
 
-                    {/* Search */}
+                    {/* Search - larger input on mobile for easier tapping */}
                     <form onSubmit={handleSearch} className="flex-1 min-w-0">
                         <div
                             className="relative"
                             data-tv-section="search-input"
                         >
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                             <input
                                 type="text"
                                 value={searchQuery}
@@ -231,23 +231,23 @@ export function TopBar() {
                                 autoCapitalize="none"
                                 autoCorrect="off"
                                 tabIndex={0}
-                                className="w-full h-10 pl-10 pr-3 bg-[#1a1a1a] hover:bg-[#242424] border-2 border-transparent focus:border-white/20 rounded-full text-sm text-white placeholder-gray-400 transition-all outline-none"
+                                className="w-full h-12 pl-11 pr-3 bg-[#1a1a1a] hover:bg-[#242424] border-2 border-transparent focus:border-white/20 rounded-full text-base text-white placeholder-gray-400 transition-all outline-none"
                             />
                         </div>
                     </form>
 
-                    {/* Notification Bell */}
+                    {/* Notification Bell - larger tap target on mobile */}
                     <button
                         onClick={() => {
                             window.dispatchEvent(
                                 new CustomEvent("toggle-activity-panel")
                             );
                         }}
-                        className="w-10 h-10 flex items-center justify-center text-gray-400 hover:text-white transition-colors ml-2 flex-shrink-0 relative"
+                        className="w-12 h-12 flex items-center justify-center text-gray-400 hover:text-white transition-colors ml-2 flex-shrink-0 relative"
                         aria-label="Notifications"
                         title="Notifications"
                     >
-                        <Bell className="w-5 h-5" />
+                        <Bell className="w-6 h-6" />
                         {/* TODO: Add notification badge in Phase 3 */}
                     </button>
                 </>
@@ -262,7 +262,7 @@ export function TopBar() {
                         >
                             <Image
                                 src="/assets/images/LIDIFY.webp"
-                                alt="Lidify"
+                                alt="Lidifin"
                                 width={32}
                                 height={32}
                                 className="group-hover:scale-105 transition-transform"

@@ -162,7 +162,7 @@ export default function SyncPage() {
                                         <div className="absolute inset-0 bg-white/10 blur-xl rounded-full" />
                                         <Image
                                             src="/assets/images/LIDIFY.webp"
-                                            alt="Lidify"
+                                            alt="Lidifin"
                                             width={80}
                                             height={80}
                                             className="relative z-10"

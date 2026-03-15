@@ -22,7 +22,7 @@ const Button = memo(forwardRef<HTMLButtonElement, ButtonProps>(
         const baseStyles =
             "inline-flex items-center justify-center rounded-sm font-medium transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:opacity-50 disabled:cursor-not-allowed";
 
-        // Lidify brand color: #fca200
+        // Lidifin brand color: #B1D2C3
         const variantStyles = {
             primary:
                 "bg-brand hover:bg-brand-hover text-black px-4 py-2 shadow-lg shadow-brand/10",

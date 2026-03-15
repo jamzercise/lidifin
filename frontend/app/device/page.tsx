@@ -183,7 +183,7 @@ export default function DeviceLinkPage() {
                         Link Mobile Device
                     </h1>
                     <p className="text-gray-400">
-                        Scan the QR code or enter the code in the Lidify app to link your device
+                        Scan the QR code or enter the code in the Lidifin app to link your device
                     </p>
                 </div>
 
@@ -374,7 +374,7 @@ export default function DeviceLinkPage() {
                             <span className="flex-shrink-0 w-6 h-6 rounded-full bg-[#B1D2C3]/20 text-[#B1D2C3] text-sm font-bold flex items-center justify-center">
                                 1
                             </span>
-                            <span>Open the Lidify app on your mobile device</span>
+                            <span>Open the Lidifin app on your mobile device</span>
                         </li>
                         <li className="flex gap-3">
                             <span className="flex-shrink-0 w-6 h-6 rounded-full bg-[#B1D2C3]/20 text-[#B1D2C3] text-sm font-bold flex items-center justify-center">

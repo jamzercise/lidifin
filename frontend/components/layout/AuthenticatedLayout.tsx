@@ -129,7 +129,7 @@ export function AuthenticatedLayout({ children }: { children: ReactNode }) {
                                 tabIndex={-1}
                                 className="flex-1 bg-gradient-to-b from-theme-hover via-theme-primary to-theme-primary mx-2 mb-2 rounded-lg overflow-y-auto relative focus:outline-none"
                                 style={{
-                                    marginTop: "calc(58px + env(safe-area-inset-top, 0px))",
+                                    marginTop: "calc(64px + env(safe-area-inset-top, 0px))",
                                     marginBottom:
                                         "calc(56px + env(safe-area-inset-bottom, 0px) + 8px)",
                                 }}

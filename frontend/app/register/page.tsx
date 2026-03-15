@@ -47,7 +47,7 @@ export default function RegisterPage() {
             <Music className="w-8 h-8 text-white" />
           </div>
           <h1 className="text-2xl font-bold text-white mb-1">Create Account</h1>
-          <p className="text-sm text-gray-500">Join Lidify today</p>
+          <p className="text-sm text-gray-500">Join Lidifin today</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">

@@ -170,13 +170,13 @@ export default function LoginPage() {
             {/* Animated Background with Artist Images */}
             <div className="absolute inset-0 bg-[#000]">
                 {/* Subtle accent gradient */}
-                <div className="absolute inset-0 bg-gradient-to-br from-[#fca200]/5 via-transparent to-transparent" />
+                <div className="absolute inset-0 bg-gradient-to-br from-[#B1D2C3]/5 via-transparent to-transparent" />
 
                 {/* Ultra-subtle starfield texture (dialed down vs the main app) */}
                 <div className="opacity-[0.08]">
                     <GalaxyBackground
-                        primaryColor="#fca200"
-                        secondaryColor="#fca200"
+                        primaryColor="#B1D2C3"
+                        secondaryColor="#B1D2C3"
                     />
                 </div>
 
@@ -233,14 +233,14 @@ export default function LoginPage() {
                                 <div className="absolute inset-0 bg-white/10 blur-xl rounded-full group-hover:bg-white/20 transition-all duration-300" />
                                 <Image
                                     src="/assets/images/LIDIFY.webp"
-                                    alt="Lidify"
+                                    alt="Lidifin"
                                     width={40}
                                     height={40}
                                     className="relative z-10 drop-shadow-2xl"
                                 />
                             </div>
                             <span className="text-3xl font-bold bg-gradient-to-r from-white via-white to-gray-200 bg-clip-text text-transparent drop-shadow-2xl">
-                                Lidify
+                                Lidifin
                             </span>
                         </div>
                     </div>
@@ -251,7 +251,7 @@ export default function LoginPage() {
                             Welcome back
                         </h1>
                         <p className="text-white/60 text-center mb-8">
-                            Sign in to continue to Lidify
+                            Sign in to continue to Lidifin
                         </p>
 
                         <form onSubmit={handleSubmit} className="space-y-4">
@@ -400,7 +400,7 @@ export default function LoginPage() {
                             <button
                                 type="submit"
                                 disabled={isLoading}
-                                className="w-full py-3 bg-[#fca200] text-black font-bold rounded-lg hover:bg-[#e69200] transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                                className="w-full py-3 bg-[#B1D2C3] text-black font-bold rounded-lg hover:bg-[#9fc4b3] transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 <span className="flex items-center justify-center gap-2">
                                     {isLoading ? (
@@ -433,7 +433,7 @@ export default function LoginPage() {
 
                     {/* Footer */}
                     <p className="text-center text-white/40 text-sm mt-6">
-                        © 2025 Lidify. Your music, your way.
+                        © 2025 Lidifin. Your music, your way.
                     </p>
                 </div>
             </div>

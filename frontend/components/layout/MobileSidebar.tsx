@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Settings, RefreshCw, LogOut, Compass, X, Radio } from "lucide-react";
+import { Settings, RefreshCw, LogOut, Compass, X } from "lucide-react";
 import { cn } from "@/utils/cn";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
@@ -60,16 +60,16 @@ export function MobileSidebar({ isOpen, onClose }: MobileSidebarProps) {
 
     return (
         <>
-            {/* Backdrop */}
+            {/* Backdrop - darker for better contrast */}
             <div
-                className="fixed inset-0 bg-black/60  z-50 transition-opacity"
+                className="fixed inset-0 bg-black/75 z-50 transition-opacity"
                 onClick={onClose}
                 aria-hidden="true"
             />
 
-            {/* Sidebar Drawer */}
+            {/* Sidebar Drawer - Opaque background for readability */}
             <div
-                className="fixed inset-y-0 left-0 w-[280px] bg-theme-primary z-50 flex flex-col overflow-hidden transform transition-transform border-r border-white/[0.06] z-100"
+                className="fixed inset-y-0 left-0 w-[280px] bg-[#0a0a0a] z-50 flex flex-col overflow-hidden transform transition-transform border-r border-white/10 shadow-2xl"
                 style={{
                     paddingTop: "env(safe-area-inset-top)",
                 }}
@@ -83,13 +83,13 @@ export function MobileSidebar({ isOpen, onClose }: MobileSidebarProps) {
                     >
                         <Image
                             src="/assets/images/LIDIFY.webp"
-                            alt="Lidify"
+                            alt="Lidifin"
                             width={32}
                             height={32}
                             className="flex-shrink-0"
                         />
                         <span className="text-lg font-bold text-white tracking-tight">
-                            Lidify
+                            Lidifin
                         </span>
                     </Link>
                     <button
@@ -109,7 +109,7 @@ export function MobileSidebar({ isOpen, onClose }: MobileSidebarProps) {
                 >
                     {/* Quick Links Section */}
                     <div className="px-3 mb-6">
-                        <div className="text-[10px] font-semibold text-gray-600 uppercase tracking-widest px-3 mb-2">
+                        <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest px-3 mb-2">
                             Quick Links
                         </div>
 
@@ -132,29 +132,12 @@ export function MobileSidebar({ isOpen, onClose }: MobileSidebarProps) {
                             </span>
                         </Link>
 
-                        <Link
-                            href="/radio"
-                            aria-current={
-                                pathname === "/radio" ? "page" : undefined
-                            }
-                            aria-label="Radio"
-                            className={cn(
-                                "flex items-center gap-3 px-3 py-3 rounded-lg transition-colors",
-                                pathname === "/radio" ?
-                                    "bg-white/10 text-white"
-                                :   "text-gray-400 hover:text-white hover:bg-white/5",
-                            )}
-                        >
-                            <Radio className="w-5 h-5" />
-                            <span className="text-[15px] font-medium">
-                                Radio
-                            </span>
-                        </Link>
+                        {/* Radio moved to bottom bar */}
                     </div>
 
                     {/* Actions Section */}
                     <div className="px-3">
-                        <div className="text-[10px] font-semibold text-gray-600 uppercase tracking-widest px-3 mb-2">
+                        <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest px-3 mb-2">
                             Actions
                         </div>
 
