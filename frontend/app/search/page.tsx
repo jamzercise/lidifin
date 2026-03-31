@@ -12,6 +12,7 @@ import { EmptyState } from "@/features/search/components/EmptyState";
 import { LibraryAlbumsGrid } from "@/features/search/components/LibraryAlbumsGrid";
 import { LibraryPodcastsGrid } from "@/features/search/components/LibraryPodcastsGrid";
 import { LibraryAudiobooksGrid } from "@/features/search/components/LibraryAudiobooksGrid";
+import { LibraryPlaylistsGrid } from "@/features/search/components/LibraryPlaylistsGrid";
 import { LibraryTracksList } from "@/features/search/components/LibraryTracksList";
 import { LibraryEpisodesList } from "@/features/search/components/LibraryEpisodesList";
 import { SimilarArtistsGrid } from "@/features/search/components/SimilarArtistsGrid";
@@ -328,6 +329,21 @@ export default function SearchPage() {
                         </section>
                     )}
 
+                {/* Library Playlists */}
+                {hasSearched &&
+                    showLibrary &&
+                    libraryResults?.playlists &&
+                    libraryResults.playlists.length > 0 && (
+                        <section>
+                            <h2 className="text-2xl font-bold text-white mb-6">
+                                Playlists
+                            </h2>
+                            <LibraryPlaylistsGrid
+                                playlists={libraryResults.playlists}
+                            />
+                        </section>
+                    )}
+
                 {/* Library Podcasts */}
                 {hasSearched &&
                     showLibrary &&
@@ -388,6 +404,7 @@ export default function SearchPage() {
                         (!libraryResults.artists?.length &&
                             !libraryResults.albums?.length &&
                             !libraryResults.tracks?.length &&
+                            !libraryResults.playlists?.length &&
                             !libraryResults.podcasts?.length &&
                             !libraryResults.audiobooks?.length &&
                             !libraryResults.episodes?.length)) && (

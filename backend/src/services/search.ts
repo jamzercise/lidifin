@@ -76,18 +76,29 @@ export interface AudiobookSearchResult {
     rank: number;
 }
 
+export interface PlaylistSearchResult {
+    id: string;
+    name: string;
+    userId: string;
+    isPublic: boolean;
+    trackCount: number;
+    coverUrl: string | null;
+}
+
 export interface SearchByTypeOptions {
     query: string;
     type: string;
     limit?: number;
     offset?: number;
     genre?: string;
+    userId?: string;
 }
 
 export interface SearchResults {
     artists: ArtistSearchResult[];
     albums: AlbumSearchResult[];
     tracks: TrackSearchResult[];
+    playlists: PlaylistSearchResult[];
     podcasts: PodcastSearchResult[];
     audiobooks: AudiobookSearchResult[];
     episodes: EpisodeSearchResult[];
@@ -174,7 +185,8 @@ export class SearchService {
         OFFSET ${offset}
       `;
 
-            return results;
+            if (results.length > 0) return results;
+            return this.searchArtistsFallback({ query, limit, offset });
         } catch (error) {
             logger.error("Artist search error:", error);
             return this.searchArtistsFallback({ query, limit, offset });
@@ -287,7 +299,8 @@ export class SearchService {
         OFFSET ${offset}
       `;
 
-            return results;
+            if (results.length > 0) return results;
+            return this.searchAlbumsFallback({ query, limit, offset });
         } catch (error) {
             logger.error("Album search error:", error);
             return this.searchAlbumsFallback({ query, limit, offset });
@@ -376,7 +389,8 @@ export class SearchService {
         OFFSET ${offset}
       `;
 
-            return results;
+            if (results.length > 0) return results;
+            return this.searchTracksFallback({ query, limit, offset });
         } catch (error) {
             logger.error("Track search error:", error);
             return this.searchTracksFallback({ query, limit, offset });
@@ -690,16 +704,72 @@ export class SearchService {
         }
     }
 
+    async searchPlaylists({
+        query,
+        limit = 20,
+        offset = 0,
+        userId,
+    }: SearchOptions & { userId?: string }): Promise<PlaylistSearchResult[]> {
+        if (!query || query.trim().length === 0) {
+            return [];
+        }
+
+        try {
+            const results = await prisma.playlist.findMany({
+                where: {
+                    name: { contains: query, mode: "insensitive" },
+                    OR: userId
+                        ? [{ userId }, { isPublic: true }]
+                        : [{ isPublic: true }],
+                },
+                select: {
+                    id: true,
+                    name: true,
+                    userId: true,
+                    isPublic: true,
+                    items: {
+                        take: 1,
+                        select: {
+                            track: {
+                                select: {
+                                    album: { select: { coverUrl: true } },
+                                },
+                            },
+                        },
+                    },
+                    _count: { select: { items: true } },
+                },
+                take: limit,
+                skip: offset,
+                orderBy: { name: "asc" },
+            });
+
+            return results.map((r) => ({
+                id: r.id,
+                name: r.name,
+                userId: r.userId,
+                isPublic: r.isPublic,
+                trackCount: r._count.items,
+                coverUrl: r.items[0]?.track?.album?.coverUrl ?? null,
+            }));
+        } catch (error) {
+            logger.error("Playlist search error:", error);
+            return [];
+        }
+    }
+
     async searchAll({
         query,
         limit = 10,
         genre,
-    }: SearchOptions & { genre?: string }): Promise<SearchResults> {
+        userId,
+    }: SearchOptions & { genre?: string; userId?: string }): Promise<SearchResults> {
         if (!query || query.trim().length === 0) {
             return {
                 artists: [],
                 albums: [],
                 tracks: [],
+                playlists: [],
                 podcasts: [],
                 audiobooks: [],
                 episodes: [],
@@ -707,13 +777,12 @@ export class SearchService {
         }
 
         // Check Redis cache first
-        const cacheKey = `search:all:${normalizeCacheQuery(query)}:${limit}:${genre || ""}`;
+        const cacheKey = `search:all:${normalizeCacheQuery(query)}:${limit}:${genre || ""}:${userId || ""}`;
         try {
             const cached = await redisClient.get(cacheKey);
             if (cached) {
                 logger.debug(`[SEARCH] Cache HIT for query: "${query}"`);
                 const parsed = JSON.parse(cached);
-                // Transform cached audiobook coverUrls to ensure consistency
                 if (parsed.audiobooks && Array.isArray(parsed.audiobooks)) {
                     parsed.audiobooks = parsed.audiobooks.map(
                         (book: AudiobookSearchResult) => ({
@@ -724,6 +793,7 @@ export class SearchService {
                         })
                     );
                 }
+                if (!parsed.playlists) parsed.playlists = [];
                 return parsed;
             }
         } catch (err) {
@@ -734,11 +804,12 @@ export class SearchService {
             `[SEARCH]  Cache MISS for query: "${query}" - fetching from database`
         );
 
-        const [artists, albums, tracks, podcasts, audiobooks, episodes] =
+        const [artists, albums, tracks, playlists, podcasts, audiobooks, episodes] =
             await Promise.all([
                 this.searchArtists({ query, limit }),
                 this.searchAlbums({ query, limit }),
                 this.searchTracks({ query, limit }),
+                this.searchPlaylists({ query, limit, userId }),
                 this.searchPodcastsFTS({ query, limit }),
                 this.searchAudiobooksFTS({ query, limit }),
                 this.searchEpisodes({ query, limit }),
@@ -748,6 +819,7 @@ export class SearchService {
             artists,
             albums,
             tracks: genre ? await this.filterTracksByGenre(tracks, genre) : tracks,
+            playlists,
             podcasts,
             audiobooks,
             episodes,
@@ -803,11 +875,13 @@ export class SearchService {
         limit = 20,
         offset = 0,
         genre,
+        userId,
     }: SearchByTypeOptions): Promise<SearchResults> {
         const results: SearchResults = {
             artists: [],
             albums: [],
             tracks: [],
+            playlists: [],
             podcasts: [],
             audiobooks: [],
             episodes: [],
@@ -818,18 +892,19 @@ export class SearchService {
         }
 
         // Check cache
-        const cacheKey = `search:${type}:${normalizeCacheQuery(query)}:${limit}:${genre || ""}`;
+        const cacheKey = `search:${type}:${normalizeCacheQuery(query)}:${limit}:${genre || ""}:${userId || ""}`;
         try {
             const cached = await redisClient.get(cacheKey);
             if (cached) {
                 logger.debug(`[SEARCH] Cache HIT for ${type} query: "${query}"`);
-                return JSON.parse(cached);
+                const parsed = JSON.parse(cached);
+                if (!parsed.playlists) parsed.playlists = [];
+                return parsed;
             }
         } catch (err) {
             logger.warn("[SEARCH] Redis read error:", err);
         }
 
-        // Execute single-type search
         switch (type) {
             case "artists":
                 results.artists = await this.searchArtists({ query, limit, offset });
@@ -845,6 +920,9 @@ export class SearchService {
                 results.tracks = tracks;
                 break;
             }
+            case "playlists":
+                results.playlists = await this.searchPlaylists({ query, limit, offset, userId });
+                break;
             case "podcasts":
                 results.podcasts = await this.searchPodcastsFTS({ query, limit, offset });
                 break;

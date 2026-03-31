@@ -74,9 +74,19 @@ export interface LibraryTrack {
     hasUserOverrides?: boolean;
 }
 
+export interface PlaylistResult {
+    id: string;
+    name: string;
+    userId: string;
+    isPublic: boolean;
+    trackCount: number;
+    coverUrl: string | null;
+}
+
 export interface SearchResult {
     artists?: Artist[];
     albums?: Album[];
+    playlists?: PlaylistResult[];
     podcasts?: Podcast[];
     tracks?: LibraryTrack[];
     audiobooks?: Audiobook[];

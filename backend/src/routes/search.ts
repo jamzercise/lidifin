@@ -42,6 +42,7 @@ function transformSearchResults(serviceResults: SearchResults) {
                 },
             },
         })),
+        playlists: serviceResults.playlists || [],
         audiobooks: serviceResults.audiobooks,
         podcasts: serviceResults.podcasts,
         episodes: serviceResults.episodes,
@@ -131,34 +132,37 @@ router.get("/", async (req, res) => {
         const parsed = parseInt(limit as string, 10);
         const searchLimit = Number.isNaN(parsed) ? 20 : Math.min(Math.max(parsed, 1), 100);
 
+        const userId = req.user!.id;
+
         if (!query) {
             return res.json({
                 artists: [],
                 albums: [],
                 tracks: [],
+                playlists: [],
                 audiobooks: [],
                 podcasts: [],
                 episodes: [],
             });
         }
 
-        // Delegate to service (handles caching + parallel execution + genre filtering)
         if (type === "all") {
             const serviceResults = await searchService.searchAll({
                 query,
                 limit: searchLimit,
                 genre: genre as string | undefined,
+                userId,
             });
 
             return res.json(transformSearchResults(serviceResults));
         }
 
-        // Single-type search (service handles caching)
         const serviceResults = await searchService.searchByType({
             query,
             type: type as string,
             limit: searchLimit,
             genre: genre as string | undefined,
+            userId,
         });
 
         res.json(transformSearchResults(serviceResults));
