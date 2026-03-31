@@ -244,7 +244,7 @@ export async function startUnifiedEnrichmentWorker() {
 /**
  * Stop the enrichment worker
  */
-export function stopUnifiedEnrichmentWorker() {
+export async function stopUnifiedEnrichmentWorker() {
     isStopping = true;
     if (enrichmentTimeoutId) {
         clearTimeout(enrichmentTimeoutId);
