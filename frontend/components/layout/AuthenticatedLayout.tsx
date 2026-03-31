@@ -14,7 +14,7 @@ import { ActivityPanel } from "./ActivityPanel";
 import { GalaxyBackground } from "../ui/GalaxyBackground";
 import { GradientSpinner } from "../ui/GradientSpinner";
 import { PWAInstallPrompt } from "../PWAInstallPrompt";
-import { PullToRefresh } from "../ui/PullToRefresh";
+
 import { ReactNode } from "react";
 import { useIsMobile, useIsTablet } from "@/hooks/useMediaQuery";
 import { useIsTV } from "@/lib/tv-utils";
@@ -123,22 +123,20 @@ export function AuthenticatedLayout({ children }: { children: ReactNode }) {
                         />
 
                         {/* Main content area with rounded corners */}
-                        <PullToRefresh>
-                            <main
-                                id="main-content"
-                                tabIndex={-1}
-                                className="flex-1 bg-gradient-to-b from-theme-hover via-theme-primary to-theme-primary mx-2 mb-2 rounded-lg overflow-y-auto relative focus:outline-none"
-                                style={{
-                                    marginTop: "calc(64px + env(safe-area-inset-top, 0px))",
-                                    marginBottom:
-                                        "calc(56px + env(safe-area-inset-bottom, 0px) + 8px)",
-                                }}
-                            >
-                                <GalaxyBackground />
-                                {/* Padding at bottom for mini player floating above */}
-                                <div className="pb-24">{children}</div>
-                            </main>
-                        </PullToRefresh>
+                        <main
+                            id="main-content"
+                            tabIndex={-1}
+                            className="flex-1 bg-gradient-to-b from-theme-hover via-theme-primary to-theme-primary mx-2 mb-2 rounded-lg overflow-y-auto relative focus:outline-none"
+                            style={{
+                                marginTop: "calc(64px + env(safe-area-inset-top, 0px))",
+                                marginBottom:
+                                    "calc(56px + env(safe-area-inset-bottom, 0px) + 8px)",
+                            }}
+                        >
+                            <GalaxyBackground />
+                            {/* Padding at bottom for mini player floating above */}
+                            <div className="pb-24">{children}</div>
+                        </main>
 
                         {/* Mini Player - fixed, positioned above bottom nav */}
                         <UniversalPlayer />

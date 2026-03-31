@@ -84,7 +84,7 @@ export interface SearchResult {
 }
 
 export interface DiscoverResult {
-    type: "music" | "podcast";
+    type: "music" | "podcast" | "track";
     id?: string;
     name: string;
     mbid?: string;

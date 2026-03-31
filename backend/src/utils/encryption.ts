@@ -30,12 +30,22 @@ function getEncryptionKey(): Buffer {
         );
     }
 
-    if (key.length < 32) {
-        // Pad with zeros if too short
-        return Buffer.from(key.padEnd(32, "0"));
+    // The documented setup is `openssl rand -base64 32` which produces a 44-char
+    // base64 string representing 32 random bytes — exactly what AES-256 needs.
+    // Try base64 decode first; fall back to raw UTF-8 for plain-text keys.
+    const decoded = Buffer.from(key, "base64");
+    if (decoded.length >= 32) {
+        return decoded.subarray(0, 32);
     }
-    // Truncate if too long
-    return Buffer.from(key.slice(0, 32));
+
+    // Plain-text key: pad or truncate to exactly 32 bytes
+    const raw = Buffer.from(key, "utf-8");
+    if (raw.length < 32) {
+        const padded = Buffer.alloc(32, 0);
+        raw.copy(padded);
+        return padded;
+    }
+    return raw.subarray(0, 32);
 }
 
 // Validate encryption key on module load to fail fast

@@ -98,9 +98,22 @@ class HowlerEngine {
     initializeFromStorage(): void {
         if (typeof window === 'undefined') return;
 
+        const volKey = 'lidifin_volume';
+        const muteKey = 'lidifin_muted';
         try {
-            const savedVolume = localStorage.getItem('lidify_volume');
-            const savedMuted = localStorage.getItem('lidify_muted');
+            const legacyVol = localStorage.getItem('lidify_volume');
+            if (legacyVol != null && localStorage.getItem(volKey) == null) {
+                localStorage.setItem(volKey, legacyVol);
+                localStorage.removeItem('lidify_volume');
+            }
+            const legacyMuted = localStorage.getItem('lidify_muted');
+            if (legacyMuted != null && localStorage.getItem(muteKey) == null) {
+                localStorage.setItem(muteKey, legacyMuted);
+                localStorage.removeItem('lidify_muted');
+            }
+
+            const savedVolume = localStorage.getItem(volKey);
+            const savedMuted = localStorage.getItem(muteKey);
 
             if (savedVolume) {
                 this.state.volume = parseFloat(savedVolume);

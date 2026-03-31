@@ -16,7 +16,7 @@
  * - Playlists: 1 minute (user may be actively modifying)
  */
 
-import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useInfiniteQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { Artist, Album, Track } from "@/features/library/types";
 
@@ -668,8 +668,10 @@ export function useSearchQuery(
     return useQuery({
         queryKey: queryKeys.search(query, type, limit),
         queryFn: ({ signal }) => api.search(query, type, limit, signal),
-        enabled: query.length >= 2, // Only search if query is at least 2 characters
-        staleTime: 5 * 60 * 1000, // 5 minutes
+        enabled: query.length >= 2,
+        staleTime: 10 * 60 * 1000, // 10 min — backend caches for 15 min
+        gcTime: 15 * 60 * 1000,
+        placeholderData: keepPreviousData, // keep old results visible while typing
     });
 }
 
@@ -693,7 +695,9 @@ export function useDiscoverSearchQuery(
         queryKey: queryKeys.discoverSearch(query, type, limit),
         queryFn: ({ signal }) => api.discoverSearch(query, type, limit, signal),
         enabled: query.length >= 2,
-        staleTime: 5 * 60 * 1000, // 5 minutes
+        staleTime: 10 * 60 * 1000, // 10 min — backend caches for 15 min
+        gcTime: 15 * 60 * 1000,
+        placeholderData: keepPreviousData,
     });
 }
 

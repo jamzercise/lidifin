@@ -1398,7 +1398,7 @@ class ApiClient {
         );
     }
 
-    /** Sync audiobooks from Audiobookshelf into Lidify cache (rescan for new titles). */
+    /** Sync audiobooks from Audiobookshelf into Lidifin cache (rescan for new titles). */
     async syncAudiobooks(): Promise<{
         success: boolean;
         result?: { synced: number; failed: number; skipped: number; errors: string[] };

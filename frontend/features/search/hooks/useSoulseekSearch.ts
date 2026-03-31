@@ -5,6 +5,7 @@ import type { SoulseekResult } from "../types";
 
 interface UseSoulseekSearchProps {
     query: string;
+    enabled?: boolean;
 }
 
 interface UseSoulseekSearchReturn {
@@ -18,6 +19,7 @@ interface UseSoulseekSearchReturn {
 
 export function useSoulseekSearch({
     query,
+    enabled = true,
 }: UseSoulseekSearchProps): UseSoulseekSearchReturn {
     const [soulseekResults, setSoulseekResults] = useState<SoulseekResult[]>([]);
     const [isSoulseekSearching, setIsSoulseekSearching] = useState(false);
@@ -42,9 +44,9 @@ export function useSoulseekSearch({
         checkSoulseekStatus();
     }, []);
 
-    // Soulseek search with polling
+    // Soulseek search with polling (skip when disabled, e.g. on "My Library" tab)
     useEffect(() => {
-        if (!query.trim() || !soulseekEnabled) {
+        if (!query.trim() || !soulseekEnabled || !enabled) {
             setSoulseekResults([]);
             return;
         }
@@ -134,7 +136,7 @@ export function useSoulseekSearch({
             clearTimeout(timer);
             cleanup();
         };
-    }, [query, soulseekEnabled]);
+    }, [query, soulseekEnabled, enabled]);
 
     const handleDownload = useCallback(async (result: SoulseekResult) => {
         try {

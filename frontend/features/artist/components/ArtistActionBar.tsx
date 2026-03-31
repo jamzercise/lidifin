@@ -5,7 +5,7 @@ import type { Album } from "../types";
 import type { ArtistSource } from "../types";
 import type { ColorPalette } from "@/hooks/useImageColor";
 
-const LIDIFY_YELLOW = "#B1D2C3";
+const LIDIFIN_ACCENT = "#B1D2C3";
 
 interface ArtistActionBarProps {
     artist: Artist;
@@ -57,7 +57,7 @@ export function ArtistActionBar({
             <button
                 onClick={handlePlayPauseClick}
                 className="h-12 w-12 rounded-full flex items-center justify-center shadow-lg transition-all hover:scale-105"
-                style={{ backgroundColor: LIDIFY_YELLOW }}
+                style={{ backgroundColor: LIDIFIN_ACCENT }}
             >
                 {showPause ? (
                     <Pause className="w-5 h-5 fill-current text-black" />

@@ -53,7 +53,7 @@ export async function downloadAndStoreImage(
 
         const response = await fetch(url, {
             headers: {
-                "User-Agent": "Lidify/1.0.0 (https://github.com/jamzercise/lidifin)",
+                "User-Agent": "Lidifin/1.0.0 (https://github.com/jamzercise/lidifin)",
             },
             signal: AbortSignal.timeout(30000),
         });

@@ -43,8 +43,8 @@ const AudioPlaybackContext = createContext<
 
 // LocalStorage keys
 const STORAGE_KEYS = {
-    IS_PLAYING: "lidify_is_playing",
-    CURRENT_TIME: "lidify_current_time",
+    IS_PLAYING: "lidifin_is_playing",
+    CURRENT_TIME: "lidifin_current_time",
 };
 
 export function AudioPlaybackProvider({ children }: { children: ReactNode }) {

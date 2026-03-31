@@ -82,6 +82,8 @@ export default function AudiobooksPage() {
             pause();
             // Clear from localStorage
             if (typeof window !== "undefined") {
+                localStorage.removeItem("lidifin_current_audiobook");
+                localStorage.removeItem("lidifin_playback_type");
                 localStorage.removeItem("lidify_current_audiobook");
                 localStorage.removeItem("lidify_playback_type");
             }

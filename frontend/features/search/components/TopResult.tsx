@@ -26,7 +26,7 @@ export function TopResult({ libraryArtist, discoveryArtist }: TopResultProps) {
     // Get the artist ID for linking - prefer name so URLs work in Jellyfin-only mode
     const artistId = isLibrary
         ? toArtistRouteId(libraryArtist!)
-        : (name ? encodeURIComponent(name) : discoveryArtist?.mbid ?? "");
+        : (name || discoveryArtist?.mbid ?? "");
 
     // Get the image URL
     const imageUrl = isLibrary 

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 
-const ACTIVITY_PANEL_KEY = "lidify_activity_panel_open";
+const ACTIVITY_PANEL_KEY = "lidifin_activity_panel_open";
 
 export function useActivityPanel() {
     const [isOpen, setIsOpen] = useState(() => {

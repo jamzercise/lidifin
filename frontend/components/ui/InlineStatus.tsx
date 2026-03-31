@@ -11,8 +11,8 @@ interface InlineStatusProps {
     message?: string;
     className?: string;
     showIcon?: boolean;
-    autoClear?: boolean; // Auto-clear success/error after delay
-    clearDelay?: number; // Delay in ms before clearing (default 3000)
+    autoClear?: boolean;
+    clearDelay?: number;
     onClear?: () => void;
 }
 
@@ -31,12 +31,10 @@ export function InlineStatus({
 }: InlineStatusProps) {
     const [visible, setVisible] = useState(status !== "idle");
 
-    // Sync visibility with status changes during render
-    const [prevStatus, setPrevStatus] = useState(status);
-    if (status !== prevStatus) {
-        setPrevStatus(status);
+    // Sync visibility when the status prop changes
+    useEffect(() => {
         setVisible(status !== "idle");
-    }
+    }, [status]);
 
     // Auto-clear success/error after delay
     useEffect(() => {

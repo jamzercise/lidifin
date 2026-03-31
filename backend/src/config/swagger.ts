@@ -5,12 +5,12 @@ const options: swaggerJsdoc.Options = {
     definition: {
         openapi: "3.0.0",
         info: {
-            title: "Lidify API",
+            title: "Lidifin API",
             version: "1.0.0",
             description:
                 "Self-hosted music streaming server with Discover Weekly and full-text search",
             contact: {
-                name: "Lidify",
+                name: "Lidifin",
                 url: "https://github.com/jamzercise/lidifin",
             },
         },

@@ -1,8 +1,11 @@
 import { Page, TestInfo } from "@playwright/test";
 
-const username = process.env.LIDIFY_TEST_USERNAME || "predeploy";
-const password = process.env.LIDIFY_TEST_PASSWORD || "predeploy-password";
-const baseUrl = process.env.LIDIFY_UI_BASE_URL || "http://127.0.0.1:3030";
+const username =
+    process.env.LIDIFIN_TEST_USERNAME || process.env.LIDIFY_TEST_USERNAME || "predeploy";
+const password =
+    process.env.LIDIFIN_TEST_PASSWORD || process.env.LIDIFY_TEST_PASSWORD || "predeploy-password";
+const baseUrl =
+    process.env.LIDIFIN_UI_BASE_URL || process.env.LIDIFY_UI_BASE_URL || "http://127.0.0.1:3030";
 
 export async function loginAsTestUser(page: Page): Promise<void> {
     await page.goto("/login");
@@ -12,8 +15,15 @@ export async function loginAsTestUser(page: Page): Promise<void> {
     await page.waitForURL(/\/($|\?|home)/);
 }
 
-export function skipIfNoEnv(envVar: string, testInfo: TestInfo): void {
-    if (!process.env[envVar]) {
+export function skipIfNoEnv(
+    envVar: string,
+    testInfo: TestInfo,
+    legacyEnvVar?: string
+): void {
+    const has =
+        !!process.env[envVar] ||
+        (legacyEnvVar ? !!process.env[legacyEnvVar] : false);
+    if (!has) {
         testInfo.skip(true, `Skipping: ${envVar} not set`);
     }
 }

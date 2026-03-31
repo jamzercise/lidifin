@@ -189,8 +189,14 @@ export default function LibraryPage() {
         }
     }, [queryClient, refetchFavorites]);
 
-    // Light auto-refresh: refetch when this page is opened or when user switches back to the tab
+    // Light auto-refresh: refetch when this page is opened or when user switches back to the tab.
+    // Debounced to avoid redundant fetches from rapid tab switches.
+    const lastRefreshRef = useRef(0);
+    const REFRESH_COOLDOWN_MS = 30_000;
     const refreshLibraryAndFavorites = useCallback(() => {
+        const now = Date.now();
+        if (now - lastRefreshRef.current < REFRESH_COOLDOWN_MS) return;
+        lastRefreshRef.current = now;
         queryClient.refetchQueries({
             queryKey: ["library"],
             type: "all",

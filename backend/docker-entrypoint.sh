@@ -20,7 +20,7 @@ if [ "$(id -u)" = "0" ]; then
   exit 1
 fi
 
-echo "[START] Starting Lidify Backend..."
+echo "[START] Starting Lidifin Backend..."
 
 # Docker Compose health checks ensure database and Redis are ready
 # Add a small delay to be extra safe
@@ -62,7 +62,7 @@ if [ -z "$SETTINGS_ENCRYPTION_KEY" ]; then
   export SETTINGS_ENCRYPTION_KEY="default-encryption-key-change-me"
 fi
 
-echo "[START] Lidify Backend starting on port ${PORT:-3006}..."
+echo "[START] Lidifin Backend starting on port ${PORT:-3006}..."
 echo "[CONFIG] Music path: ${MUSIC_PATH:-/music}"
 echo "[CONFIG] Environment: ${NODE_ENV:-production}"
 

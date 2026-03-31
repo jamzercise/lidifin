@@ -1,11 +1,11 @@
 #!/bin/bash
-# Lidify Deploy Script
+# Lidifin Deploy Script
 # Builds Docker image and cleans up old images/cache to prevent disk bloat
 
 set -e
 
 # Configuration
-IMAGE_NAME="${DOCKERHUB_USERNAME:-chevron7locked}/lidify"
+IMAGE_NAME="${DOCKERHUB_USERNAME:-chevron7locked}/lidifin"
 VERSION="${VERSION:-latest}"
 FULL_IMAGE="${IMAGE_NAME}:${VERSION}"
 
@@ -15,7 +15,7 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-echo -e "${GREEN}=== Lidify Deploy ===${NC}"
+echo -e "${GREEN}=== Lidifin Deploy ===${NC}"
 echo "Building: ${FULL_IMAGE}"
 echo ""
 
@@ -33,8 +33,8 @@ echo -e "${GREEN}Building Docker image...${NC}"
 docker build \
     --build-arg NEXT_PUBLIC_API_URL="" \
     -t "${FULL_IMAGE}" \
-    -f frontend/Dockerfile \
-    frontend/
+    -f Dockerfile \
+    .
 
 echo ""
 echo -e "${GREEN}Build complete!${NC}"

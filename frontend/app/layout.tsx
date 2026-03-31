@@ -30,8 +30,8 @@ const archivoBlack = Archivo_Black({
 export const viewport: Viewport = {
     width: "device-width",
     initialScale: 1,
-    maximumScale: 1,
-    userScalable: false,
+    maximumScale: 5,
+    userScalable: true,
     viewportFit: "cover",
     themeColor: "#081917",
 };
@@ -64,7 +64,7 @@ export default function RootLayout({
             <head>
                 <script
                     dangerouslySetInnerHTML={{
-                        __html: `(function(){var t=localStorage.getItem("lidify-theme");var v=["dark","light","warm","cool","high-contrast"];if(t&&v.indexOf(t)!==-1){document.documentElement.setAttribute("data-theme",t)}else{var d=window.matchMedia("(prefers-color-scheme: dark)").matches;document.documentElement.setAttribute("data-theme",d?"dark":"light")}})();`,
+                        __html: `(function(){var t=localStorage.getItem("lidifin-theme");if(!t){var o=localStorage.getItem("lidify-theme");if(o){localStorage.setItem("lidifin-theme",o);localStorage.removeItem("lidify-theme");t=o}}var v=["dark","light","warm","cool","high-contrast"];if(t&&v.indexOf(t)!==-1){document.documentElement.setAttribute("data-theme",t)}else{var d=window.matchMedia("(prefers-color-scheme: dark)").matches;document.documentElement.setAttribute("data-theme",d?"dark":"light")}})();`,
                     }}
                 />
             </head>

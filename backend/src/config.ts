@@ -97,10 +97,10 @@ export const config = {
         apiKey: process.env.DEEZER_API_KEY || "", // Fallback to DB
     },
 
-    audiobookshelf: process.env.AUDIOBOOKSHELF_URL
+    audiobookshelf: (process.env.AUDIOBOOKSHELF_URL && process.env.AUDIOBOOKSHELF_TOKEN)
         ? {
               url: process.env.AUDIOBOOKSHELF_URL,
-              token: process.env.AUDIOBOOKSHELF_TOKEN!,
+              token: process.env.AUDIOBOOKSHELF_TOKEN,
           }
         : undefined,
 

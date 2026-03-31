@@ -16,7 +16,16 @@ router.use(requireAuthOrToken);
 
 // Short-lived cache to reduce DB load when downloads are polled frequently (useDownloadStatus)
 const DOWNLOADS_CACHE_MS = 4000;
+const MAX_DOWNLOADS_CACHE_SIZE = 200;
 const downloadsCache = new Map<string, { data: unknown; expires: number }>();
+
+// Periodically prune expired entries to prevent unbounded growth
+setInterval(() => {
+    const now = Date.now();
+    for (const [key, val] of downloadsCache) {
+        if (val.expires <= now) downloadsCache.delete(key);
+    }
+}, 60_000);
 
 function getDownloadsCacheKey(userId: string, limit: number, includeDiscovery: string, includeCleared: string): string {
     return `${userId}:${limit}:${includeDiscovery}:${includeCleared}`;
@@ -781,6 +790,10 @@ router.get("/", async (req, res) => {
                   });
 
         if (!status) {
+            if (downloadsCache.size >= MAX_DOWNLOADS_CACHE_SIZE) {
+                const oldest = downloadsCache.keys().next().value;
+                if (oldest) downloadsCache.delete(oldest);
+            }
             downloadsCache.set(cacheKey, {
                 data: filteredJobs,
                 expires: now + DOWNLOADS_CACHE_MS,

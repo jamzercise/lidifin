@@ -21,7 +21,7 @@ async function initPodcastindexClient() {
     const apiSecret = decrypt(settings.podcastindexApiSecret);
 
     const podcastIndexApi = require("podcast-index-api");
-    podcastindexApi = podcastIndexApi(apiKey, apiSecret, "Lidify");
+    podcastindexApi = podcastIndexApi(apiKey, apiSecret, "Lidifin");
 
     return podcastindexApi;
 }

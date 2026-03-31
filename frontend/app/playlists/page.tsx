@@ -15,7 +15,7 @@ import { api } from "@/lib/api";
 import { cn } from "@/utils/cn";
 
 // Lidifin brand
-const LIDIFY_YELLOW = "#B1D2C3";
+const LIDIFIN_ACCENT = "#B1D2C3";
 
 interface PlaylistItem {
     id: string;
@@ -248,7 +248,7 @@ function PlaylistCard({
                             e.stopPropagation();
                             onPlay(playlist.id);
                         }}
-                        style={{ backgroundColor: LIDIFY_YELLOW }}
+                        style={{ backgroundColor: LIDIFIN_ACCENT }}
                         className={cn(
                             "absolute bottom-2 right-2 w-10 h-10 rounded-full flex items-center justify-center",
                             "shadow-lg shadow-black/40 transition-all duration-200",

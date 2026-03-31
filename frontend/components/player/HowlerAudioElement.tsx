@@ -55,7 +55,7 @@ function podcastDebugEnabled(): boolean {
     try {
         return (
             typeof window !== "undefined" &&
-            window.localStorage?.getItem("lidifyPodcastDebug") === "1"
+            window.localStorage?.getItem("lidifinPodcastDebug") === "1"
         );
     } catch {
         return false;

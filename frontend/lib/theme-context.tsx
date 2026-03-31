@@ -11,7 +11,8 @@ import {
 
 export type ThemeId = "dark" | "light" | "warm" | "cool" | "high-contrast";
 
-const STORAGE_KEY = "lidify-theme";
+const STORAGE_KEY = "lidifin-theme";
+const LEGACY_THEME_KEY = "lidify-theme";
 
 interface ThemeContextType {
     theme: ThemeId;
@@ -34,6 +35,13 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
     useEffect(() => {
         try {
+            const legacy = localStorage.getItem(LEGACY_THEME_KEY);
+            if (legacy != null) {
+                if (!localStorage.getItem(STORAGE_KEY)) {
+                    localStorage.setItem(STORAGE_KEY, legacy);
+                }
+                localStorage.removeItem(LEGACY_THEME_KEY);
+            }
             const stored = localStorage.getItem(STORAGE_KEY) as ThemeId | null;
             if (stored && VALID_THEMES.includes(stored)) {
                 setThemeState(stored);

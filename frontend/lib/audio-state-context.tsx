@@ -16,7 +16,7 @@ function queueDebugEnabled(): boolean {
     try {
         return (
             typeof window !== "undefined" &&
-            window.localStorage?.getItem("lidifyQueueDebug") === "1"
+            window.localStorage?.getItem("lidifinQueueDebug") === "1"
         );
     } catch {
         // Intentionally ignored: localStorage may throw in SSR or restricted contexts
@@ -189,20 +189,56 @@ const AudioStateContext = createContext<AudioStateContextType | undefined>(
 
 // LocalStorage keys
 const STORAGE_KEYS = {
-    CURRENT_TRACK: "lidify_current_track",
-    CURRENT_AUDIOBOOK: "lidify_current_audiobook",
-    CURRENT_PODCAST: "lidify_current_podcast",
-    PLAYBACK_TYPE: "lidify_playback_type",
-    QUEUE: "lidify_queue",
-    CURRENT_INDEX: "lidify_current_index",
-    IS_SHUFFLE: "lidify_is_shuffle",
-    REPEAT_MODE: "lidify_repeat_mode",
-    PLAYER_MODE: "lidify_player_mode",
-    VOLUME: "lidify_volume",
-    IS_MUTED: "lidify_muted",
-    PODCAST_EPISODE_QUEUE: "lidify_podcast_episode_queue",
-    PLAYBACK_RATE: "lidify_playback_rate",
+    CURRENT_TRACK: "lidifin_current_track",
+    CURRENT_AUDIOBOOK: "lidifin_current_audiobook",
+    CURRENT_PODCAST: "lidifin_current_podcast",
+    PLAYBACK_TYPE: "lidifin_playback_type",
+    QUEUE: "lidifin_queue",
+    CURRENT_INDEX: "lidifin_current_index",
+    IS_SHUFFLE: "lidifin_is_shuffle",
+    REPEAT_MODE: "lidifin_repeat_mode",
+    PLAYER_MODE: "lidifin_player_mode",
+    VOLUME: "lidifin_volume",
+    IS_MUTED: "lidifin_muted",
+    PODCAST_EPISODE_QUEUE: "lidifin_podcast_episode_queue",
+    PLAYBACK_RATE: "lidifin_playback_rate",
 };
+
+const LEGACY_STORAGE_ENTRIES: [keyof typeof STORAGE_KEYS, string][] = [
+    ["CURRENT_TRACK", "lidify_current_track"],
+    ["CURRENT_AUDIOBOOK", "lidify_current_audiobook"],
+    ["CURRENT_PODCAST", "lidify_current_podcast"],
+    ["PLAYBACK_TYPE", "lidify_playback_type"],
+    ["QUEUE", "lidify_queue"],
+    ["CURRENT_INDEX", "lidify_current_index"],
+    ["IS_SHUFFLE", "lidify_is_shuffle"],
+    ["REPEAT_MODE", "lidify_repeat_mode"],
+    ["PLAYER_MODE", "lidify_player_mode"],
+    ["VOLUME", "lidify_volume"],
+    ["IS_MUTED", "lidify_muted"],
+    ["PODCAST_EPISODE_QUEUE", "lidify_podcast_episode_queue"],
+    ["PLAYBACK_RATE", "lidify_playback_rate"],
+];
+
+let didMigrateLegacyAudioStorage = false;
+
+function migrateLegacyAudioStorageKeysOnce(): void {
+    if (typeof window === "undefined" || didMigrateLegacyAudioStorage) return;
+    didMigrateLegacyAudioStorage = true;
+    try {
+        for (const [k, legacyKey] of LEGACY_STORAGE_ENTRIES) {
+            const newKey = STORAGE_KEYS[k];
+            if (localStorage.getItem(newKey) != null) continue;
+            const v = localStorage.getItem(legacyKey);
+            if (v != null) {
+                localStorage.setItem(newKey, v);
+                localStorage.removeItem(legacyKey);
+            }
+        }
+    } catch {
+        // ignore
+    }
+}
 
 function readStorage(key: string): string | null {
     if (typeof window === "undefined") return null;
@@ -216,6 +252,8 @@ function parseStorageJson<T>(key: string, fallback: T): T {
 }
 
 export function AudioStateProvider({ children }: { children: ReactNode }) {
+    migrateLegacyAudioStorageKeysOnce();
+
     const [currentTrack, setCurrentTrack] = useState<Track | null>(
         () => parseStorageJson(STORAGE_KEYS.CURRENT_TRACK, null)
     );

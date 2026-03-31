@@ -207,7 +207,7 @@ app.use(
     swaggerUi.serve,
     swaggerUi.setup(swaggerSpec, {
         customCss: ".swagger-ui .topbar { display: none }",
-        customSiteTitle: "Lidify API Documentation",
+        customSiteTitle: "Lidifin API Documentation",
     })
 );
 
@@ -301,7 +301,7 @@ const server = app.listen(config.port, "0.0.0.0", async () => {
     await checkPasswordReset();
 
     logger.debug(
-        `Lidify API running on port ${config.port} (accessible on all network interfaces)`
+        `Lidifin API running on port ${config.port} (accessible on all network interfaces)`
     );
 
     // Enable slow query monitoring in development
@@ -571,6 +571,12 @@ async function gracefulShutdown(signal: string) {
     logger.debug(`\nReceived ${signal}. Starting graceful shutdown...`);
 
     try {
+        // Stop accepting new connections and drain in-flight requests
+        logger.debug("Closing HTTP server...");
+        await new Promise<void>((resolve, reject) => {
+            server.close((err) => (err ? reject(err) : resolve()));
+        });
+
         // Close Bull queues (API only adds jobs; worker process runs the processors)
         const { closeAllQueues } = await import("./workers/queues");
         await closeAllQueues();

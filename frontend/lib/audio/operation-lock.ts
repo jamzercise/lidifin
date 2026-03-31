@@ -20,7 +20,7 @@ export class OperationLock {
 
   constructor() {
     if (typeof window !== 'undefined') {
-      this.debugEnabled = localStorage.getItem('lidifyAudioDebug') === '1';
+      this.debugEnabled = localStorage.getItem('lidifinAudioDebug') === '1';
     }
   }
 

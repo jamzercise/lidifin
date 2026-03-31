@@ -1,4 +1,4 @@
-# Contributing to Lidify
+# Contributing to Lidifin
 
 First off, thanks for taking the time to contribute! 🎉
 

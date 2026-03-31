@@ -8,7 +8,16 @@ const router = Router();
 
 // Short-lived cache to reduce DB load when notifications are polled frequently
 const NOTIFICATIONS_CACHE_MS = 4000;
+const MAX_NOTIFICATIONS_CACHE_SIZE = 200;
 const notificationsCache = new Map<string, { data: unknown; expires: number }>();
+
+// Periodically prune expired entries to prevent unbounded growth
+setInterval(() => {
+    const now = Date.now();
+    for (const [key, val] of notificationsCache) {
+        if (val.expires <= now) notificationsCache.delete(key);
+    }
+}, 60_000);
 
 function invalidateNotificationsCache(userId: string) {
     notificationsCache.delete(userId);
@@ -37,6 +46,10 @@ router.get(
             logger.debug(
                 `[Notifications] Found ${notifications.length} notifications`
             );
+            if (notificationsCache.size >= MAX_NOTIFICATIONS_CACHE_SIZE) {
+                const oldest = notificationsCache.keys().next().value;
+                if (oldest) notificationsCache.delete(oldest);
+            }
             notificationsCache.set(userId, {
                 data: notifications,
                 expires: now + NOTIFICATIONS_CACHE_MS,

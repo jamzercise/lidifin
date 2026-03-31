@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { SearchIcon } from "lucide-react";
 import { useSearchData } from "@/features/search/hooks/useSearchData";
@@ -13,6 +13,7 @@ import { LibraryAlbumsGrid } from "@/features/search/components/LibraryAlbumsGri
 import { LibraryPodcastsGrid } from "@/features/search/components/LibraryPodcastsGrid";
 import { LibraryAudiobooksGrid } from "@/features/search/components/LibraryAudiobooksGrid";
 import { LibraryTracksList } from "@/features/search/components/LibraryTracksList";
+import { LibraryEpisodesList } from "@/features/search/components/LibraryEpisodesList";
 import { SimilarArtistsGrid } from "@/features/search/components/SimilarArtistsGrid";
 import { AliasResolutionBanner } from "@/features/search/components/AliasResolutionBanner";
 import { SoulseekSongsList } from "@/features/search/components/SoulseekSongsList";
@@ -42,18 +43,16 @@ export default function SearchPage() {
         soulseekEnabled,
         downloadingFiles,
         handleDownload,
-    } = useSoulseekSearch({ query });
+    } = useSoulseekSearch({ query, enabled: filterTab !== "library" });
     const { favoriteIds, addFavorite, removeFavorite } = useFavorites();
 
-    // Sync query from URL params on navigation (render-time adjustment)
-    const urlQuery = searchParams.get("q") ?? "";
-    const [prevUrlQuery, setPrevUrlQuery] = useState(urlQuery);
-    if (urlQuery !== prevUrlQuery) {
-        setPrevUrlQuery(urlQuery);
-        if (urlQuery) {
+    // Sync query from URL params when navigating (e.g. browser back/forward)
+    useEffect(() => {
+        const urlQuery = searchParams.get("q") ?? "";
+        if (urlQuery && urlQuery !== query) {
             setQuery(urlQuery);
         }
-    }
+    }, [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Derived state
     const topArtist = discoverResults.find((r) => r.type === "music");
@@ -354,6 +353,21 @@ export default function SearchPage() {
                             </h2>
                             <LibraryAudiobooksGrid
                                 audiobooks={libraryResults.audiobooks}
+                            />
+                        </section>
+                    )}
+
+                {/* Podcast Episodes */}
+                {hasSearched &&
+                    showLibrary &&
+                    libraryResults?.episodes &&
+                    libraryResults.episodes.length > 0 && (
+                        <section>
+                            <h2 className="text-2xl font-bold text-white mb-6">
+                                Podcast Episodes
+                            </h2>
+                            <LibraryEpisodesList
+                                episodes={libraryResults.episodes}
                             />
                         </section>
                     )}

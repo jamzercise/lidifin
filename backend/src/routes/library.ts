@@ -153,7 +153,7 @@ async function fetchWithRetry(
                 ...fetchOptions,
                 signal: controller.signal,
                 headers: {
-                    "User-Agent": "Lidify/1.0.0 (https://github.com/jamzercise/lidifin)",
+                    "User-Agent": "Lidifin/1.0.0 (https://github.com/jamzercise/lidifin)",
                     ...(fetchOptions.headers as Record<string, string>),
                 },
             });

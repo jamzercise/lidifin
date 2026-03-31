@@ -318,15 +318,17 @@ router.post("/", async (req, res) => {
                 const apiKey = data.lidarrApiKey;
 
                 // Determine webhook URL
-                // Use LIDIFY_CALLBACK_URL env var if set, otherwise default to backend:3006
+                // Use LIDIFIN_CALLBACK_URL (or legacy LIDIFY_CALLBACK_URL) if set, otherwise default to backend:3006
                 // In Docker, services communicate via Docker network names (backend, lidarr, etc.)
                 const callbackHost =
-                    process.env.LIDIFY_CALLBACK_URL || "http://backend:3006";
+                    process.env.LIDIFIN_CALLBACK_URL ||
+                    process.env.LIDIFY_CALLBACK_URL ||
+                    "http://backend:3006";
                 const webhookUrl = `${callbackHost}/api/webhooks/lidarr`;
 
                 logger.debug(`   Webhook URL: ${webhookUrl}`);
 
-                // Check if webhook already exists - find by name "Lidify" OR by URL containing "lidify" or "webhooks/lidarr"
+                // Check if webhook already exists - find by name "Lidifin" (or legacy "Lidify") OR by URL containing "lidifin"/"lidify" or "webhooks/lidarr"
                 const notificationsResponse = await axios.get(
                     `${lidarrUrl}/api/v1/notification`,
                     {
@@ -335,17 +337,19 @@ router.post("/", async (req, res) => {
                     }
                 );
 
-                // Find existing Lidify webhook by name (primary) or URL pattern (fallback)
+                // Find existing Lidifin webhook by name (primary) or URL pattern (fallback)
                 const existingWebhook = notificationsResponse.data.find(
                     (n: any) =>
                         n.implementation === "Webhook" &&
                         // Match by name
-                        (n.name === "Lidify" ||
+                        (n.name === "Lidifin" ||
+                            n.name === "Lidify" ||
                             // Or match by URL pattern (catches old webhooks with different URLs)
                             n.fields?.find(
                                 (f: any) =>
                                     f.name === "url" &&
                                     (f.value?.includes("webhooks/lidarr") ||
+                                        f.value?.includes("lidifin") ||
                                         f.value?.includes("lidify"))
                             ))
                 );
@@ -387,7 +391,7 @@ router.post("/", async (req, res) => {
                     supportsOnHealthIssue: true,
                     supportsOnApplicationUpdate: true,
                     includeHealthWarnings: false,
-                    name: "Lidify",
+                    name: "Lidifin",
                     implementation: "Webhook",
                     implementationName: "Webhook",
                     configContract: "WebhookSettings",
@@ -762,7 +766,14 @@ router.post("/test-soulseek", async (req, res) => {
                             return reject(err);
                         }
                         logger.debug(`[SOULSEEK-TEST] Connected successfully`);
-                        // We don't need to keep the connection open for the test
+                        // Disconnect the test client to avoid socket leak
+                        try {
+                            if (client && typeof client.destroy === "function") {
+                                client.destroy();
+                            } else if (client && typeof client.disconnect === "function") {
+                                client.disconnect();
+                            }
+                        } catch (_) { /* best-effort cleanup */ }
                         resolve();
                     }
                 );
@@ -885,22 +896,27 @@ router.post("/clear-caches", async (req, res) => {
             "../services/notificationService"
         );
 
-        // Get all keys but exclude session keys
-        const allKeys = await redisClient.keys("*");
-        const keysToDelete = allKeys.filter(
-            (key: string) => !key.startsWith("sess:")
-        );
+        // Use SCAN to iterate keys without blocking Redis (safe for large keyspaces)
+        const keysToDelete: string[] = [];
+        let cursor = 0;
+        do {
+            const result = await redisClient.scan(cursor, { MATCH: "*", COUNT: 200 });
+            cursor = result.cursor;
+            for (const key of result.keys) {
+                if (!key.startsWith("sess:")) {
+                    keysToDelete.push(key);
+                }
+            }
+        } while (cursor !== 0);
 
         if (keysToDelete.length > 0) {
             logger.debug(
-                `[CACHE] Clearing ${
-                    keysToDelete.length
-                } cache entries (excluding ${
-                    allKeys.length - keysToDelete.length
-                } session keys)...`
+                `[CACHE] Clearing ${keysToDelete.length} cache entries (preserving session keys)...`
             );
-            for (const key of keysToDelete) {
-                await redisClient.del(key);
+            const BATCH = 100;
+            for (let i = 0; i < keysToDelete.length; i += BATCH) {
+                const batch = keysToDelete.slice(i, i + BATCH);
+                await redisClient.del(batch);
             }
             logger.debug(
                 `[CACHE] Successfully cleared ${keysToDelete.length} cache entries`

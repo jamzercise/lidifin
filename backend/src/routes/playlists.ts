@@ -73,24 +73,58 @@ router.get("/", async (req, res) => {
         }
         const userId = req.user.id;
 
-        // Sync Jellyfin playlists into DB when Jellyfin is enabled
+        // Full reconciliation: sync Jellyfin playlists into DB when Jellyfin is enabled.
+        // This handles new playlists, deleted playlists, renamed playlists, and stale item counts.
         const cfg = await getJellyfinConfig();
         if (cfg) {
             const jellyfinPlaylists = await getJellyfinPlaylists(cfg);
-            const existingByJellyfinId = await prisma.playlist.findMany({
-                where: {
-                    jellyfinPlaylistId: { in: jellyfinPlaylists.map((p) => p.id) },
-                },
-                select: { jellyfinPlaylistId: true },
-            });
-            const existingJellyfinIds = new Set(
-                existingByJellyfinId.map((p) => p.jellyfinPlaylistId).filter(Boolean) as string[]
+            const jellyfinIdToPlaylist = new Map(
+                jellyfinPlaylists.map((p) => [p.id, p])
             );
+            const jellyfinIds = new Set(jellyfinPlaylists.map((p) => p.id));
 
+            // Find all existing DB playlists linked to Jellyfin
+            const existingDbPlaylists = await prisma.playlist.findMany({
+                where: { jellyfinPlaylistId: { not: null } },
+                select: { id: true, name: true, jellyfinPlaylistId: true },
+            });
+
+            const existingJellyfinIds = new Set<string>();
+
+            for (const dbPl of existingDbPlaylists) {
+                const jfId = dbPl.jellyfinPlaylistId!;
+
+                if (!jellyfinIds.has(jfId)) {
+                    // Playlist was deleted in Jellyfin — remove from Lidifin DB
+                    logger.debug(`[Playlists] Removing orphan playlist "${dbPl.name}" (Jellyfin ID ${jfId} no longer exists)`);
+                    await prisma.playlistItem.deleteMany({ where: { playlistId: dbPl.id } });
+                    await prisma.hiddenPlaylist.deleteMany({ where: { playlistId: dbPl.id } });
+                    await prisma.playlist.delete({ where: { id: dbPl.id } });
+                    continue;
+                }
+
+                existingJellyfinIds.add(jfId);
+
+                // Update name if it changed in Jellyfin
+                const jfPlaylist = jellyfinIdToPlaylist.get(jfId);
+                if (jfPlaylist && jfPlaylist.name !== dbPl.name) {
+                    logger.debug(`[Playlists] Updating name for playlist "${dbPl.name}" → "${jfPlaylist.name}"`);
+                    await prisma.playlist.update({
+                        where: { id: dbPl.id },
+                        data: { name: jfPlaylist.name },
+                    });
+                }
+
+                // Refresh item count from Jellyfin in background (fire-and-forget)
+                syncJellyfinPlaylistToDb(dbPl.id, jfId).catch((err) =>
+                    logger.warn(`[Playlists] Background item sync failed for ${jfId}:`, err?.message)
+                );
+            }
+
+            // Import any new Jellyfin playlists not yet in DB
             for (const jp of jellyfinPlaylists) {
                 if (existingJellyfinIds.has(jp.id)) continue;
 
-                // Create Playlist record and sync items from Jellyfin
                 const playlist = await prisma.playlist.create({
                     data: {
                         userId,
@@ -457,7 +491,7 @@ router.put("/:id", async (req, res) => {
             const cfg = await getJellyfinConfig();
             if (cfg) {
                 updateJellyfinPlaylistName(cfg, playlist.jellyfinPlaylistId, data.name).catch(
-                    () => {}
+                    (err) => logger.warn("[Playlists] Failed to update Jellyfin playlist name:", err?.message)
                 );
             }
         }
@@ -559,7 +593,9 @@ router.delete("/:id", async (req, res) => {
         if (existing.jellyfinPlaylistId) {
             const cfg = await getJellyfinConfig();
             if (cfg) {
-                deleteJellyfinPlaylist(cfg, existing.jellyfinPlaylistId).catch(() => {});
+                deleteJellyfinPlaylist(cfg, existing.jellyfinPlaylistId).catch(
+                    (err) => logger.warn("[Playlists] Failed to delete Jellyfin playlist:", err?.message)
+                );
             }
         }
 
@@ -664,7 +700,7 @@ router.post("/:id/items", async (req, res) => {
                         cfg,
                         playlist.jellyfinPlaylistId,
                         [trackId.slice("jellyfin:".length)]
-                    ).catch(() => {});
+                    ).catch((err) => logger.warn("[Playlists] Failed to add track to Jellyfin playlist:", err?.message));
                 }
             }
         }
@@ -723,7 +759,7 @@ router.delete("/:id/items/:trackId", async (req, res) => {
                     cfg,
                     playlist.jellyfinPlaylistId,
                     trackId.slice("jellyfin:".length)
-                ).catch(() => {});
+                ).catch((err) => logger.warn("[Playlists] Failed to remove track from Jellyfin playlist:", err?.message));
             }
         }
 
@@ -793,7 +829,7 @@ router.put("/:id/items/reorder", async (req, res) => {
                     .filter((id) => id.startsWith("jellyfin:"))
                     .map((id) => id.slice("jellyfin:".length));
                 setJellyfinPlaylistItems(cfg, playlistMeta.jellyfinPlaylistId, jellyfinIds).catch(
-                    () => {}
+                    (err) => logger.warn("[Playlists] Failed to sync reorder to Jellyfin:", err?.message)
                 );
             }
         }

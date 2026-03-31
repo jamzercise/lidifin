@@ -1544,7 +1544,7 @@ router.delete("/clear", async (req, res) => {
         }
 
         // === PHASE 3: Tag-based Lidarr cleanup ===
-        // Only remove artists that have the "lidify-discovery" tag
+        // Only remove artists that have the "lidifin-discovery" tag
         // This is the ONLY reliable way to identify discovery artists
         // User's pre-existing library is NEVER touched (no tag = safe)
         let lidarrArtistsRemoved = 0;
@@ -1554,7 +1554,7 @@ router.delete("/clear", async (req, res) => {
             settings.lidarrApiKey
         ) {
             logger.debug(
-                `\n[LIDARR CLEANUP] Tag-based cleanup (lidify-discovery tag)...`
+                `\n[LIDARR CLEANUP] Tag-based cleanup (lidifin-discovery tag)...`
             );
 
             try {

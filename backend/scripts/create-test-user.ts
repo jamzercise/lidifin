@@ -4,8 +4,14 @@ import bcrypt from "bcrypt";
 const prisma = new PrismaClient();
 
 async function main() {
-    const username = process.env.LIDIFY_TEST_USERNAME || "predeploy";
-    const password = process.env.LIDIFY_TEST_PASSWORD || "predeploy-password";
+    const username =
+        process.env.LIDIFIN_TEST_USERNAME ||
+        process.env.LIDIFY_TEST_USERNAME ||
+        "predeploy";
+    const password =
+        process.env.LIDIFIN_TEST_PASSWORD ||
+        process.env.LIDIFY_TEST_PASSWORD ||
+        "predeploy-password";
 
     const passwordHash = await bcrypt.hash(password, 10);
 

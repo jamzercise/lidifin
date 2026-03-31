@@ -8,7 +8,7 @@ import { logger } from "./logger";
  * Resolves the yt-dlp binary for YouTube Music playlist import.
  *
  * Order of precedence:
- * 1. LIDIFY_YT_DLP_PATH env var (explicit path to binary)
+ * 1. LIDIFIN_YT_DLP_PATH env var (explicit path to binary), or legacy LIDIFY_YT_DLP_PATH
  * 2. System yt-dlp on PATH
  * 3. Auto-downloaded binary into backend/data/yt-dlp/ (created on first use)
  *
@@ -20,6 +20,12 @@ const BINARY_NAME = process.platform === "win32" ? "yt-dlp.exe" : "yt-dlp";
 const CACHED_BINARY_PATH = path.join(CACHE_DIR, BINARY_NAME);
 
 const SYSTEM_COMMAND = "yt-dlp";
+
+function getYtDlpPathFromEnv(): string | undefined {
+    const lidifin = process.env.LIDIFIN_YT_DLP_PATH?.trim();
+    if (lidifin) return lidifin;
+    return process.env.LIDIFY_YT_DLP_PATH?.trim();
+}
 
 let resolvedPath: string | null | undefined = undefined;
 let downloadPromise: Promise<string | null> | null = null;
@@ -71,20 +77,23 @@ async function downloadYtDlp(): Promise<string | null> {
 
 /**
  * Returns the path to the yt-dlp binary to use, or null if unavailable.
- * - If LIDIFY_YT_DLP_PATH is set, that path is used (must exist).
+ * - If LIDIFIN_YT_DLP_PATH (or legacy LIDIFY_YT_DLP_PATH) is set, that path is used (must exist).
  * - Else if yt-dlp is on PATH, returns the string "yt-dlp" (spawn by name).
  * - Else downloads yt-dlp into data/yt-dlp/ and returns that path.
  */
 export async function getYtDlpPath(): Promise<string | null> {
     if (resolvedPath !== undefined) return resolvedPath;
 
-    const envPath = process.env.LIDIFY_YT_DLP_PATH?.trim();
+    const envPath = getYtDlpPathFromEnv();
     if (envPath) {
         if (fs.existsSync(envPath)) {
             resolvedPath = envPath;
             return resolvedPath;
         }
-        logger.warn("[yt-dlp] LIDIFY_YT_DLP_PATH is set but file not found: " + envPath);
+        logger.warn(
+            "[yt-dlp] LIDIFIN_YT_DLP_PATH or LIDIFY_YT_DLP_PATH is set but file not found: " +
+                envPath
+        );
     }
 
     if (checkSystemYtDlp()) {
@@ -102,7 +111,8 @@ export async function getYtDlpPath(): Promise<string | null> {
  * Does not trigger download. Use getYtDlpPath() when you need to ensure availability (and allow download).
  */
 export function isYtDlpAvailableSync(): boolean {
-    if (process.env.LIDIFY_YT_DLP_PATH?.trim() && fs.existsSync(process.env.LIDIFY_YT_DLP_PATH.trim())) {
+    const envPath = getYtDlpPathFromEnv();
+    if (envPath && fs.existsSync(envPath)) {
         return true;
     }
     if (checkSystemYtDlp()) return true;

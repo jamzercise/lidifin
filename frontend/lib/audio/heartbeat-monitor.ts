@@ -54,7 +54,7 @@ export class HeartbeatMonitor {
     this.config = { ...DEFAULT_CONFIG, ...config };
 
     if (typeof window !== 'undefined') {
-      this.debugEnabled = localStorage.getItem('lidifyAudioDebug') === '1';
+      this.debugEnabled = localStorage.getItem('lidifinAudioDebug') === '1';
     }
   }
 

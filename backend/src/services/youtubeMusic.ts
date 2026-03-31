@@ -6,7 +6,7 @@ import { getYtDlpPath, isYtDlpAvailableSync } from "../utils/ytDlpBinary";
  * YouTube Music Service
  *
  * Fetches playlist metadata and track list from YouTube Music via yt-dlp.
- * The binary is resolved automatically: system PATH, or LIDIFY_YT_DLP_PATH, or
+ * The binary is resolved automatically: system PATH, or LIDIFIN_YT_DLP_PATH (or legacy LIDIFY_YT_DLP_PATH), or
  * auto-downloaded into backend/data/yt-dlp/ on first use (via yt-dlp-wrap).
  *
  * Playlists must be public (or accessible without login).
@@ -104,7 +104,7 @@ export async function getYouTubeMusicPlaylist(playlistId: string): Promise<YouTu
     if (!binaryPath) {
         logger.warn(
             "[YouTube Music] yt-dlp is not available and auto-download failed. " +
-            "Install yt-dlp (e.g. brew install yt-dlp) or set LIDIFY_YT_DLP_PATH."
+            "Install yt-dlp (e.g. brew install yt-dlp) or set LIDIFIN_YT_DLP_PATH (or legacy LIDIFY_YT_DLP_PATH)."
         );
         return null;
     }

@@ -9,7 +9,7 @@ import type { ColorPalette } from "@/hooks/useImageColor";
 import { CachedImage } from "./CachedImage";
 
 // Lidifin brand for all on-page play buttons
-const LIDIFY_YELLOW = "#B1D2C3";
+const LIDIFIN_ACCENT = "#B1D2C3";
 
 export interface PlayableCardProps extends Omit<CardProps, "onPlay"> {
     href?: string;
@@ -95,7 +95,7 @@ const PlayableCard = memo(function PlayableCard({
                             e.stopPropagation();
                             onPlay(e);
                         }}
-                        style={{ backgroundColor: LIDIFY_YELLOW }}
+                        style={{ backgroundColor: LIDIFIN_ACCENT }}
                         className={cn(
                             "absolute bottom-2 right-2 w-10 h-10 rounded-full flex items-center justify-center",
                             "shadow-xl shadow-black/50",

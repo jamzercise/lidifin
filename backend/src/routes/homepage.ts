@@ -15,11 +15,12 @@ router.use(requireAuthOrToken);
  */
 router.get("/genres", async (req, res) => {
     try {
-        const { limit = "4" } = req.query; // Get top 4 genres by default
+        const { limit = "4" } = req.query;
         const limitNum = parseInt(limit as string, 10);
+        const userId = req.user?.id || "global";
 
-        // Check Redis cache first (cache for 24 hours)
-        const cacheKey = `homepage:genres:${limitNum}`;
+        // Check Redis cache first (cache for 24 hours, scoped per user)
+        const cacheKey = `homepage:genres:${userId}:${limitNum}`;
         try {
             const cached = await redisClient.get(cacheKey);
             if (cached) {
@@ -131,11 +132,12 @@ router.get("/genres", async (req, res) => {
  */
 router.get("/top-podcasts", async (req, res) => {
     try {
-        const { limit = "6" } = req.query; // Get top 6 podcasts by default
+        const { limit = "6" } = req.query;
         const limitNum = parseInt(limit as string, 10);
+        const userId = req.user?.id || "global";
 
-        // Check Redis cache first (cache for 24 hours)
-        const cacheKey = `homepage:top-podcasts:${limitNum}`;
+        // Check Redis cache first (cache for 24 hours, scoped per user)
+        const cacheKey = `homepage:top-podcasts:${userId}:${limitNum}`;
         try {
             const cached = await redisClient.get(cacheKey);
             if (cached) {

@@ -77,7 +77,7 @@ interface LidarrTag {
 }
 
 // Discovery tag label - used to identify discovery artists in Lidarr
-const DISCOVERY_TAG_LABEL = "lidify-discovery";
+const DISCOVERY_TAG_LABEL = "lidifin-discovery";
 
 interface LidarrAlbum {
     id: number;

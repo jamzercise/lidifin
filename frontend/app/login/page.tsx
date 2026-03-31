@@ -433,7 +433,7 @@ export default function LoginPage() {
 
                     {/* Footer */}
                     <p className="text-center text-white/40 text-sm mt-6">
-                        © 2025 Lidifin. Your music, your way.
+                        © 2025–2026 Lidifin. Your music, your way.
                     </p>
                 </div>
             </div>

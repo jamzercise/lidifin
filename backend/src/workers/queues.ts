@@ -6,7 +6,7 @@ import { config } from "../config";
 const redisUrl = new URL(config.redisUrl);
 const redisConfig = {
     host: redisUrl.hostname,
-    port: parseInt(redisUrl.port),
+    port: parseInt(redisUrl.port) || 6379,
 };
 
 // Default queue settings for better stability
@@ -40,17 +40,8 @@ export const validationQueue = new Bull("file-validation", {
     settings: defaultQueueSettings,
 });
 
-export const analysisQueue = new Bull("audio-analysis", {
-    redis: redisConfig,
-    settings: {
-        ...defaultQueueSettings,
-        // Audio analysis can take longer - extend lock duration
-        lockDuration: 120000,
-    },
-});
-
 // Export all queues for monitoring
-export const queues = [scanQueue, discoverQueue, imageQueue, validationQueue, analysisQueue];
+export const queues = [scanQueue, discoverQueue, imageQueue, validationQueue];
 
 // Add error handlers to all queues to prevent unhandled exceptions
 queues.forEach((queue) => {
@@ -76,7 +67,6 @@ export async function closeAllQueues(): Promise<void> {
         discoverQueue.close(),
         imageQueue.close(),
         validationQueue.close(),
-        analysisQueue.close(),
     ]);
     logger.debug("Bull queues closed");
 }

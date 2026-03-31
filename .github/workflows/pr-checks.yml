@@ -43,6 +43,6 @@ jobs:
               with:
                   context: .
                   push: false
-                  tags: lidify:pr-check
+                  tags: lidifin:pr-check
                   cache-from: type=gha
                   cache-to: type=gha,mode=max

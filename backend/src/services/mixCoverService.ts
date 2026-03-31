@@ -227,7 +227,7 @@ async function fetchImageBuffer(url: string): Promise<Buffer | null> {
         const timeout = setTimeout(() => controller.abort(), 5000);
         const res = await fetch(url, {
             signal: controller.signal,
-            headers: { "User-Agent": "Lidify/1.0" },
+            headers: { "User-Agent": "Lidifin/1.0" },
         });
         clearTimeout(timeout);
         if (!res.ok) return null;

@@ -1,6 +1,7 @@
 import { defineConfig } from "@playwright/test";
 
-const baseURL = process.env.LIDIFY_UI_BASE_URL || "http://127.0.0.1:3030";
+const baseURL =
+    process.env.LIDIFIN_UI_BASE_URL || process.env.LIDIFY_UI_BASE_URL || "http://127.0.0.1:3030";
 
 export default defineConfig({
     testDir: "./tests/e2e",
@@ -14,14 +15,15 @@ export default defineConfig({
         video: "retain-on-failure",
     },
     reporter: [["list"], ["html", { open: "never" }]],
-    webServer: process.env.LIDIFY_E2E_START_WEB
-        ? {
-              command: "npm run dev",
-              url: baseURL,
-              reuseExistingServer: true,
-              timeout: 120_000,
-          }
-        : undefined,
+    webServer:
+        process.env.LIDIFIN_E2E_START_WEB || process.env.LIDIFY_E2E_START_WEB
+            ? {
+                  command: "npm run dev",
+                  url: baseURL,
+                  reuseExistingServer: true,
+                  timeout: 120_000,
+              }
+            : undefined,
 });
 
 

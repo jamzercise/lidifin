@@ -86,14 +86,14 @@ jobs:
               uses: softprops/action-gh-release@v1
               with:
                   tag_name: ${{ steps.version.outputs.version }}
-                  name: Lidify ${{ steps.version.outputs.version }}
+                  name: Lidifin ${{ steps.version.outputs.version }}
                   body: |
                       ## Quick Start
 
                       ```bash
                       docker run -d \
-                        --name lidify \
-                        -p 3030:3030 \
+                        --name lidifin \
+                        -p 31013:3030 \
                         -v /path/to/your/music:/music \
                         -v lidifin_data:/data \
                         ${{ secrets.DOCKERHUB_USERNAME }}/lidifin:${{ steps.version.outputs.version }}

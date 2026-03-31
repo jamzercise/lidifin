@@ -362,7 +362,7 @@ class DownloadQueueManager {
     }
 
     /**
-     * Trigger full library refresh (Lidarr cleanup → Lidify sync)
+     * Trigger full library refresh (Lidarr cleanup → Lidifin sync)
      */
     private async triggerFullRefresh() {
         try {
@@ -372,16 +372,16 @@ class DownloadQueueManager {
             logger.debug("[1/2] Checking for failed imports in Lidarr...");
             await this.clearFailedLidarrImports();
 
-            // Step 2: Trigger Lidify library sync
-            logger.debug("[2/2] Triggering Lidify library sync...");
-            const lidifySuccess = await this.triggerLidifySync();
+            // Step 2: Trigger Lidifin library sync
+            logger.debug("[2/2] Triggering Lidifin library sync...");
+            const lidifinSuccess = await this.triggerLidifinSync();
 
-            if (!lidifySuccess) {
-                logger.error(" Lidify sync failed");
+            if (!lidifinSuccess) {
+                logger.error(" Lidifin sync failed");
                 return;
             }
 
-            logger.debug("Lidify sync started");
+            logger.debug("Lidifin sync started");
             logger.debug(
                 "\n[SUCCESS] Full library refresh complete! New music should appear shortly.\n"
             );
@@ -496,9 +496,9 @@ class DownloadQueueManager {
     }
 
     /**
-     * Trigger Lidify library sync
+     * Trigger Lidifin library sync
      */
-    private async triggerLidifySync(): Promise<boolean> {
+    private async triggerLidifinSync(): Promise<boolean> {
         try {
             const { scanQueue } = await import("../workers/queues");
             const { prisma } = await import("../utils/db");
@@ -521,7 +521,7 @@ class DownloadQueueManager {
             logger.debug("Library scan queued");
             return true;
         } catch (error: any) {
-            logger.error("Lidify sync trigger error:", error.message);
+            logger.error("Lidifin sync trigger error:", error.message);
             return false;
         }
     }

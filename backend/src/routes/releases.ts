@@ -9,10 +9,13 @@ import { logger } from "../utils/logger";
  */
 
 import { Router } from "express";
+import { requireAuth } from "../middleware/auth";
 import { lidarrService, CalendarRelease } from "../services/lidarr";
 import { prisma } from "../utils/db";
 
 const router = Router();
+
+router.use(requireAuth);
 
 interface ReleaseRadarResponse {
     upcoming: ReleaseItem[];
