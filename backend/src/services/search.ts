@@ -722,20 +722,11 @@ export class SearchService {
                         ? [{ userId }, { isPublic: true }]
                         : [{ isPublic: true }],
                 },
-                select: {
-                    id: true,
-                    name: true,
-                    userId: true,
-                    isPublic: true,
+                include: {
                     items: {
                         take: 1,
-                        select: {
-                            track: {
-                                select: {
-                                    album: { select: { coverUrl: true } },
-                                },
-                            },
-                        },
+                        orderBy: { sort: "asc" },
+                        select: { trackId: true },
                     },
                     _count: { select: { items: true } },
                 },
@@ -744,13 +735,28 @@ export class SearchService {
                 orderBy: { name: "asc" },
             });
 
+            const firstTrackIds = results
+                .map((r) => r.items[0]?.trackId)
+                .filter((id): id is string => !!id && !id.startsWith("jellyfin:"));
+
+            const coverMap = new Map<string, string>();
+            if (firstTrackIds.length > 0) {
+                const tracks = await prisma.track.findMany({
+                    where: { id: { in: firstTrackIds } },
+                    select: { id: true, album: { select: { coverUrl: true } } },
+                });
+                for (const t of tracks) {
+                    if (t.album.coverUrl) coverMap.set(t.id, t.album.coverUrl);
+                }
+            }
+
             return results.map((r) => ({
                 id: r.id,
                 name: r.name,
                 userId: r.userId,
                 isPublic: r.isPublic,
                 trackCount: r._count.items,
-                coverUrl: r.items[0]?.track?.album?.coverUrl ?? null,
+                coverUrl: coverMap.get(r.items[0]?.trackId ?? "") ?? null,
             }));
         } catch (error) {
             logger.error("Playlist search error:", error);
