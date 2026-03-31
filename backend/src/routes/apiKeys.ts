@@ -78,11 +78,7 @@ router.post("/", async (req, res) => {
             return res.status(400).json({ error: "Device name must be 200 characters or less" });
         }
 
-        // Use req.user.id (set by requireAuth middleware) - supports both session and JWT auth
-        const userId = req.user?.id || req.session?.userId;
-        if (!userId) {
-            return res.status(401).json({ error: "Not authenticated" });
-        }
+        const userId = req.user!.id;
 
         // Generate a secure random API key (32 bytes = 64 hex chars)
         const apiKeyValue = crypto.randomBytes(32).toString("hex");
@@ -139,11 +135,7 @@ router.post("/", async (req, res) => {
  */
 router.get("/", async (req, res) => {
     try {
-        // Use req.user.id (set by requireAuth middleware) - supports both session and JWT auth
-        const userId = req.user?.id || req.session?.userId;
-        if (!userId) {
-            return res.status(401).json({ error: "Not authenticated" });
-        }
+        const userId = req.user!.id;
 
         const keys = await prisma.apiKey.findMany({
             where: { userId },
@@ -206,11 +198,7 @@ router.get("/", async (req, res) => {
  */
 router.delete("/:id", async (req, res) => {
     try {
-        // Use req.user.id (set by requireAuth middleware) - supports both session and JWT auth
-        const userId = req.user?.id || req.session?.userId;
-        if (!userId) {
-            return res.status(401).json({ error: "Not authenticated" });
-        }
+        const userId = req.user!.id;
         const keyId = req.params.id;
 
         // Only allow users to delete their own keys

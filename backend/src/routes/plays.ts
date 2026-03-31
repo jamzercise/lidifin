@@ -16,8 +16,7 @@ const playSchema = z.object({
 // POST /plays
 router.post("/", async (req, res) => {
     try {
-        const userId = req.user?.id || req.session?.userId;
-        if (!userId) return res.status(401).json({ error: "Unauthorized" });
+        const userId = req.user!.id;
         const { trackId } = playSchema.parse(req.body);
 
         if (!trackId.startsWith("jellyfin:")) {
@@ -56,8 +55,7 @@ router.post("/", async (req, res) => {
 // GET /plays (recent plays for user)
 router.get("/", async (req, res) => {
     try {
-        const userId = req.user?.id || req.session?.userId;
-        if (!userId) return res.status(401).json({ error: "Unauthorized" });
+        const userId = req.user!.id;
         const { limit = "50" } = req.query;
         const take = Math.min(
             Math.max(1, parseInt(limit as string, 10) || 50),

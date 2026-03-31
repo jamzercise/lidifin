@@ -1,6 +1,7 @@
-import axios, { AxiosInstance } from "axios";
+import { AxiosInstance } from "axios";
 import { logger } from "../utils/logger";
 import { redisClient } from "../utils/redis";
+import { createApiClient } from "../utils/httpClient";
 
 interface WikidataResult {
     summary?: string;
@@ -11,13 +12,7 @@ class WikidataService {
     private client: AxiosInstance;
 
     constructor() {
-        this.client = axios.create({
-            timeout: 10000,
-            headers: {
-                "User-Agent":
-                    "Lidifin/1.0.0 (https://github.com/jamzercise/lidifin)",
-            },
-        });
+        this.client = createApiClient("Wikidata", { timeout: 10000 });
     }
 
     async getArtistInfo(

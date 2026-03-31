@@ -6,8 +6,8 @@
  */
 
 import { logger } from "../utils/logger";
-import Redis from "ioredis";
-import { config } from "../config";
+import { redisClient, createDedicatedRedis } from "../utils/redis";
+import type { RedisClientType } from "redis";
 
 const ENRICHMENT_STATE_KEY = "enrichment:state";
 const ENRICHMENT_CONTROL_CHANNEL = "enrichment:control";
@@ -23,50 +23,50 @@ export interface EnrichmentState {
     stoppedAt?: string;
     currentPhase: EnrichmentPhase;
     lastActivity: string;
-    completionNotificationSent?: boolean; // Prevent repeated completion notifications
-    coreCacheCleared?: boolean; // Prevent repeated cache clearing on core complete
-    fullCacheCleared?: boolean; // Prevent repeated cache clearing on full complete
+    completionNotificationSent?: boolean;
+    coreCacheCleared?: boolean;
+    fullCacheCleared?: boolean;
     stoppingInfo?: {
         phase: string;
         currentItem: string;
         itemsRemaining: number;
     };
 
-    // Progress tracking
     artists: {
         total: number;
         completed: number;
         failed: number;
-        current?: string; // Currently processing artist name
+        current?: string;
     };
     tracks: {
         total: number;
         completed: number;
         failed: number;
-        current?: string; // Currently processing track
+        current?: string;
     };
     audio: {
         total: number;
         completed: number;
         failed: number;
-        processing: number; // Currently in worker pool
+        processing: number;
     };
 }
 
 class EnrichmentStateService {
-    private redis: Redis;
-    private publisher: Redis;
+    private publisher: RedisClientType | null = null;
 
-    constructor() {
-        this.redis = new Redis(config.redisUrl);
-        this.publisher = new Redis(config.redisUrl);
+    private async getPublisher(): Promise<RedisClientType> {
+        if (!this.publisher) {
+            this.publisher = await createDedicatedRedis();
+        }
+        return this.publisher;
     }
 
     /**
      * Get current enrichment state
      */
     async getState(): Promise<EnrichmentState | null> {
-        const data = await this.redis.get(ENRICHMENT_STATE_KEY);
+        const data = await redisClient.get(ENRICHMENT_STATE_KEY);
         if (!data) {
             return null;
         }
@@ -99,7 +99,7 @@ class EnrichmentStateService {
      */
     async setState(state: EnrichmentState): Promise<void> {
         state.lastActivity = new Date().toISOString();
-        await this.redis.set(ENRICHMENT_STATE_KEY, JSON.stringify(state));
+        await redisClient.set(ENRICHMENT_STATE_KEY, JSON.stringify(state));
     }
 
     /**
@@ -140,9 +140,9 @@ class EnrichmentStateService {
             pausedAt: new Date().toISOString(),
         });
 
-        // Notify workers via pub/sub
-        await this.publisher.publish(ENRICHMENT_CONTROL_CHANNEL, "pause");
-        await this.publisher.publish(AUDIO_CONTROL_CHANNEL, "pause");
+        const pub = await this.getPublisher();
+        await pub.publish(ENRICHMENT_CONTROL_CHANNEL, "pause");
+        await pub.publish(AUDIO_CONTROL_CHANNEL, "pause");
 
         logger.debug("[Enrichment State] Paused");
         return updated;
@@ -174,9 +174,9 @@ class EnrichmentStateService {
             pausedAt: undefined,
         });
 
-        // Notify workers via pub/sub
-        await this.publisher.publish(ENRICHMENT_CONTROL_CHANNEL, "resume");
-        await this.publisher.publish(AUDIO_CONTROL_CHANNEL, "resume");
+        const pub = await this.getPublisher();
+        await pub.publish(ENRICHMENT_CONTROL_CHANNEL, "resume");
+        await pub.publish(AUDIO_CONTROL_CHANNEL, "resume");
 
         logger.debug("[Enrichment State] Resumed");
         return updated;
@@ -202,9 +202,9 @@ class EnrichmentStateService {
             stoppedAt: new Date().toISOString(),
         });
 
-        // Notify workers via pub/sub
-        await this.publisher.publish(ENRICHMENT_CONTROL_CHANNEL, "stop");
-        await this.publisher.publish(AUDIO_CONTROL_CHANNEL, "stop");
+        const pub = await this.getPublisher();
+        await pub.publish(ENRICHMENT_CONTROL_CHANNEL, "stop");
+        await pub.publish(AUDIO_CONTROL_CHANNEL, "stop");
 
         logger.debug("[Enrichment State] Stopping (worker will transition to idle when current item completes)...");
 
@@ -215,7 +215,7 @@ class EnrichmentStateService {
      * Clear enrichment state (set to idle)
      */
     async clear(): Promise<void> {
-        await this.redis.del(ENRICHMENT_STATE_KEY);
+        await redisClient.del(ENRICHMENT_STATE_KEY);
         logger.debug("[Enrichment State] Cleared");
     }
 
@@ -256,8 +256,10 @@ class EnrichmentStateService {
      * Cleanup connections
      */
     async disconnect(): Promise<void> {
-        await this.redis.quit();
-        await this.publisher.quit();
+        if (this.publisher) {
+            await this.publisher.disconnect();
+            this.publisher = null;
+        }
     }
 }
 

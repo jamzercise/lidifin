@@ -1,6 +1,7 @@
-import axios, { AxiosInstance } from "axios";
+import { AxiosInstance } from "axios";
 import { logger } from "../utils/logger";
 import { redisClient } from "../utils/redis";
+import { createApiClient } from "../utils/httpClient";
 
 interface ItunesPodcast {
     collectionId: number;
@@ -20,10 +21,10 @@ interface ItunesPodcast {
 class ItunesService {
     private client: AxiosInstance;
     private lastRequestTime = 0;
-    private readonly RATE_LIMIT_MS = 3000; // 20 requests per minute = 3 seconds between requests
+    private readonly RATE_LIMIT_MS = 3000;
 
     constructor() {
-        this.client = axios.create({
+        this.client = createApiClient("iTunes", {
             baseURL: "https://itunes.apple.com",
             timeout: 10000,
         });

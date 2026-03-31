@@ -28,7 +28,7 @@ const router = Router();
 router.use(requireAuthOrToken);
 
 const getRequestUserId = (req: any): string | null => {
-    return req.user?.id || req.session?.userId || null;
+    return req.user?.id ?? null;
 };
 
 /**

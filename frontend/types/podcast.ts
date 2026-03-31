@@ -1,5 +1,21 @@
-export type { EpisodeProgress, Episode } from "@/types/podcast";
-import type { Episode } from "@/types/podcast";
+export interface EpisodeProgress {
+    currentTime: number;
+    progress: number;
+    isFinished: boolean;
+    lastPlayedAt: Date;
+}
+
+export interface Episode {
+    id: string;
+    title: string;
+    description?: string;
+    duration: number;
+    publishedAt: string;
+    episodeNumber?: number;
+    season?: number;
+    progress?: EpisodeProgress;
+    mimeType?: string;
+}
 
 export interface Podcast {
     id: string;
@@ -7,10 +23,10 @@ export interface Podcast {
     author: string;
     description?: string;
     coverUrl: string;
-    autoDownloadEpisodes: boolean;
+    autoDownloadEpisodes?: boolean;
     genres?: string[];
     feedUrl?: string;
-    episodes: Episode[];
+    episodes?: Episode[];
 }
 
 export interface PodcastPreview {
@@ -30,29 +46,3 @@ export interface PodcastPreview {
         duration: number;
     }>;
 }
-
-export interface SimilarPodcast {
-    id: string;
-    title: string;
-    author: string;
-    coverUrl?: string;
-    episodeCount?: number;
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

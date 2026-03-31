@@ -1,7 +1,8 @@
-import axios, { AxiosInstance } from "axios";
+import { AxiosInstance } from "axios";
 import { logger } from "../utils/logger";
 import { redisClient } from "../utils/redis";
 import { rateLimiter } from "./rateLimiter";
+import { createApiClient } from "../utils/httpClient";
 
 /** MusicBrainz only accepts MusicBrainz UUIDs. Jellyfin IDs (jellyfin:xxx) must not be sent. */
 function isNotMusicBrainzId(id: string): boolean {
@@ -12,13 +13,9 @@ class MusicBrainzService {
     private client: AxiosInstance;
 
     constructor() {
-        this.client = axios.create({
+        this.client = createApiClient("MusicBrainz", {
             baseURL: "https://musicbrainz.org/ws/2",
             timeout: 10000,
-            headers: {
-                "User-Agent":
-                    "Lidifin/1.0.0 (https://github.com/jamzercise/lidifin)",
-            },
         });
     }
 

@@ -15,7 +15,8 @@ import { logger } from "../utils/logger";
 import { prisma } from "../utils/db";
 import { enrichSimilarArtist } from "./artistEnrichment";
 import { lastFmService } from "../services/lastfm";
-import Redis from "ioredis";
+import type { RedisClientType } from "redis";
+import { redisClient, createDedicatedRedis } from "../utils/redis";
 import { config } from "../config";
 import { enrichmentStateService } from "../services/enrichmentState";
 import { enrichmentFailureService } from "../services/enrichmentFailureService";
@@ -34,8 +35,7 @@ const MAX_CONSECUTIVE_SYSTEM_FAILURES = 5; // Circuit breaker threshold
 
 let isRunning = false;
 let enrichmentTimeoutId: NodeJS.Timeout | null = null;
-let redis: Redis | null = null;
-let controlSubscriber: Redis | null = null;
+let controlSubscriber: RedisClientType | null = null;
 let isPaused = false;
 let isStopping = false;
 let immediateEnrichmentRequested = false;
@@ -164,14 +164,9 @@ function filterMoodTags(tags: string[]): string[] {
         .slice(0, 10);
 }
 
-/**
- * Initialize Redis connection for audio analysis queue
- */
-function getRedis(): Redis {
-    if (!redis) {
-        redis = new Redis(config.redisUrl);
-    }
-    return redis;
+/** Shared Redis client accessor for queue operations */
+function getRedis() {
+    return redisClient;
 }
 
 /**
@@ -179,29 +174,24 @@ function getRedis(): Redis {
  */
 async function setupControlChannel() {
     if (!controlSubscriber) {
-        controlSubscriber = new Redis(config.redisUrl);
-        await controlSubscriber.subscribe("enrichment:control");
+        controlSubscriber = await createDedicatedRedis();
+        await controlSubscriber.subscribe("enrichment:control", (message) => {
+            logger.debug(
+                `[Enrichment] Received control message: ${message}`,
+            );
 
-        controlSubscriber.on("message", (channel, message) => {
-            if (channel === "enrichment:control") {
+            if (message === "pause") {
+                isPaused = true;
+                logger.debug("[Enrichment] Paused");
+            } else if (message === "resume") {
+                isPaused = false;
+                logger.debug("[Enrichment] Resumed");
+            } else if (message === "stop") {
+                isStopping = true;
+                isPaused = true;
                 logger.debug(
-                    `[Enrichment] Received control message: ${message}`,
+                    "[Enrichment] Stopping gracefully - completing current item...",
                 );
-
-                if (message === "pause") {
-                    isPaused = true;
-                    logger.debug("[Enrichment] Paused");
-                } else if (message === "resume") {
-                    isPaused = false;
-                    logger.debug("[Enrichment] Resumed");
-                } else if (message === "stop") {
-                    isStopping = true;
-                    isPaused = true;
-                    logger.debug(
-                        "[Enrichment] Stopping gracefully - completing current item...",
-                    );
-                    // DO NOT override state - let enrichmentStateService.stop() handle it
-                }
             }
         });
 
@@ -261,12 +251,9 @@ export function stopUnifiedEnrichmentWorker() {
         enrichmentTimeoutId = null;
         logger.debug("[Enrichment] Worker stopped");
     }
-    if (redis) {
-        redis.disconnect();
-        redis = null;
-    }
     if (controlSubscriber) {
-        controlSubscriber.disconnect();
+        await controlSubscriber.unsubscribe("enrichment:control").catch(() => {});
+        await controlSubscriber.disconnect().catch(() => {});
         controlSubscriber = null;
     }
 
@@ -499,7 +486,7 @@ async function runEnrichmentCycle(fullMode: boolean): Promise<{
                     const redisInstance = getRedis();
                     const mixKeys = await redisInstance.keys("mixes:*");
                     if (mixKeys.length > 0) {
-                        await redisInstance.del(...mixKeys);
+                        await redisInstance.del(mixKeys);
                         logger.info(
                             `[Enrichment] Cleared ${mixKeys.length} mix cache entries after core enrichment complete`,
                         );
@@ -529,7 +516,7 @@ async function runEnrichmentCycle(fullMode: boolean): Promise<{
                     const redisInstance = getRedis();
                     const mixKeys = await redisInstance.keys("mixes:*");
                     if (mixKeys.length > 0) {
-                        await redisInstance.del(...mixKeys);
+                        await redisInstance.del(mixKeys);
                         logger.info(
                             `[Enrichment] Cleared ${mixKeys.length} mix cache entries after full enrichment complete`,
                         );
@@ -937,12 +924,12 @@ async function queueAudioAnalysis(): Promise<number> {
     );
 
     const redis = getRedis();
-    const pipeline = redis.pipeline();
+    const multi = redis.multi();
     const now = new Date();
     const idsToMark: string[] = [];
 
     for (const track of tracks) {
-        pipeline.rpush(
+        multi.rPush(
             "audio:analysis:queue",
             JSON.stringify({
                 trackId: track.id,
@@ -954,7 +941,7 @@ async function queueAudioAnalysis(): Promise<number> {
     }
 
     try {
-        await pipeline.exec();
+        await multi.exec();
         if (idsToMark.length > 0) {
             await prisma.track.updateMany({
                 where: { id: { in: idsToMark } },
@@ -999,19 +986,19 @@ async function queueVibeEmbeddings(): Promise<number> {
     }
 
     const redis = getRedis();
-    const pipeline = redis.pipeline();
+    const multi = redis.multi();
     const now = new Date();
     const ids = tracks.map((t) => t.id);
 
     for (const track of tracks) {
-        pipeline.rpush(
+        multi.rPush(
             "audio:clap:queue",
             JSON.stringify({ trackId: track.id, filePath: track.filePath })
         );
     }
 
     try {
-        await pipeline.exec();
+        await multi.exec();
         await prisma.track.updateMany({
             where: { id: { in: ids } },
             data: {
@@ -1157,7 +1144,7 @@ async function executeVibePhase(): Promise<number> {
     const audioProcessing = await prisma.track.count({
         where: { analysisStatus: "processing" },
     });
-    const audioQueue = await getRedis().llen("audio:analysis:queue");
+    const audioQueue = await getRedis().lLen("audio:analysis:queue");
     if (audioProcessing > 0 || audioQueue > 0) {
         logger.debug(
             `[Enrichment] Skipping vibe phase - audio still running (${audioProcessing} processing, ${audioQueue} queued)`,
@@ -1281,7 +1268,7 @@ export async function getEnrichmentProgress() {
         prisma.track.count({
             where: { vibeAnalysisStatus: "processing" },
         }),
-        getRedis().llen("audio:clap:queue"),
+        getRedis().lLen("audio:clap:queue"),
         prisma.enrichmentFailure.count({
             where: { entityType: "vibe", resolved: false, skipped: false },
         }),

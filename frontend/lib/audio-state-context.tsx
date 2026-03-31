@@ -29,61 +29,8 @@ function queueDebugLog(message: string, data?: Record<string, unknown>) {
     console.log(`[QueueDebug] ${message}`, data || {});
 }
 
-export type PlayerMode = "full" | "mini" | "overlay";
-
-// Audio features for vibe mode visualization
-export interface AudioFeatures {
-    bpm?: number | null;
-    energy?: number | null;
-    valence?: number | null;
-    arousal?: number | null;
-    danceability?: number | null;
-    keyScale?: string | null;
-    instrumentalness?: number | null;
-    // ML Mood predictions (Enhanced mode)
-    moodHappy?: number | null;
-    moodSad?: number | null;
-    moodRelaxed?: number | null;
-    moodAggressive?: number | null;
-    moodParty?: number | null;
-    moodAcoustic?: number | null;
-    moodElectronic?: number | null;
-    analysisMode?: string | null;
-}
-
-export interface Track {
-    id: string;
-    title: string;
-    artist: { name: string; id?: string; mbid?: string };
-    /** Album artist (e.g. "Various Artists" on compilations) - when different from track artist */
-    albumArtist?: { name: string; id?: string };
-    album: { title: string; coverArt?: string; id?: string };
-    duration: number;
-    filePath?: string;
-    // Metadata override fields
-    displayTitle?: string | null;
-    displayTrackNo?: number | null;
-    hasUserOverrides?: boolean;
-    // Audio features for vibe mode visualization
-    audioFeatures?: {
-        bpm?: number | null;
-        energy?: number | null;
-        valence?: number | null;
-        arousal?: number | null;
-        danceability?: number | null;
-        keyScale?: string | null;
-        instrumentalness?: number | null;
-        analysisMode?: string | null;
-        // ML mood predictions
-        moodHappy?: number | null;
-        moodSad?: number | null;
-        moodRelaxed?: number | null;
-        moodAggressive?: number | null;
-        moodParty?: number | null;
-        moodAcoustic?: number | null;
-        moodElectronic?: number | null;
-    } | null;
-}
+export type { PlayerMode, AudioFeatures } from "@/types";
+export type { Track } from "@/types/music";
 
 export interface Audiobook {
     id: string;
@@ -101,7 +48,7 @@ export interface Audiobook {
 }
 
 export interface Podcast {
-    id: string; // Format: "podcastId:episodeId"
+    id: string;
     title: string;
     podcastTitle: string;
     coverUrl: string | null;

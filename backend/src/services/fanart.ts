@@ -1,7 +1,8 @@
-import axios, { AxiosInstance } from "axios";
+import { AxiosInstance } from "axios";
 import { logger } from "../utils/logger";
 import { redisClient } from "../utils/redis";
 import { getSystemSettings } from "../utils/systemSettings";
+import { createApiClient } from "../utils/httpClient";
 
 /**
  * Fanart.tv API Service
@@ -19,13 +20,9 @@ class FanartService {
     private noKeyWarningShown: boolean = false;
 
     constructor() {
-        this.client = axios.create({
+        this.client = createApiClient("Fanart", {
             baseURL: "https://webservice.fanart.tv/v3",
             timeout: 10000,
-            headers: {
-                "User-Agent":
-                    "Lidifin/1.0.0 (https://github.com/jamzercise/lidifin)",
-            },
         });
     }
 

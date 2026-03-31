@@ -18,8 +18,7 @@ const listeningStateSchema = z.object({
 // POST /listening-state
 router.post("/", async (req, res) => {
     try {
-        const userId = req.user?.id || req.session?.userId;
-        if (!userId) return res.status(401).json({ error: "Unauthorized" });
+        const userId = req.user!.id;
         const data = listeningStateSchema.parse(req.body);
 
         const state = await prisma.listeningState.upsert({
@@ -56,8 +55,7 @@ router.post("/", async (req, res) => {
 // GET /listening-state
 router.get("/", async (req, res) => {
     try {
-        const userId = req.user?.id || req.session?.userId;
-        if (!userId) return res.status(401).json({ error: "Unauthorized" });
+        const userId = req.user!.id;
         const { kind, entityId } = req.query;
 
         if (!kind || !entityId) {
@@ -90,8 +88,7 @@ router.get("/", async (req, res) => {
 // GET /listening-state/recent (for "Continue Listening")
 router.get("/recent", async (req, res) => {
     try {
-        const userId = req.user?.id || req.session?.userId;
-        if (!userId) return res.status(401).json({ error: "Unauthorized" });
+        const userId = req.user!.id;
         const { limit = "10" } = req.query;
         const take = Math.min(
             Math.max(1, parseInt(limit as string, 10) || 10),

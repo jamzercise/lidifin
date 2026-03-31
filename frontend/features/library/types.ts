@@ -1,26 +1,6 @@
 export type Tab = "artists" | "albums" | "tracks";
 
-export interface Artist {
-    id: string;
-    mbid?: string;
-    name: string;
-    coverArt?: string;
-    albumCount?: number;
-    trackCount?: number;
-}
-
-export interface Album {
-    id: string;
-    title: string;
-    coverArt?: string;
-    year?: number;
-    rgMbid?: string;
-    artist?: {
-        id: string;
-        mbid?: string;
-        name: string;
-    };
-}
+export type { Artist, Album } from "@/types/music";
 
 export interface Track {
     id: string;
@@ -36,7 +16,6 @@ export interface Track {
             name: string;
         };
     };
-    // Metadata override fields
     displayTitle?: string | null;
     displayTrackNo?: number | null;
     hasUserOverrides?: boolean;
