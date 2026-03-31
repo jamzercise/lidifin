@@ -31,6 +31,7 @@ function queueDebugLog(message: string, data?: Record<string, unknown>) {
 
 export type { PlayerMode, AudioFeatures } from "@/types";
 export type { Track } from "@/types/music";
+import type { Track } from "@/types/music";
 
 export interface Audiobook {
     id: string;
