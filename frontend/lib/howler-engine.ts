@@ -311,6 +311,12 @@ class HowlerEngine {
                 this.emit("play");
             },
             onpause: () => {
+                // Browsers fire 'pause' before 'ended' when a track finishes naturally.
+                // Suppress this spurious pause so it doesn't race with auto-advance logic.
+                if (this.howl) {
+                    const sounds = (this.howl as unknown as { _sounds?: Array<{ _node?: HTMLAudioElement }> })._sounds;
+                    if (sounds?.[0]?._node?.ended) return;
+                }
                 this.state.isPlaying = false;
                 this.userInitiatedPlay = false;
                 this.stopTimeUpdates();
@@ -727,6 +733,10 @@ class HowlerEngine {
         });
 
         this.howl.on("pause", () => {
+            if (this.howl) {
+                const sounds = (this.howl as unknown as { _sounds?: Array<{ _node?: HTMLAudioElement }> })._sounds;
+                if (sounds?.[0]?._node?.ended) return;
+            }
             this.state.isPlaying = false;
             this.userInitiatedPlay = false;
             this.stopTimeUpdates();

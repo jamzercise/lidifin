@@ -132,6 +132,9 @@ export const HowlerAudioElement = memo(function HowlerAudioElement() {
     // Track load listeners for cleanup to prevent memory leaks
     const loadListenerRef = useRef<(() => void) | null>(null);
     const loadErrorListenerRef = useRef<(() => void) | null>(null);
+    // Set to true in handleEnd so handleLoaded always auto-plays after natural track advancement,
+    // regardless of race conditions with browser pause events.
+    const wantAutoPlayRef = useRef<boolean>(false);
     // Refs for sleep timer so effect only depends on sleepTimerEndsAt (avoids interval being reset on every re-render)
     const pauseRef = useRef(pause);
     const volumeRef = useRef(volume);
@@ -382,7 +385,8 @@ export const HowlerAudioElement = memo(function HowlerAudioElement() {
 
             // Handle track advancement based on playback type
             if (playbackType === "podcast") {
-                nextPodcastEpisode(); // Auto-advance to next episode
+                wantAutoPlayRef.current = true;
+                nextPodcastEpisode();
             } else if (playbackType === "audiobook") {
                 pause();
             } else if (playbackType === "track") {
@@ -390,6 +394,7 @@ export const HowlerAudioElement = memo(function HowlerAudioElement() {
                     howlerEngine.seek(0);
                     howlerEngine.play();
                 } else {
+                    wantAutoPlayRef.current = true;
                     next();
                 }
             } else {
@@ -603,7 +608,10 @@ export const HowlerAudioElement = memo(function HowlerAudioElement() {
                 }
 
                 const shouldAutoPlay =
-                    lastPlayingStateRef.current || wasHowlerPlayingBeforeLoad;
+                    wantAutoPlayRef.current || lastPlayingStateRef.current || wasHowlerPlayingBeforeLoad;
+
+                // Consume the auto-advance flag
+                wantAutoPlayRef.current = false;
 
                 if (shouldAutoPlay) {
                     howlerEngine.play();
