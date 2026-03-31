@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { SearchIcon } from "lucide-react";
 import { useSearchData } from "@/features/search/hooks/useSearchData";
@@ -19,15 +19,16 @@ import { SimilarArtistsGrid } from "@/features/search/components/SimilarArtistsG
 import { AliasResolutionBanner } from "@/features/search/components/AliasResolutionBanner";
 import { SoulseekSongsList } from "@/features/search/components/SoulseekSongsList";
 import { TVSearchInput } from "@/features/search/components/TVSearchInput";
-import type { FilterTab } from "@/features/search/types";
+import { ResultCategoryTabs } from "@/features/search/components/ResultCategoryTabs";
+import type { FilterTab, ResultCategory } from "@/features/search/types";
 
 export default function SearchPage() {
     const searchParams = useSearchParams();
     const router = useRouter();
     const [filterTab, setFilterTab] = useState<FilterTab>("all");
+    const [resultCategory, setResultCategory] = useState<ResultCategory>("all");
     const [query, setQuery] = useState(() => searchParams.get("q") ?? "");
 
-    // Custom hooks
     const {
         libraryResults,
         discoverResults,
@@ -47,7 +48,6 @@ export default function SearchPage() {
     } = useSoulseekSearch({ query, enabled: filterTab !== "library" });
     const { favoriteIds, addFavorite, removeFavorite } = useFavorites();
 
-    // Sync query from URL params when navigating (e.g. browser back/forward)
     useEffect(() => {
         const urlQuery = searchParams.get("q") ?? "";
         if (urlQuery && urlQuery !== query) {
@@ -55,28 +55,45 @@ export default function SearchPage() {
         }
     }, [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    // Derived state
+    // Reset category when source filter or query changes
+    useEffect(() => {
+        setResultCategory("all");
+    }, [filterTab, query]);
+
     const topArtist = discoverResults.find((r) => r.type === "music");
-    const isLoading =
-        isLibrarySearching ||
-        isDiscoverSearching ||
-        isSoulseekSearching ||
-        isSoulseekPolling;
     const showLibrary = filterTab === "all" || filterTab === "library";
     const showDiscover = filterTab === "all" || filterTab === "discover";
     const showSoulseek = filterTab === "all" || filterTab === "soulseek";
 
-    // Determine if we should show the 2-column layout
+    const counts = useMemo(() => ({
+        artists: (libraryResults?.artists?.length ?? 0),
+        albums: (libraryResults?.albums?.length ?? 0),
+        songs: (libraryResults?.tracks?.length ?? 0),
+        playlists: (libraryResults?.playlists?.length ?? 0),
+    }), [libraryResults]);
+
+    const hasLibraryResults = counts.artists + counts.albums + counts.songs + counts.playlists > 0;
+    const isLoading = isLibrarySearching || isDiscoverSearching || isSoulseekSearching || isSoulseekPolling;
+
+    const showCategoryTabs =
+        hasSearched && showLibrary && hasLibraryResults;
+
+    // Category-filtered visibility
+    const showArtists = resultCategory === "all" || resultCategory === "artists";
+    const showAlbums = resultCategory === "all" || resultCategory === "albums";
+    const showSongs = resultCategory === "all" || resultCategory === "songs";
+    const showPlaylists = resultCategory === "all" || resultCategory === "playlists";
+
+    // In "all" category with 2-column layout: top result + songs side-by-side
     const hasTopResult = libraryResults?.artists?.[0] || topArtist;
-    const hasTracks =
-        libraryResults?.tracks?.length > 0 || soulseekResults.length > 0;
+    const hasTracks = (libraryResults?.tracks?.length ?? 0) > 0 || soulseekResults.length > 0;
     const show2ColumnLayout =
         hasSearched &&
+        resultCategory === "all" &&
         hasTopResult &&
         hasTracks &&
         (showLibrary || showDiscover);
 
-    // Handle TV search
     const handleTVSearch = (searchQuery: string) => {
         setQuery(searchQuery);
         router.push(`/search?q=${encodeURIComponent(searchQuery)}`);
@@ -84,7 +101,6 @@ export default function SearchPage() {
 
     return (
         <div className="min-h-screen px-6 py-6">
-            {/* TV Search Input - only visible in TV mode */}
             <TVSearchInput initialQuery={query} onSearch={handleTVSearch} />
 
             <SearchFilters
@@ -94,118 +110,68 @@ export default function SearchPage() {
                 hasSearched={hasSearched}
             />
 
-            <div className="pb-24 space-y-12">
+            <div className="pb-24 space-y-8">
                 {hasSearched && aliasInfo && (
                     <AliasResolutionBanner aliasInfo={aliasInfo} />
                 )}
 
                 <EmptyState hasSearched={hasSearched} isLoading={isLoading} />
 
-                {/* Loading spinner */}
+                {/* Loading spinner — only when no results at all yet */}
                 {hasSearched &&
-                    (isLibrarySearching ||
-                        isDiscoverSearching ||
-                        isSoulseekSearching) &&
-                    (!libraryResults || !libraryResults.artists?.length) &&
+                    isLibrarySearching &&
+                    !hasLibraryResults &&
                     discoverResults.length === 0 && (
                         <div className="flex flex-col items-center justify-center py-16 relative z-10">
                             <div className="relative w-16 h-16 mb-4">
-                                <svg
-                                    className="w-16 h-16 animate-spin"
-                                    viewBox="0 0 64 64"
-                                >
+                                <svg className="w-16 h-16 animate-spin" viewBox="0 0 64 64">
                                     <defs>
-                                        <linearGradient
-                                            id="spinnerGrad"
-                                            x1="0%"
-                                            y1="0%"
-                                            x2="100%"
-                                            y2="100%"
-                                        >
-                                            <stop
-                                                offset="0%"
-                                                style={{
-                                                    stopColor: "#facc15",
-                                                    stopOpacity: 1,
-                                                }}
-                                            />
-                                            <stop
-                                                offset="25%"
-                                                style={{
-                                                    stopColor: "#f59e0b",
-                                                    stopOpacity: 1,
-                                                }}
-                                            />
-                                            <stop
-                                                offset="50%"
-                                                style={{
-                                                    stopColor: "#c026d3",
-                                                    stopOpacity: 1,
-                                                }}
-                                            />
-                                            <stop
-                                                offset="75%"
-                                                style={{
-                                                    stopColor: "#a855f7",
-                                                    stopOpacity: 1,
-                                                }}
-                                            />
-                                            <stop
-                                                offset="100%"
-                                                style={{
-                                                    stopColor: "#facc15",
-                                                    stopOpacity: 1,
-                                                }}
-                                            />
+                                        <linearGradient id="spinnerGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                                            <stop offset="0%" style={{ stopColor: "#facc15", stopOpacity: 1 }} />
+                                            <stop offset="50%" style={{ stopColor: "#c026d3", stopOpacity: 1 }} />
+                                            <stop offset="100%" style={{ stopColor: "#facc15", stopOpacity: 1 }} />
                                         </linearGradient>
                                     </defs>
-                                    <circle
-                                        cx="32"
-                                        cy="32"
-                                        r="28"
-                                        fill="none"
-                                        stroke="url(#spinnerGrad)"
-                                        strokeWidth="4"
-                                        strokeLinecap="round"
-                                        strokeDasharray="140 40"
-                                    />
+                                    <circle cx="32" cy="32" r="28" fill="none" stroke="url(#spinnerGrad)" strokeWidth="4" strokeLinecap="round" strokeDasharray="140 40" />
                                 </svg>
                             </div>
-                            <p className="text-gray-400 text-sm">
-                                {isSoulseekSearching || isSoulseekPolling
-                                    ? `Searching... (${soulseekResults.length} found)`
-                                    : "Searching..."}
-                            </p>
+                            <p className="text-gray-400 text-sm">Searching your library...</p>
                         </div>
                     )}
 
-                {/* 2-Column Layout: Top Result (left) + Songs (right) */}
+                {/* Category tabs for library results */}
+                {showCategoryTabs && (
+                    <ResultCategoryTabs
+                        category={resultCategory}
+                        onChange={setResultCategory}
+                        counts={counts}
+                    />
+                )}
+
+                {/* === 2-Column Layout: Top Result + Songs === */}
                 {show2ColumnLayout ? (
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        {/* Left Column: Top Result */}
                         <div>
                             <TopResult
                                 libraryArtist={libraryResults?.artists?.[0]}
                                 discoveryArtist={topArtist}
                             />
                         </div>
-
-                        {/* Right Column: Songs */}
                         <div>
                             <h2 className="text-2xl font-bold text-white mb-6 flex items-center gap-3">
                                 {showSoulseek && soulseekResults.length > 0
                                     ? "Songs"
                                     : showSoulseek && (isSoulseekSearching || isSoulseekPolling)
-                                    ? <>
-                                        <span>Songs</span>
-                                        <span className="inline-flex items-center gap-2 text-sm font-normal text-gray-400">
-                                            <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24">
-                                                <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray="40 20" />
-                                            </svg>
-                                            Searching...
-                                        </span>
-                                      </>
-                                    : "Songs in Your Library"}
+                                      ? <>
+                                            <span>Songs</span>
+                                            <span className="inline-flex items-center gap-2 text-sm font-normal text-gray-400">
+                                                <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24">
+                                                    <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray="40 20" />
+                                                </svg>
+                                                Searching...
+                                            </span>
+                                        </>
+                                      : "Songs"}
                             </h2>
                             {showSoulseek && soulseekResults.length > 0 ? (
                                 <SoulseekSongsList
@@ -213,22 +179,9 @@ export default function SearchPage() {
                                     downloadingFiles={downloadingFiles}
                                     onDownload={handleDownload}
                                 />
-                            ) : showSoulseek && (isSoulseekSearching || isSoulseekPolling) ? (
-                                <div className="space-y-2">
-                                    {[1, 2, 3].map((i) => (
-                                        <div key={i} className="flex items-center gap-4 p-3 rounded-lg bg-white/5 animate-pulse">
-                                            <div className="w-10 h-10 rounded bg-white/10" />
-                                            <div className="flex-1 space-y-2">
-                                                <div className="h-4 bg-white/10 rounded w-3/4" />
-                                                <div className="h-3 bg-white/10 rounded w-1/2" />
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            ) : showLibrary &&
-                              libraryResults?.tracks?.length > 0 ? (
+                            ) : showLibrary && (libraryResults?.tracks?.length ?? 0) > 0 ? (
                                 <LibraryTracksList
-                                    tracks={libraryResults.tracks}
+                                    tracks={libraryResults!.tracks!}
                                     favoriteIds={favoriteIds}
                                     onToggleFavorite={(trackId, isFavorite) => {
                                         if (isFavorite) addFavorite(trackId);
@@ -240,36 +193,29 @@ export default function SearchPage() {
                     </div>
                 ) : (
                     <>
-                        {/* Original single-column layout when not showing 2-column */}
-                        {hasSearched &&
+                        {/* Single-column: Top Result */}
+                        {hasSearched && showArtists &&
                             (showDiscover || showLibrary) &&
                             hasTopResult && (
-                                <div>
-                                    <TopResult
-                                        libraryArtist={
-                                            libraryResults?.artists?.[0]
-                                        }
-                                        discoveryArtist={topArtist}
-                                    />
-                                </div>
+                                <TopResult
+                                    libraryArtist={libraryResults?.artists?.[0]}
+                                    discoveryArtist={topArtist}
+                                />
                             )}
 
                         {/* Soulseek Songs */}
-                        {hasSearched &&
-                            showSoulseek &&
-                            soulseekResults.length > 0 && (
-                                <section>
-                                    <SoulseekSongsList
-                                        soulseekResults={soulseekResults}
-                                        downloadingFiles={downloadingFiles}
-                                        onDownload={handleDownload}
-                                    />
-                                </section>
-                            )}
+                        {hasSearched && showSoulseek && showSongs && soulseekResults.length > 0 && (
+                            <section>
+                                <SoulseekSongsList
+                                    soulseekResults={soulseekResults}
+                                    downloadingFiles={downloadingFiles}
+                                    onDownload={handleDownload}
+                                />
+                            </section>
+                        )}
 
-                        {/* Soulseek Loading State */}
-                        {hasSearched &&
-                            showSoulseek &&
+                        {/* Soulseek Loading */}
+                        {hasSearched && showSoulseek && showSongs &&
                             soulseekResults.length === 0 &&
                             (isSoulseekSearching || isSoulseekPolling) && (
                                 <section>
@@ -297,15 +243,12 @@ export default function SearchPage() {
                             )}
 
                         {/* Library Songs */}
-                        {hasSearched &&
-                            showLibrary &&
-                            libraryResults?.tracks?.length > 0 && (
+                        {hasSearched && showLibrary && showSongs &&
+                            (libraryResults?.tracks?.length ?? 0) > 0 && (
                                 <section>
-                                    <h2 className="text-2xl font-bold text-white mb-6">
-                                        Songs in Your Library
-                                    </h2>
+                                    <h2 className="text-2xl font-bold text-white mb-6">Songs</h2>
                                     <LibraryTracksList
-                                        tracks={libraryResults.tracks}
+                                        tracks={libraryResults!.tracks!}
                                         favoriteIds={favoriteIds}
                                         onToggleFavorite={(trackId, isFavorite) => {
                                             if (isFavorite) addFavorite(trackId);
@@ -318,79 +261,55 @@ export default function SearchPage() {
                 )}
 
                 {/* Library Albums */}
-                {hasSearched &&
-                    showLibrary &&
-                    libraryResults?.albums?.length > 0 && (
+                {hasSearched && showLibrary && showAlbums &&
+                    (libraryResults?.albums?.length ?? 0) > 0 && (
                         <section>
-                            <h2 className="text-2xl font-bold text-white mb-6">
-                                Your Albums
-                            </h2>
-                            <LibraryAlbumsGrid albums={libraryResults.albums} />
+                            <h2 className="text-2xl font-bold text-white mb-6">Albums</h2>
+                            <LibraryAlbumsGrid albums={libraryResults!.albums!} />
                         </section>
                     )}
 
                 {/* Library Playlists */}
-                {hasSearched &&
-                    showLibrary &&
+                {hasSearched && showLibrary && showPlaylists &&
                     libraryResults?.playlists &&
                     libraryResults.playlists.length > 0 && (
                         <section>
-                            <h2 className="text-2xl font-bold text-white mb-6">
-                                Playlists
-                            </h2>
-                            <LibraryPlaylistsGrid
-                                playlists={libraryResults.playlists}
-                            />
+                            <h2 className="text-2xl font-bold text-white mb-6">Playlists</h2>
+                            <LibraryPlaylistsGrid playlists={libraryResults.playlists} />
                         </section>
                     )}
 
-                {/* Library Podcasts */}
-                {hasSearched &&
-                    showLibrary &&
-                    libraryResults?.podcasts?.length > 0 && (
+                {/* Podcasts (only in "all" category) */}
+                {hasSearched && showLibrary && resultCategory === "all" &&
+                    (libraryResults?.podcasts?.length ?? 0) > 0 && (
                         <section>
-                            <h2 className="text-2xl font-bold text-white mb-6">
-                                Podcasts
-                            </h2>
-                            <LibraryPodcastsGrid
-                                podcasts={libraryResults.podcasts}
-                            />
+                            <h2 className="text-2xl font-bold text-white mb-6">Podcasts</h2>
+                            <LibraryPodcastsGrid podcasts={libraryResults!.podcasts!} />
                         </section>
                     )}
 
-                {/* Library Audiobooks */}
-                {hasSearched &&
-                    showLibrary &&
+                {/* Audiobooks (only in "all" category) */}
+                {hasSearched && showLibrary && resultCategory === "all" &&
                     libraryResults?.audiobooks &&
                     libraryResults.audiobooks.length > 0 && (
                         <section>
-                            <h2 className="text-2xl font-bold text-white mb-6">
-                                Audiobooks
-                            </h2>
-                            <LibraryAudiobooksGrid
-                                audiobooks={libraryResults.audiobooks}
-                            />
+                            <h2 className="text-2xl font-bold text-white mb-6">Audiobooks</h2>
+                            <LibraryAudiobooksGrid audiobooks={libraryResults.audiobooks} />
                         </section>
                     )}
 
-                {/* Podcast Episodes */}
-                {hasSearched &&
-                    showLibrary &&
+                {/* Podcast Episodes (only in "all" category) */}
+                {hasSearched && showLibrary && resultCategory === "all" &&
                     libraryResults?.episodes &&
                     libraryResults.episodes.length > 0 && (
                         <section>
-                            <h2 className="text-2xl font-bold text-white mb-6">
-                                Podcast Episodes
-                            </h2>
-                            <LibraryEpisodesList
-                                episodes={libraryResults.episodes}
-                            />
+                            <h2 className="text-2xl font-bold text-white mb-6">Podcast Episodes</h2>
+                            <LibraryEpisodesList episodes={libraryResults.episodes} />
                         </section>
                     )}
 
-                {/* Related Artists */}
-                {hasSearched &&
-                    showDiscover &&
+                {/* Related Artists (only in "all" or "artists" category) */}
+                {hasSearched && showDiscover && showArtists &&
                     similarArtists.length > 0 && (
                         <SimilarArtistsGrid similarArtists={similarArtists} />
                     )}
@@ -410,12 +329,8 @@ export default function SearchPage() {
                             !libraryResults.episodes?.length)) && (
                         <div className="flex flex-col items-center justify-center py-24 text-center">
                             <SearchIcon className="w-16 h-16 text-gray-700 mb-4" />
-                            <h3 className="text-xl font-bold text-white mb-2">
-                                No results found
-                            </h3>
-                            <p className="text-gray-400">
-                                Try searching for something else
-                            </p>
+                            <h3 className="text-xl font-bold text-white mb-2">No results found</h3>
+                            <p className="text-gray-400">Try searching for something else</p>
                         </div>
                     )}
             </div>

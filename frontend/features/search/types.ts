@@ -1,4 +1,5 @@
 export type FilterTab = "all" | "library" | "discover" | "soulseek";
+export type ResultCategory = "all" | "artists" | "albums" | "songs" | "playlists";
 
 export interface Artist {
     id: string;

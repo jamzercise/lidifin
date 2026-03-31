@@ -2,7 +2,7 @@ import { ApiClient, ApiData } from "./client";
 
 declare module "./client" {
     interface ApiClient {
-        search(query: string, type?: "all" | "artists" | "albums" | "tracks" | "audiobooks" | "podcasts", limit?: number, signal?: AbortSignal): Promise<ApiData>;
+        search(query: string, type?: "all" | "artists" | "albums" | "tracks" | "playlists" | "audiobooks" | "podcasts", limit?: number, signal?: AbortSignal): Promise<ApiData>;
         discoverSearch(query: string, type?: "music" | "podcasts" | "all", limit?: number, signal?: AbortSignal): Promise<{ results: ApiData[]; aliasInfo: { original: string; canonical: string; mbid?: string } | null }>;
         discoverSimilarArtists(artist: string, mbid?: string, signal?: AbortSignal): Promise<{ similarArtists: ApiData[] }>;
     }
@@ -11,7 +11,7 @@ declare module "./client" {
 ApiClient.prototype.search = async function (
     this: ApiClient,
     query: string,
-    type: "all" | "artists" | "albums" | "tracks" | "audiobooks" | "podcasts" = "all",
+    type: "all" | "artists" | "albums" | "tracks" | "playlists" | "audiobooks" | "podcasts" = "all",
     limit: number = 20,
     signal?: AbortSignal
 ) {

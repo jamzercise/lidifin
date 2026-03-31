@@ -22,6 +22,7 @@ export function useSearchQuery(
         | "artists"
         | "albums"
         | "tracks"
+        | "playlists"
         | "audiobooks"
         | "podcasts" = "all",
     limit: number = 20,
@@ -30,23 +31,12 @@ export function useSearchQuery(
         queryKey: queryKeys.search(query, type, limit),
         queryFn: ({ signal }) => api.search(query, type, limit, signal),
         enabled: query.length >= 2,
-        staleTime: 10 * 60 * 1000, // 10 min — backend caches for 15 min
-        gcTime: 15 * 60 * 1000,
-        placeholderData: keepPreviousData, // keep old results visible while typing
+        staleTime: 2 * 60 * 1000,
+        gcTime: 5 * 60 * 1000,
+        placeholderData: keepPreviousData,
     });
 }
 
-/**
- * Hook to search discovery/Last.fm with debouncing
- *
- * @param query - Search query string
- * @param type - Type filter (music, podcasts, all)
- * @param limit - Number of results (default: 20)
- * @returns Query result with discovery search results
- *
- * @example
- * const { data } = useDiscoverSearchQuery("radiohead", "music", 20);
- */
 export function useDiscoverSearchQuery(
     query: string,
     type: "music" | "podcasts" | "all" = "music",
@@ -56,7 +46,7 @@ export function useDiscoverSearchQuery(
         queryKey: queryKeys.discoverSearch(query, type, limit),
         queryFn: ({ signal }) => api.discoverSearch(query, type, limit, signal),
         enabled: query.length >= 2,
-        staleTime: 10 * 60 * 1000, // 10 min — backend caches for 15 min
+        staleTime: 10 * 60 * 1000,
         gcTime: 15 * 60 * 1000,
         placeholderData: keepPreviousData,
     });

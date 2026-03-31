@@ -4,6 +4,17 @@ import { requireAuth } from "../middleware/auth";
 import { prisma } from "../utils/db";
 import { lastFmService } from "../services/lastfm";
 import { searchService, normalizeCacheQuery, type SearchResults } from "../services/search";
+import {
+    getJellyfinConfig,
+    getJellyfinArtists,
+    getJellyfinAlbums,
+    getJellyfinTracks,
+    getJellyfinImageUrl,
+    type JellyfinConfig,
+    type ResolvedArtist,
+    type ResolvedAlbum,
+    type ResolvedTrack,
+} from "../services/jellyfin";
 import axios from "axios";
 import { redisClient } from "../utils/redis";
 
@@ -34,7 +45,7 @@ function transformSearchResults(serviceResults: SearchResults) {
                 id: track.albumId,
                 title: track.albumTitle,
                 artistId: track.artistId,
-                coverUrl: null,
+                coverUrl: track.coverUrl ?? null,
                 artist: {
                     id: track.artistId,
                     name: track.artistName,
@@ -46,6 +57,123 @@ function transformSearchResults(serviceResults: SearchResults) {
         audiobooks: serviceResults.audiobooks,
         podcasts: serviceResults.podcasts,
         episodes: serviceResults.episodes,
+    };
+}
+
+async function searchJellyfin(
+    query: string,
+    limit: number,
+    types: ("artists" | "albums" | "tracks")[],
+): Promise<Partial<SearchResults>> {
+    const cfg = await getJellyfinConfig();
+    if (!cfg) return {};
+
+    const result: Partial<SearchResults> = {};
+    const promises: Promise<void>[] = [];
+
+    if (types.includes("artists")) {
+        promises.push(
+            getJellyfinArtists(cfg, { search: query, limit })
+                .then(({ artists }) => {
+                    result.artists = artists.map((a) => ({
+                        id: a.id,
+                        name: a.name,
+                        mbid: a.mbid ?? "",
+                        heroUrl: a.coverArt ?? null,
+                        rank: 0,
+                    }));
+                })
+                .catch((err) => {
+                    logger.warn("[SEARCH] Jellyfin artist search failed:", err.message);
+                }),
+        );
+    }
+
+    if (types.includes("albums")) {
+        promises.push(
+            getJellyfinAlbums(cfg, { search: query, limit })
+                .then(({ albums }) => {
+                    result.albums = albums.map((a) => ({
+                        id: a.id,
+                        title: a.title,
+                        artistId: a.artist?.id ?? "",
+                        artistName: a.artist?.name ?? "",
+                        year: a.year ?? null,
+                        coverUrl: a.coverArt,
+                        rank: 0,
+                    }));
+                })
+                .catch((err) => {
+                    logger.warn("[SEARCH] Jellyfin album search failed:", err.message);
+                }),
+        );
+    }
+
+    if (types.includes("tracks")) {
+        promises.push(
+            getJellyfinTracks(cfg, { search: query, limit })
+                .then(({ tracks }) => {
+                    result.tracks = tracks.map((t) => ({
+                        id: t.id,
+                        title: t.title,
+                        albumId: t.album?.id ?? "",
+                        albumTitle: t.album?.title ?? "",
+                        artistId: t.artist?.id ?? "",
+                        artistName: t.artist?.name ?? "",
+                        duration: t.duration,
+                        coverUrl: t.album?.coverArt ?? null,
+                        rank: 0,
+                    }));
+                })
+                .catch((err) => {
+                    logger.warn("[SEARCH] Jellyfin track search failed:", err.message);
+                }),
+        );
+    }
+
+    await Promise.allSettled(promises);
+    return result;
+}
+
+function mergeResults(postgres: SearchResults, jellyfin: Partial<SearchResults>): SearchResults {
+    const seenArtists = new Set(postgres.artists.map((a) => a.name.toLowerCase()));
+    const seenAlbums = new Set(postgres.albums.map((a) => `${a.title.toLowerCase()}|${a.artistName.toLowerCase()}`));
+    const seenTracks = new Set(postgres.tracks.map((t) => `${t.title.toLowerCase()}|${t.artistName.toLowerCase()}`));
+
+    const mergedArtists = [...postgres.artists];
+    for (const a of jellyfin.artists ?? []) {
+        if (!seenArtists.has(a.name.toLowerCase())) {
+            mergedArtists.push(a);
+            seenArtists.add(a.name.toLowerCase());
+        }
+    }
+
+    const mergedAlbums = [...postgres.albums];
+    for (const a of jellyfin.albums ?? []) {
+        const key = `${a.title.toLowerCase()}|${a.artistName.toLowerCase()}`;
+        if (!seenAlbums.has(key)) {
+            mergedAlbums.push(a);
+            seenAlbums.add(key);
+        }
+    }
+
+    const mergedTracks = [...postgres.tracks];
+    for (const t of jellyfin.tracks ?? []) {
+        const key = `${t.title.toLowerCase()}|${t.artistName.toLowerCase()}`;
+        if (!seenTracks.has(key)) {
+            mergedTracks.push(t);
+            seenTracks.add(key);
+        }
+    }
+
+    return {
+        artists: mergedArtists,
+        albums: mergedAlbums,
+        tracks: mergedTracks,
+        playlists: postgres.playlists,
+        podcasts: postgres.podcasts,
+        audiobooks: postgres.audiobooks,
+        episodes: postgres.episodes,
     };
 }
 
@@ -146,26 +274,24 @@ router.get("/", async (req, res) => {
             });
         }
 
-        if (type === "all") {
-            const serviceResults = await searchService.searchAll({
-                query,
-                limit: searchLimit,
-                genre: genre as string | undefined,
-                userId,
-            });
+        const musicTypes: ("artists" | "albums" | "tracks")[] =
+            type === "all"
+                ? ["artists", "albums", "tracks"]
+                : type === "artists" || type === "albums" || type === "tracks"
+                  ? [type as "artists" | "albums" | "tracks"]
+                  : [];
 
-            return res.json(transformSearchResults(serviceResults));
-        }
+        const [pgResults, jfResults] = await Promise.all([
+            type === "all"
+                ? searchService.searchAll({ query, limit: searchLimit, genre: genre as string | undefined, userId })
+                : searchService.searchByType({ query, type: type as string, limit: searchLimit, genre: genre as string | undefined, userId }),
+            musicTypes.length > 0
+                ? searchJellyfin(query, searchLimit, musicTypes)
+                : Promise.resolve({}),
+        ]);
 
-        const serviceResults = await searchService.searchByType({
-            query,
-            type: type as string,
-            limit: searchLimit,
-            genre: genre as string | undefined,
-            userId,
-        });
-
-        res.json(transformSearchResults(serviceResults));
+        const merged = mergeResults(pgResults, jfResults);
+        res.json(transformSearchResults(merged));
     } catch (error) {
         logger.error("Search error:", error);
         res.status(500).json({ error: "Search failed" });

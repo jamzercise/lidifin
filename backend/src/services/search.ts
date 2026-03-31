@@ -39,6 +39,7 @@ export interface TrackSearchResult {
     artistId: string;
     artistName: string;
     duration: number;
+    coverUrl?: string | null;
     rank: number;
 }
 
