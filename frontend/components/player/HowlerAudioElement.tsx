@@ -151,6 +151,7 @@ export const HowlerAudioElement = memo(function HowlerAudioElement() {
     // Preload management
     const preloadTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const lastPreloadedTrackIdRef = useRef<string | null>(null);
+    const loadTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
     // Heartbeat monitor for detecting stalled playback
     const heartbeatRef = useRef<HeartbeatMonitor | null>(null);
@@ -184,11 +185,12 @@ export const HowlerAudioElement = memo(function HowlerAudioElement() {
         heartbeatRef.current = new HeartbeatMonitor(
             {
             onStall: () => {
-                // Playback stalled - time not moving but Howler says playing
                 console.warn("[HowlerAudioElement] Heartbeat detected stall");
-                playbackStateMachine.transition("BUFFERING");
+                const transitioned = playbackStateMachine.transition("BUFFERING");
+                if (!transitioned) {
+                    playbackStateMachine.forceTransition("BUFFERING");
+                }
                 setIsBuffering(true);
-                // Try seek-to-current to force range request - can unfreeze stuck streams
                 const t = howlerEngine.getCurrentTime();
                 if (t > 0) howlerEngine.seek(t);
                 heartbeatRef.current?.startBufferTimeout();
@@ -229,12 +231,13 @@ export const HowlerAudioElement = memo(function HowlerAudioElement() {
                 }
             },
             onRecovery: () => {
-                // Recovered from stall
                 console.log("[HowlerAudioElement] Recovered from stall");
                 if (playbackStateMachine.isBuffering) {
                     playbackStateMachine.transition("PLAYING");
-                    setIsBuffering(false);
+                } else if (!playbackStateMachine.isPlaying && howlerEngine.isPlaying()) {
+                    playbackStateMachine.forceTransition("PLAYING");
                 }
+                setIsBuffering(false);
             },
             getCurrentTime: () => howlerEngine.getCurrentTime(),
             isActuallyPlaying: () => howlerEngine.isPlaying(),
@@ -498,7 +501,6 @@ export const HowlerAudioElement = memo(function HowlerAudioElement() {
         }
 
         if (currentMediaId === lastTrackIdRef.current) {
-            // Skip if a seek operation is in progress - the seek handler will manage playback
             if (isSeekingRef.current) {
                 return;
             }
@@ -513,7 +515,12 @@ export const HowlerAudioElement = memo(function HowlerAudioElement() {
             return;
         }
 
-        if (isLoadingRef.current) return;
+        if (isLoadingRef.current) {
+            const loadAge = Date.now() - (playbackStateMachine.getContext().lastTransitionTime || 0);
+            if (loadAge < 30000) return;
+            console.warn("[HowlerAudioElement] Clearing stuck isLoadingRef after 30s");
+            isLoadingRef.current = false;
+        }
 
         isLoadingRef.current = true;
         lastTrackIdRef.current = currentMediaId;
@@ -589,6 +596,10 @@ export const HowlerAudioElement = memo(function HowlerAudioElement() {
                 if (loadIdRef.current !== thisLoadId) return;
 
                 isLoadingRef.current = false;
+                if (loadTimeoutRef.current) {
+                    clearTimeout(loadTimeoutRef.current);
+                    loadTimeoutRef.current = null;
+                }
 
                 if (startTime > 0) {
                     howlerEngine.seek(startTime);
@@ -629,18 +640,45 @@ export const HowlerAudioElement = memo(function HowlerAudioElement() {
 
             const handleLoadError = () => {
                 isLoadingRef.current = false;
+                if (loadTimeoutRef.current) {
+                    clearTimeout(loadTimeoutRef.current);
+                    loadTimeoutRef.current = null;
+                }
                 howlerEngine.off("load", handleLoaded);
                 howlerEngine.off("loaderror", handleLoadError);
                 loadListenerRef.current = null;
                 loadErrorListenerRef.current = null;
             };
 
-            // Store refs for cleanup on unmount
             loadListenerRef.current = handleLoaded;
             loadErrorListenerRef.current = handleLoadError;
 
             howlerEngine.on("load", handleLoaded);
             howlerEngine.on("loaderror", handleLoadError);
+
+            // Safety: if stream never loads within 30s, force error and skip
+            if (loadTimeoutRef.current) clearTimeout(loadTimeoutRef.current);
+            loadTimeoutRef.current = setTimeout(() => {
+                if (!isLoadingRef.current || loadIdRef.current !== thisLoadId) return;
+                console.error("[HowlerAudioElement] Load timeout - stream failed to load within 30s");
+                isLoadingRef.current = false;
+                lastTrackIdRef.current = null;
+                playbackStateMachine.forceTransition("ERROR", { error: "Stream load timeout" });
+                setIsPlaying(false);
+                setIsBuffering(false);
+                howlerEngine.off("load", handleLoaded);
+                howlerEngine.off("loaderror", handleLoadError);
+                loadListenerRef.current = null;
+                loadErrorListenerRef.current = null;
+
+                const r = recoveryRef.current;
+                if (r.playbackType === "track" && r.queue.length > 1) {
+                    r.next();
+                } else {
+                    r.setCurrentTrack(null);
+                    r.setPlaybackType(null);
+                }
+            }, 30000);
         } else {
             isLoadingRef.current = false;
         }
