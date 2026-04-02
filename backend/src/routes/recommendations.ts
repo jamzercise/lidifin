@@ -53,60 +53,80 @@ router.get("/for-you", async (req, res) => {
         const allSimilarArtists = await Promise.all(
             topArtists.map(async ({ artist }) => {
                 let queryArtistId = artist.id;
+                const isJellyfin = artist.id.startsWith("jellyfin:");
 
                 // For Jellyfin artists, resolve to a native Artist via the bridge
-                if (artist.id.startsWith("jellyfin:")) {
+                if (isJellyfin) {
                     try {
                         const bridged = await resolveJellyfinArtistToNative(
                             artist.name,
-                            artist.mbid || null
+                            null
                         );
                         if (bridged) {
                             queryArtistId = bridged.nativeId;
-                        } else {
-                            // No native match — try live Last.fm similar artists as fallback
-                            const lfmSimilar = await lastFmService.getSimilarArtists(
-                                "",
-                                artist.name,
-                                10
-                            );
-                            if (lfmSimilar && lfmSimilar.length > 0) {
-                                // Match Last.fm results against native artists in the DB
-                                const names = lfmSimilar.map((a: any) => a.name);
-                                const matched = await prisma.artist.findMany({
-                                    where: { name: { in: names, mode: "insensitive" } },
-                                    select: { id: true, mbid: true, name: true, heroUrl: true },
-                                    take: 10,
-                                });
-                                return matched;
-                            }
-                            return [];
                         }
                     } catch (err) {
                         logger.debug(
                             `[Recommendations] Failed to bridge Jellyfin artist "${artist.name}":`,
                             err instanceof Error ? err.message : err
                         );
-                        return [];
                     }
                 }
 
-                const similar = await prisma.similarArtist.findMany({
-                    where: { fromArtistId: queryArtistId },
-                    orderBy: { weight: "desc" },
-                    take: 10,
-                    include: {
-                        toArtist: {
-                            select: {
-                                id: true,
-                                mbid: true,
-                                name: true,
-                                heroUrl: true,
+                // Try the SimilarArtist DB graph (works for native and successfully bridged artists)
+                let results: { id: string; mbid: string; name: string; heroUrl: string | null }[] = [];
+                if (!isJellyfin || queryArtistId !== artist.id) {
+                    const similar = await prisma.similarArtist.findMany({
+                        where: { fromArtistId: queryArtistId },
+                        orderBy: { weight: "desc" },
+                        take: 10,
+                        include: {
+                            toArtist: {
+                                select: {
+                                    id: true,
+                                    mbid: true,
+                                    name: true,
+                                    heroUrl: true,
+                                },
                             },
                         },
-                    },
-                });
-                return similar.map((s) => s.toArtist);
+                    });
+                    results = similar.map((s) => s.toArtist);
+                }
+
+                // If DB had no results (common for newly bridged artists), use Last.fm
+                if (results.length === 0) {
+                    try {
+                        const lfmSimilar = await lastFmService.getSimilarArtists(
+                            "",
+                            artist.name,
+                            10
+                        );
+                        if (lfmSimilar && lfmSimilar.length > 0) {
+                            const names = lfmSimilar.map((a: any) => a.name);
+                            const matched = await prisma.artist.findMany({
+                                where: { name: { in: names, mode: "insensitive" } },
+                                select: { id: true, mbid: true, name: true, heroUrl: true },
+                                take: 10,
+                            });
+                            if (matched.length > 0) {
+                                results = matched;
+                            } else {
+                                // No DB matches — return Last.fm artists directly
+                                results = lfmSimilar.slice(0, 10).map((a: any) => ({
+                                    id: a.mbid || a.name,
+                                    mbid: a.mbid || a.name,
+                                    name: a.name,
+                                    heroUrl: null,
+                                }));
+                            }
+                        }
+                    } catch {
+                        // Last.fm is best-effort
+                    }
+                }
+
+                return results;
             })
         );
 
