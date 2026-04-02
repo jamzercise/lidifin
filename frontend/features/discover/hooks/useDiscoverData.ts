@@ -162,6 +162,16 @@ export function useDiscoverData() {
     });
   }, []);
 
+  const handleRebuild = useCallback(async () => {
+    try {
+      await api.rebuildDiscoverWeekly();
+      setPendingGeneration(true);
+      startPolling();
+    } catch (error) {
+      console.error('Failed to rebuild:', error);
+    }
+  }, [startPolling]);
+
   return {
     playlist,
     config,
@@ -173,5 +183,6 @@ export function useDiscoverData() {
     setPendingGeneration,
     updateTrackLiked,
     isGenerating: pendingGeneration || batchStatus?.active || false,
+    handleRebuild,
   };
 }

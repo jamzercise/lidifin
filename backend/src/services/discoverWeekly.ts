@@ -560,7 +560,32 @@ export class DiscoverWeeklyService {
                 continue;
             }
 
-            // Check if batch should be force-completed
+            // If all jobs are done but batch is still "downloading", checkBatchCompletion
+            // may have failed or never ran — retry it immediately
+            if (pendingJobs.length === 0 && batch.status === "downloading") {
+                logger.debug(
+                    `\n🔧 [BATCH RECOVERY] Batch ${batch.id} stuck in "downloading" with 0 pending jobs — retrying completion`
+                );
+                await this.checkBatchCompletion(batch.id);
+                forcedCount++;
+                continue;
+            }
+
+            // If batch is stuck in "scanning" (buildFinalPlaylist failed), retry it
+            if (pendingJobs.length === 0 && batch.status === "scanning" && batchAge > 5 * 60 * 1000) {
+                logger.debug(
+                    `\n🔧 [BATCH RECOVERY] Batch ${batch.id} stuck in "scanning" for ${Math.round(batchAge / 60000)}min — retrying playlist build`
+                );
+                try {
+                    await this.buildFinalPlaylist(batch.id);
+                } catch (err: any) {
+                    logger.error(`   Retry buildFinalPlaylist failed: ${err.message}`);
+                }
+                forcedCount++;
+                continue;
+            }
+
+            // Check if batch should be force-completed (pending jobs timed out)
             const hasCompletions = completedJobs.length > 0;
             const timeout = hasCompletions
                 ? BATCH_TIMEOUT_WITH_COMPLETIONS
