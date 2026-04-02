@@ -37,6 +37,8 @@ export const queryKeys = {
 
     // Recommendations
     recommendations: (limit?: number) => ["recommendations", limit] as const,
+    becauseYouListened: (limit?: number) =>
+        ["recommendations", "because-you-listened", limit] as const,
     similarArtists: (seedArtistId: string, limit?: number) =>
         ["recommendations", "artists", seedArtistId, limit] as const,
     similarAlbums: (seedAlbumId: string, limit?: number) =>

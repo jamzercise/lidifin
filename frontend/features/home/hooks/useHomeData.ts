@@ -30,6 +30,7 @@ import {
     useRecentlyListenedQuery,
     useRecentlyAddedQuery,
     useRecommendationsQuery,
+    useBecauseYouListenedQuery,
     useMixesQuery,
     usePopularArtistsQuery,
     useTopPodcastsQuery,
@@ -57,6 +58,7 @@ export interface UseHomeDataReturn {
     recentlyListened: ListenedItem[];
     recentlyAddedAlbums: RecentlyAddedAlbum[];
     recommended: import("../types").Artist[];
+    becauseYouListened: import("../components/BecauseYouListenedTo").BecauseYouListenedSection[];
     mixes: Mix[];
     popularArtists: PopularArtist[];
     recentPodcasts: Podcast[];
@@ -133,6 +135,8 @@ export function useHomeData(): UseHomeDataReturn {
         useRecentlyAddedQuery(10);
     const { data: recommendedData, isLoading: isLoadingRecommended } =
         useRecommendationsQuery(10);
+    const { data: becauseYouListenedData } =
+        useBecauseYouListenedQuery(3);
     const { data: mixesData, isLoading: isLoadingMixes } = useMixesQuery();
     const { data: popularData, isLoading: isLoadingPopular } =
         usePopularArtistsQuery(20);
@@ -167,6 +171,7 @@ export function useHomeData(): UseHomeDataReturn {
     const handleRefreshHome = () => {
         queryClient.refetchQueries({ queryKey: queryKeys.library() });
         queryClient.refetchQueries({ queryKey: queryKeys.recommendations() });
+        queryClient.refetchQueries({ queryKey: queryKeys.becauseYouListened() });
         queryClient.refetchQueries({ queryKey: queryKeys.popularArtists() });
         toast.success("Home refreshed");
     };
@@ -189,6 +194,7 @@ export function useHomeData(): UseHomeDataReturn {
         recentlyListened: items,
         recentlyAddedAlbums: recentlyAddedData?.albums || [],
         recommended: recommendedData?.artists || [],
+        becauseYouListened: becauseYouListenedData?.sections || [],
         mixes: Array.isArray(mixesData) ? mixesData : [],
         popularArtists: popularData?.artists || [],
         recentPodcasts: Array.isArray(podcastsData)

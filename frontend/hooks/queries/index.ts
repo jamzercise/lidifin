@@ -11,6 +11,7 @@ export {
     useRecentlyListenedQuery,
     useRecentlyAddedQuery,
     useRecommendationsQuery,
+    useBecauseYouListenedQuery,
     useSimilarArtistsQuery,
     useSimilarAlbumsQuery,
     usePopularArtistsQuery,

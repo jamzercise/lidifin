@@ -321,20 +321,44 @@ export class ProgrammaticPlaylistService {
             {
                 fn: () =>
                     this.generateJellyfinGenreMix(today + seedSuffix),
-                weight: 2,
+                weight: 3,
                 name: "Jellyfin Genre Mix",
+                jellyfinOnly: true,
             },
             {
                 fn: () =>
                     this.generateJellyfinDiscoveryMix(today + seedSuffix),
-                weight: 2,
+                weight: 3,
                 name: "Jellyfin Discovery Mix",
+                jellyfinOnly: true,
             },
             {
                 fn: () =>
                     this.generateJellyfinMoodMix(today + seedSuffix),
-                weight: 2,
+                weight: 3,
                 name: "Jellyfin Mood Mix",
+                jellyfinOnly: true,
+            },
+            {
+                fn: () =>
+                    this.generateJellyfinDeepCutsMix(userId, today + seedSuffix),
+                weight: 3,
+                name: "Jellyfin Deep Cuts",
+                jellyfinOnly: true,
+            },
+            {
+                fn: () =>
+                    this.generateJellyfinRecentlyAddedMix(today + seedSuffix),
+                weight: 3,
+                name: "Jellyfin Recently Added",
+                jellyfinOnly: true,
+            },
+            {
+                fn: () =>
+                    this.generateJellyfinArtistDeepDiveMix(userId, today + seedSuffix),
+                weight: 3,
+                name: "Jellyfin Artist Deep Dive",
+                jellyfinOnly: true,
             },
             {
                 fn: () => this.generatePartyMix(userId, today + seedSuffix),
@@ -518,14 +542,45 @@ export class ProgrammaticPlaylistService {
             },
         ];
 
-        // Select 5 mixes based on date seed
+        // Select 5 mixes based on date seed, with Jellyfin priority when applicable
         const selectedIndices: number[] = [];
         let seed = dateSeed;
 
+        // When Jellyfin is the primary music source, guarantee 2 Jellyfin slots
+        const { isJellyfinMusicSource } = await import("./jellyfin");
+        const isJellyfin = await isJellyfinMusicSource();
+        const JELLYFIN_RESERVED_SLOTS = isJellyfin ? 2 : 0;
+
+        if (isJellyfin && JELLYFIN_RESERVED_SLOTS > 0) {
+            const jellyfinIndices = mixGenerators
+                .map((g, i) => ({ index: i, isJellyfin: "jellyfinOnly" in g && (g as any).jellyfinOnly }))
+                .filter((g) => g.isJellyfin)
+                .map((g) => g.index);
+
+            if (jellyfinIndices.length > 0) {
+                // Pick JELLYFIN_RESERVED_SLOTS unique Jellyfin generators using seeded random
+                let jfSeed = seed;
+                while (
+                    selectedIndices.length < JELLYFIN_RESERVED_SLOTS &&
+                    selectedIndices.length < jellyfinIndices.length
+                ) {
+                    jfSeed = (jfSeed * 9301 + 49297) % 233280;
+                    const pick = jellyfinIndices[jfSeed % jellyfinIndices.length];
+                    if (!selectedIndices.includes(pick)) {
+                        selectedIndices.push(pick);
+                        logger.debug(
+                            `[MIXES] Reserved Jellyfin slot: index ${pick} (${mixGenerators[pick].name})`
+                        );
+                    }
+                }
+            }
+        }
+
         logger.debug(
-            `[MIXES] Selecting ${this.DAILY_MIX_COUNT} mixes from ${mixGenerators.length} types...`
+            `[MIXES] Selecting ${this.DAILY_MIX_COUNT} mixes from ${mixGenerators.length} types (${JELLYFIN_RESERVED_SLOTS} Jellyfin reserved)...`
         );
 
+        // Fill remaining slots from the full pool
         while (selectedIndices.length < this.DAILY_MIX_COUNT) {
             seed = (seed * 9301 + 49297) % 233280;
             const index = seed % mixGenerators.length;
@@ -1224,6 +1279,186 @@ export class ProgrammaticPlaylistService {
             coverUrls,
             trackCount: valid.length,
             color: getMixColor("chill"),
+        };
+    }
+
+    /**
+     * Jellyfin-only: Deep Cuts — least-played tracks from the Jellyfin library
+     */
+    async generateJellyfinDeepCutsMix(
+        userId: string,
+        today: string
+    ): Promise<ProgrammaticMix | null> {
+        const { isJellyfinMusicSource } = await import("./jellyfin");
+        if (!(await isJellyfinMusicSource())) return null;
+
+        // Find tracks with the fewest plays (or no plays at all)
+        const playedTrackIds = await prisma.play.groupBy({
+            by: ["trackId"],
+            where: { userId, trackId: { startsWith: "jellyfin:" } },
+            _count: { id: true },
+            orderBy: { _count: { id: "asc" } },
+        });
+        const playedSet = new Set(playedTrackIds.map((p) => p.trackId));
+
+        // Get all Jellyfin tracks and prefer those never played
+        const allTracks = await prisma.jellyfinTrackMetadata.findMany({
+            select: { jellyfinId: true },
+            take: 500,
+        });
+
+        const neverPlayed = allTracks
+            .filter((t) => !playedSet.has(t.jellyfinId))
+            .map((t) => t.jellyfinId);
+
+        const pool =
+            neverPlayed.length >= this.TRACK_LIMIT
+                ? neverPlayed
+                : [...neverPlayed, ...playedTrackIds.slice(0, 50).map((p) => p.trackId)];
+
+        if (pool.length < 5) return null;
+
+        const selected = randomSample(pool, this.TRACK_LIMIT);
+        const { resolveTrackReferences } = await import("./jellyfin");
+        const resolved = await resolveTrackReferences(selected);
+        const valid = resolved.filter((t): t is NonNullable<typeof t> => t !== null);
+        if (valid.length < 5) return null;
+
+        const coverUrls = valid
+            .filter((t) => t.album?.coverArt)
+            .slice(0, 4)
+            .map((t) => t.album!.coverArt!);
+
+        return {
+            id: `jellyfin-deep-cuts-${today}`,
+            type: "deep-cuts",
+            name: "Deep Cuts",
+            description: "Hidden gems you haven't played much",
+            trackIds: valid.map((t) => t.id),
+            coverUrls,
+            trackCount: valid.length,
+            color: getMixColor("discovery"),
+        };
+    }
+
+    /**
+     * Jellyfin-only: Recently Added — newest tracks added to the Jellyfin library
+     */
+    async generateJellyfinRecentlyAddedMix(
+        today: string
+    ): Promise<ProgrammaticMix | null> {
+        const { isJellyfinMusicSource } = await import("./jellyfin");
+        if (!(await isJellyfinMusicSource())) return null;
+
+        const rows = await prisma.jellyfinTrackMetadata.findMany({
+            select: { jellyfinId: true },
+            orderBy: { createdAt: "desc" },
+            take: this.TRACK_LIMIT * 2,
+        });
+        const trackIds = rows.map((r) => r.jellyfinId);
+        if (trackIds.length < 5) return null;
+
+        const selected = trackIds.slice(0, this.TRACK_LIMIT);
+        const { resolveTrackReferences } = await import("./jellyfin");
+        const resolved = await resolveTrackReferences(selected);
+        const valid = resolved.filter((t): t is NonNullable<typeof t> => t !== null);
+        if (valid.length < 5) return null;
+
+        const coverUrls = valid
+            .filter((t) => t.album?.coverArt)
+            .slice(0, 4)
+            .map((t) => t.album!.coverArt!);
+
+        return {
+            id: `jellyfin-recently-added-${today}`,
+            type: "recently-added",
+            name: "Fresh Additions",
+            description: "Newest tracks in your library",
+            trackIds: valid.map((t) => t.id),
+            coverUrls,
+            trackCount: valid.length,
+            color: getMixColor("happy"),
+        };
+    }
+
+    /**
+     * Jellyfin-only: Artist Deep Dive — full catalog from one of your most-played artists
+     */
+    async generateJellyfinArtistDeepDiveMix(
+        userId: string,
+        today: string
+    ): Promise<ProgrammaticMix | null> {
+        const { isJellyfinMusicSource } = await import("./jellyfin");
+        if (!(await isJellyfinMusicSource())) return null;
+
+        // Find the user's most-played Jellyfin artists
+        const topPlayed = await prisma.play.groupBy({
+            by: ["trackId"],
+            where: { userId, trackId: { startsWith: "jellyfin:" } },
+            _count: { id: true },
+            orderBy: { _count: { id: "desc" } },
+            take: 100,
+        });
+        if (topPlayed.length === 0) return null;
+
+        const trackIds = topPlayed.map((p) => p.trackId);
+        const rawIds = trackIds.map((id) =>
+            id.startsWith("jellyfin:") ? id : `jellyfin:${id}`
+        );
+
+        const metadata = await prisma.jellyfinTrackMetadata.findMany({
+            where: { jellyfinId: { in: rawIds } },
+            select: { jellyfinId: true, artistName: true },
+        });
+
+        // Count by artist
+        const artistCounts = new Map<string, number>();
+        for (const m of metadata) {
+            const count = artistCounts.get(m.artistName) || 0;
+            artistCounts.set(m.artistName, count + 1);
+        }
+
+        const sortedArtists = Array.from(artistCounts.entries())
+            .sort((a, b) => b[1] - a[1]);
+        if (sortedArtists.length === 0) return null;
+
+        // Seeded pick from top 5 most-played artists for variety
+        const seed = getSeededRandom(`jf-deepdive-${today}`);
+        const pickFrom = sortedArtists.slice(0, Math.min(5, sortedArtists.length));
+        const [artistName] = pickFrom[seed % pickFrom.length];
+
+        // Get all tracks by this artist
+        const artistTracks = await prisma.jellyfinTrackMetadata.findMany({
+            where: { artistName },
+            select: { jellyfinId: true },
+            take: this.TRACK_LIMIT * 2,
+        });
+        if (artistTracks.length < 5) return null;
+
+        const selected = randomSample(
+            artistTracks.map((t) => t.jellyfinId),
+            this.TRACK_LIMIT
+        );
+
+        const { resolveTrackReferences } = await import("./jellyfin");
+        const resolved = await resolveTrackReferences(selected);
+        const valid = resolved.filter((t): t is NonNullable<typeof t> => t !== null);
+        if (valid.length < 5) return null;
+
+        const coverUrls = valid
+            .filter((t) => t.album?.coverArt)
+            .slice(0, 4)
+            .map((t) => t.album!.coverArt!);
+
+        return {
+            id: `jellyfin-artist-dive-${today}`,
+            type: "artist-deep-dive",
+            name: `${artistName} Deep Dive`,
+            description: `A deep dive into ${artistName}'s catalog`,
+            trackIds: valid.map((t) => t.id),
+            coverUrls,
+            trackCount: valid.length,
+            color: getMixColor("rediscover"),
         };
     }
 

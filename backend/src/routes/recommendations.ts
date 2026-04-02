@@ -4,6 +4,7 @@ import { requireAuth, requireAuthOrToken } from "../middleware/auth";
 import { prisma } from "../utils/db";
 import { lastFmService } from "../services/lastfm";
 import { resolveTrackReferences } from "../services/jellyfin";
+import { resolveJellyfinArtistToNative } from "../services/jellyfinArtistBridge";
 
 const router = Router();
 
@@ -48,12 +49,50 @@ router.get("/for-you", async (req, res) => {
             return res.json({ artists: [] });
         }
 
-        // Similar artists only for native artists (Prisma); Jellyfin artists have no SimilarArtist records
+        // Get similar artists — bridge Jellyfin artists to native records first
         const allSimilarArtists = await Promise.all(
             topArtists.map(async ({ artist }) => {
-                if (artist.id.startsWith("jellyfin:")) return [];
+                let queryArtistId = artist.id;
+
+                // For Jellyfin artists, resolve to a native Artist via the bridge
+                if (artist.id.startsWith("jellyfin:")) {
+                    try {
+                        const bridged = await resolveJellyfinArtistToNative(
+                            artist.name,
+                            artist.mbid || null
+                        );
+                        if (bridged) {
+                            queryArtistId = bridged.nativeId;
+                        } else {
+                            // No native match — try live Last.fm similar artists as fallback
+                            const lfmSimilar = await lastFmService.getSimilarArtists(
+                                "",
+                                artist.name,
+                                10
+                            );
+                            if (lfmSimilar && lfmSimilar.length > 0) {
+                                // Match Last.fm results against native artists in the DB
+                                const names = lfmSimilar.map((a: any) => a.name);
+                                const matched = await prisma.artist.findMany({
+                                    where: { name: { in: names, mode: "insensitive" } },
+                                    select: { id: true, mbid: true, name: true, heroUrl: true },
+                                    take: 10,
+                                });
+                                return matched;
+                            }
+                            return [];
+                        }
+                    } catch (err) {
+                        logger.debug(
+                            `[Recommendations] Failed to bridge Jellyfin artist "${artist.name}":`,
+                            err instanceof Error ? err.message : err
+                        );
+                        return [];
+                    }
+                }
+
                 const similar = await prisma.similarArtist.findMany({
-                    where: { fromArtistId: artist.id },
+                    where: { fromArtistId: queryArtistId },
                     orderBy: { weight: "desc" },
                     take: 10,
                     include: {
@@ -461,6 +500,171 @@ router.get("/tracks", async (req, res) => {
         logger.error("Get track recommendations error:", error);
         res.status(500).json({
             error: "Failed to get track recommendations",
+        });
+    }
+});
+
+// GET /recommendations/because-you-listened?limit=3
+// Returns grouped recommendations: "Because you listened to [Artist]" → similar artists
+router.get("/because-you-listened", async (req, res) => {
+    try {
+        const { limit = "3" } = req.query;
+        const userId = req.user!.id;
+        const limitNum = Math.min(parseInt(limit as string, 10), 5);
+
+        // Get recent plays (last 2 weeks) grouped by artist
+        const twoWeeksAgo = new Date();
+        twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
+
+        const recentPlays = await prisma.play.findMany({
+            where: { userId, playedAt: { gte: twoWeeksAgo } },
+            orderBy: { playedAt: "desc" },
+            take: 100,
+        });
+
+        if (recentPlays.length === 0) {
+            return res.json({ sections: [] });
+        }
+
+        const trackIds = recentPlays.map((p) => p.trackId).filter(Boolean);
+        const resolved = await resolveTrackReferences(trackIds);
+
+        // Count plays per artist
+        const artistPlayCounts = new Map<
+            string,
+            { name: string; image: string | null; count: number; nativeId: string | null }
+        >();
+
+        for (let i = 0; i < recentPlays.length; i++) {
+            const track = resolved[i];
+            if (!track?.artist) continue;
+            const artist = track.artist;
+            const key = artist.name.toLowerCase();
+            const existing = artistPlayCounts.get(key);
+            if (existing) {
+                existing.count++;
+            } else {
+                artistPlayCounts.set(key, {
+                    name: artist.name,
+                    image: artist.heroUrl || null,
+                    count: 1,
+                    nativeId: artist.id.startsWith("jellyfin:") ? null : artist.id,
+                });
+            }
+        }
+
+        // Sort by play count and take top N
+        const topArtists = Array.from(artistPlayCounts.values())
+            .sort((a, b) => b.count - a.count)
+            .slice(0, limitNum);
+
+        // For each top artist, find similar artists
+        const sections = await Promise.all(
+            topArtists.map(async (seedArtist) => {
+                let queryArtistId = seedArtist.nativeId;
+
+                // Bridge Jellyfin artists to native records
+                if (!queryArtistId) {
+                    try {
+                        const bridged = await resolveJellyfinArtistToNative(
+                            seedArtist.name,
+                            null
+                        );
+                        if (bridged) queryArtistId = bridged.nativeId;
+                    } catch {
+                        // Continue without bridge
+                    }
+                }
+
+                let similarArtists: any[] = [];
+
+                if (queryArtistId) {
+                    // Use the SimilarArtist graph
+                    const dbSimilar = await prisma.similarArtist.findMany({
+                        where: { fromArtistId: queryArtistId },
+                        orderBy: { weight: "desc" },
+                        take: 8,
+                        include: {
+                            toArtist: {
+                                select: { id: true, mbid: true, name: true, heroUrl: true },
+                            },
+                        },
+                    });
+                    similarArtists = dbSimilar.map((s) => ({
+                        id: s.toArtist.id,
+                        mbid: s.toArtist.mbid,
+                        name: s.toArtist.name,
+                        coverArt: s.toArtist.heroUrl || null,
+                    }));
+                }
+
+                // If DB didn't yield enough, supplement with Last.fm
+                if (similarArtists.length < 4) {
+                    try {
+                        const lfmSimilar = await lastFmService.getSimilarArtists(
+                            "",
+                            seedArtist.name,
+                            8
+                        );
+                        const existingNames = new Set(
+                            similarArtists.map((a: any) => a.name.toLowerCase())
+                        );
+                        for (const lfm of lfmSimilar || []) {
+                            if (
+                                !existingNames.has(lfm.name.toLowerCase()) &&
+                                similarArtists.length < 8
+                            ) {
+                                similarArtists.push({
+                                    id: lfm.mbid || lfm.name,
+                                    mbid: lfm.mbid || null,
+                                    name: lfm.name,
+                                    coverArt: null,
+                                });
+                                existingNames.add(lfm.name.toLowerCase());
+                            }
+                        }
+                    } catch {
+                        // Last.fm fallback is best-effort
+                    }
+                }
+
+                // Try to fill in hero images for artists missing them
+                const { redisClient: redis } = await import("../utils/redis");
+                const missingImageArtists = similarArtists.filter((a: any) => !a.coverArt);
+                if (missingImageArtists.length > 0) {
+                    const cacheKeys = missingImageArtists.map((a: any) => `hero:${a.id}`);
+                    try {
+                        const cached = await redis.mGet(cacheKeys);
+                        cached.forEach((val, idx) => {
+                            if (val && val !== "NOT_FOUND") {
+                                missingImageArtists[idx].coverArt = val;
+                            }
+                        });
+                    } catch {
+                        // Non-critical
+                    }
+                }
+
+                return {
+                    seedArtist: {
+                        name: seedArtist.name,
+                        image: seedArtist.image,
+                    },
+                    recommendations: similarArtists.slice(0, 6),
+                };
+            })
+        );
+
+        // Only return sections that have recommendations
+        const validSections = sections.filter(
+            (s) => s.recommendations.length > 0
+        );
+
+        res.json({ sections: validSections });
+    } catch (error) {
+        logger.error("Get because-you-listened error:", error);
+        res.status(500).json({
+            error: "Failed to get personalized recommendations",
         });
     }
 });

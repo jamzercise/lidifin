@@ -17,6 +17,7 @@ import { NewEpisodesGrid } from "@/features/home/components/NewEpisodesGrid";
 import { AudiobooksGrid } from "@/features/home/components/AudiobooksGrid";
 import { FeaturedPlaylistsGrid } from "@/features/home/components/FeaturedPlaylistsGrid";
 import { LibraryRadioStations } from "@/features/home/components/LibraryRadioStations";
+import { BecauseYouListenedTo } from "@/features/home/components/BecauseYouListenedTo";
 
 // Lazy load MoodMixer - only loads when user opens it
 const MoodMixer = lazy(() => import("@/components/MoodMixer").then(mod => ({ default: mod.MoodMixer })));
@@ -42,6 +43,7 @@ export default function HomePage() {
         recentlyListened,
         recentlyAddedAlbums,
         recommended,
+        becauseYouListened,
         mixes,
         popularArtists,
         recentPodcasts,
@@ -128,6 +130,11 @@ export default function HomePage() {
                             <SectionHeader title="Recommended For You" showAllHref="/discover" badge="Last.FM" />
                             <ArtistsGrid artists={recommended} />
                         </section>
+                    )}
+
+                    {/* Because You Listened To... - Personalized */}
+                    {becauseYouListened.length > 0 && (
+                        <BecauseYouListenedTo sections={becauseYouListened} />
                     )}
 
                     {/* Popular Artists - #5 Priority */}
