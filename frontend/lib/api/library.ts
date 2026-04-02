@@ -51,6 +51,7 @@ declare module "./client" {
         getSimilarAlbums(seedAlbumId: string, limit?: number): Promise<{ recommendations: ApiData[] }>;
         getSimilarTracks(seedTrackId: string, limit?: number): Promise<{ recommendations: ApiData[] }>;
         getPopularArtists(limit?: number): Promise<{ artists: ApiData[] }>;
+        getBecauseYouListened(limit?: number): Promise<{ sections: ApiData[] }>;
     }
 }
 
@@ -243,4 +244,8 @@ ApiClient.prototype.getSimilarTracks = async function (this: ApiClient, seedTrac
 
 ApiClient.prototype.getPopularArtists = async function (this: ApiClient, limit = 20) {
     return this.request(`/discover/popular-artists?limit=${limit}`);
+};
+
+ApiClient.prototype.getBecauseYouListened = async function (this: ApiClient, limit = 3) {
+    return this.request(`/recommendations/because-you-listened?limit=${limit}`);
 };

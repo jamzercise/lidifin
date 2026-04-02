@@ -321,6 +321,20 @@ export function useRecommendationsQuery(limit: number = 10) {
 }
 
 /**
+ * Hook to fetch "Because You Listened To..." personalized sections
+ *
+ * @param limit - Number of seed artist sections (default: 3)
+ * @returns Query result with grouped recommendations
+ */
+export function useBecauseYouListenedQuery(limit: number = 3) {
+    return useQuery({
+        queryKey: queryKeys.becauseYouListened(limit),
+        queryFn: () => api.getBecauseYouListened(limit),
+        staleTime: 10 * 60 * 1000, // 10 minutes — changes less frequently
+    });
+}
+
+/**
  * Hook to fetch similar artists based on a seed artist
  *
  * @param seedArtistId - Artist ID to find similar artists for

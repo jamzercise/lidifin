@@ -10,6 +10,7 @@
 import { prisma } from '../../utils/db';
 import { logger } from '../../utils/logger';
 import { lidarrService } from '../lidarr';
+import { getJellyfinSeedArtists } from '../jellyfinArtistBridge';
 import { subWeeks } from 'date-fns';
 
 export interface SeedArtist {
@@ -23,19 +24,20 @@ export class DiscoverySeeding {
     private readonly RECENT_PLAYS_LIMIT = 50;
 
     /**
-     * Gets seed artists based on user's listening history.
-     * Falls back to library artists when insufficient play history.
+     * Gets seed artists based on user's listening history across both
+     * native library and Jellyfin sources. Falls back to library artists
+     * when insufficient play history.
      */
     async getSeedArtists(userId: string, seedCount?: number): Promise<SeedArtist[]> {
         const limit = seedCount ?? this.DEFAULT_SEED_COUNT;
         const fourWeeksAgo = subWeeks(new Date(), 4);
 
+        // Query all recent plays (native + Jellyfin) without source filter
         const recentPlays = await prisma.play.groupBy({
             by: ['trackId'],
             where: {
                 userId,
                 playedAt: { gte: fourWeeksAgo },
-                source: { in: ['LIBRARY', 'DISCOVERY_KEPT'] },
             },
             _count: { id: true },
             orderBy: { _count: { id: 'desc' } },
@@ -46,20 +48,33 @@ export class DiscoverySeeding {
             return this.getFallbackSeedArtists(limit);
         }
 
-        const tracks = await prisma.track.findMany({
-            where: {
-                id: { in: recentPlays.map((p) => p.trackId) },
-                album: { location: 'LIBRARY' },
-            },
-            include: { album: { include: { artist: true } } },
-        });
+        // Split into native and Jellyfin track IDs
+        const nativeTrackIds: string[] = [];
+        const jellyfinTrackIds: string[] = [];
+        for (const play of recentPlays) {
+            if (play.trackId.startsWith('jellyfin:')) {
+                jellyfinTrackIds.push(play.trackId);
+            } else {
+                nativeTrackIds.push(play.trackId);
+            }
+        }
 
         const artistMap = new Map<string, SeedArtist>();
-        for (const track of tracks) {
-            const artist = track.album.artist;
-            if (!artistMap.has(track.album.artistId)) {
-                if (this.isValidMbid(artist.mbid)) {
-                    artistMap.set(track.album.artistId, {
+
+        // Resolve native tracks → artists (existing logic)
+        if (nativeTrackIds.length > 0) {
+            const tracks = await prisma.track.findMany({
+                where: {
+                    id: { in: nativeTrackIds },
+                    album: { location: 'LIBRARY' },
+                },
+                include: { album: { include: { artist: true } } },
+            });
+
+            for (const track of tracks) {
+                const artist = track.album.artist;
+                if (!artistMap.has(artist.mbid) && this.isValidMbid(artist.mbid)) {
+                    artistMap.set(artist.mbid, {
                         name: artist.name,
                         mbid: artist.mbid,
                     });
@@ -67,8 +82,35 @@ export class DiscoverySeeding {
             }
         }
 
+        // Resolve Jellyfin tracks → artists via the bridge service
+        if (jellyfinTrackIds.length > 0) {
+            try {
+                const jellyfinSeeds = await getJellyfinSeedArtists(
+                    userId,
+                    fourWeeksAgo,
+                    limit
+                );
+                for (const bridged of jellyfinSeeds) {
+                    if (!artistMap.has(bridged.mbid)) {
+                        artistMap.set(bridged.mbid, {
+                            name: bridged.name,
+                            mbid: bridged.mbid,
+                        });
+                    }
+                }
+                logger.debug(
+                    `[DiscoverySeeding] Bridged ${jellyfinSeeds.length} Jellyfin artists into seed pool`
+                );
+            } catch (err) {
+                logger.warn(
+                    '[DiscoverySeeding] Failed to bridge Jellyfin artists:',
+                    err instanceof Error ? err.message : err
+                );
+            }
+        }
+
         const artists = Array.from(artistMap.values()).slice(0, limit);
-        logger.debug(`[DiscoverySeeding] Found ${artists.length} seed artists from play history`);
+        logger.debug(`[DiscoverySeeding] Found ${artists.length} seed artists from play history (native + Jellyfin)`);
         return artists;
     }
 
