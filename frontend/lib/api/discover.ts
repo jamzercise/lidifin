@@ -1,4 +1,5 @@
 import { ApiClient, ApiData } from "./client";
+import type { BatchContext } from "@/features/discover/types";
 
 declare module "./client" {
     interface ApiClient {
@@ -8,8 +9,9 @@ declare module "./client" {
             progress: number;
             result?: { success: boolean; playlistName: string; songCount: number; error?: string };
         }>;
-        getCurrentDiscoverWeekly(): Promise<{ weekStart: string; weekEnd: string; tracks: ApiData[]; unavailable: ApiData[]; totalCount: number; unavailableCount: number }>;
+        getCurrentDiscoverWeekly(): Promise<{ weekStart: string; weekEnd: string; tracks: ApiData[]; unavailable: ApiData[]; totalCount: number; unavailableCount: number; batchContext?: BatchContext | null }>;
         getDiscoverBatchStatus(): Promise<{ active: boolean; status: "downloading" | "scanning" | null; batchId?: string; progress?: number; completed?: number; failed?: number; total?: number }>;
+        rebuildDiscoverWeekly(): Promise<{ message: string; batchId: string; completedJobs?: number }>;
         likeDiscoverAlbum(albumId: string): Promise<{ success: boolean }>;
         unlikeDiscoverAlbum(albumId: string): Promise<{ success: boolean }>;
         getDiscoverConfig(): Promise<{ id: string; userId: string; playlistSize: number; enabled: boolean; lastGeneratedAt: string | null }>;
@@ -87,6 +89,10 @@ ApiClient.prototype.getArtistDiscovery = async function (this: ApiClient, nameOr
 
 ApiClient.prototype.getAlbumDiscovery = async function (this: ApiClient, rgMbid: string) {
     return this.request(`/artists/album/${encodeURIComponent(rgMbid)}`);
+};
+
+ApiClient.prototype.rebuildDiscoverWeekly = async function (this: ApiClient) {
+    return this.request("/discover/rebuild", { method: "POST" });
 };
 
 ApiClient.prototype.getTrackPreview = async function (this: ApiClient, artistName: string, trackTitle: string) {

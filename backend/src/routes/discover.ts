@@ -352,6 +352,54 @@ router.get("/current", async (req, res) => {
             logger.error("Error logging discover response:", err);
         }
 
+        // If no tracks and no unavailable, include batch context so the UI can explain what happened
+        let batchContext: any = null;
+        if (tracks.length === 0 && unavailable.length === 0) {
+            const latestBatch = await prisma.discoveryBatch.findFirst({
+                where: { userId, weekStartDate: weekStart },
+                include: {
+                    jobs: {
+                        select: {
+                            id: true,
+                            status: true,
+                            subject: true,
+                            metadata: true,
+                            completedAt: true,
+                            error: true,
+                        },
+                    },
+                },
+                orderBy: { createdAt: "desc" },
+            });
+
+            if (latestBatch) {
+                const completedJobs = latestBatch.jobs.filter(j => j.status === "completed");
+                const failedJobs = latestBatch.jobs.filter(j => j.status === "failed" || j.status === "exhausted");
+                const pendingJobs = latestBatch.jobs.filter(j => j.status === "pending" || j.status === "processing");
+
+                batchContext = {
+                    batchId: latestBatch.id,
+                    status: latestBatch.status,
+                    errorMessage: latestBatch.errorMessage,
+                    createdAt: latestBatch.createdAt,
+                    completedAt: latestBatch.completedAt,
+                    totalJobs: latestBatch.jobs.length,
+                    completedJobs: completedJobs.length,
+                    failedJobs: failedJobs.length,
+                    pendingJobs: pendingJobs.length,
+                    recommendedAlbums: latestBatch.jobs.map(j => {
+                        const meta = j.metadata as any;
+                        return {
+                            artist: meta?.artistName || "Unknown",
+                            album: meta?.albumTitle || "Unknown",
+                            status: j.status,
+                            error: j.error,
+                        };
+                    }),
+                };
+            }
+        }
+
         res.json({
             weekStart,
             weekEnd,
@@ -359,12 +407,101 @@ router.get("/current", async (req, res) => {
             unavailable,
             totalCount: tracks.length,
             unavailableCount: unavailable.length,
+            batchContext,
         });
     } catch (error) {
         logger.error("Get current Discover Weekly error:", error);
         res.status(500).json({
             error: "Failed to get Discover Weekly playlist",
         });
+    }
+});
+
+// POST /discover/rebuild - Retry building playlist from an existing batch
+router.post("/rebuild", async (req, res) => {
+    try {
+        const userId = req.user!.id;
+        const weekStart = startOfWeek(new Date(), { weekStartsOn: 1 });
+
+        const batch = await prisma.discoveryBatch.findFirst({
+            where: {
+                userId,
+                OR: [
+                    { weekStartDate: weekStart },
+                    { status: { in: ["scanning", "downloading"] } },
+                ],
+            },
+            include: { jobs: true },
+            orderBy: { createdAt: "desc" },
+        });
+
+        if (!batch) {
+            return res.status(404).json({ error: "No batch found for this week" });
+        }
+
+        const pendingJobs = batch.jobs.filter(
+            j => j.status === "pending" || j.status === "processing"
+        );
+        const completedJobs = batch.jobs.filter(j => j.status === "completed");
+
+        // Force-fail any remaining pending/processing jobs
+        if (pendingJobs.length > 0) {
+            await prisma.downloadJob.updateMany({
+                where: {
+                    discoveryBatchId: batch.id,
+                    status: { in: ["pending", "processing"] },
+                },
+                data: {
+                    status: "failed",
+                    error: "Force-completed by rebuild",
+                    completedAt: new Date(),
+                },
+            });
+            logger.debug(`[Rebuild] Force-failed ${pendingJobs.length} pending jobs`);
+        }
+
+        if (completedJobs.length === 0) {
+            // No completed downloads — try reconciling with what's in the library
+            logger.debug(`[Rebuild] No completed jobs, attempting scan reconciliation`);
+            await prisma.discoveryBatch.update({
+                where: { id: batch.id },
+                data: { status: "scanning" },
+            });
+
+            await scanQueue.add("scan", {
+                type: "full",
+                source: "discover-weekly-completion",
+                discoveryBatchId: batch.id,
+            });
+
+            return res.json({
+                message: "Triggered rescan and playlist rebuild",
+                batchId: batch.id,
+            });
+        }
+
+        // Set batch to scanning and trigger buildFinalPlaylist via scan
+        await prisma.discoveryBatch.update({
+            where: { id: batch.id },
+            data: { status: "scanning" },
+        });
+
+        await scanQueue.add("scan", {
+            type: "full",
+            source: "discover-weekly-completion",
+            discoveryBatchId: batch.id,
+        });
+
+        logger.debug(`[Rebuild] Triggered scan + playlist build for batch ${batch.id}`);
+
+        res.json({
+            message: "Rebuild started — rescanning and building playlist",
+            batchId: batch.id,
+            completedJobs: completedJobs.length,
+        });
+    } catch (error: any) {
+        logger.error("Rebuild Discover Weekly error:", error);
+        res.status(500).json({ error: "Failed to rebuild playlist" });
     }
 });
 

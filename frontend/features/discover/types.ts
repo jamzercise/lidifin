@@ -28,6 +28,24 @@ export interface UnavailableAlbum {
   attemptNumber?: number;
 }
 
+export interface BatchContext {
+  batchId: string;
+  status: string;
+  errorMessage: string | null;
+  createdAt: string;
+  completedAt: string | null;
+  totalJobs: number;
+  completedJobs: number;
+  failedJobs: number;
+  pendingJobs: number;
+  recommendedAlbums: Array<{
+    artist: string;
+    album: string;
+    status: string;
+    error: string | null;
+  }>;
+}
+
 export interface DiscoverPlaylist {
   weekStart: string;
   weekEnd: string;
@@ -35,6 +53,7 @@ export interface DiscoverPlaylist {
   unavailable: UnavailableAlbum[];
   totalCount: number;
   unavailableCount: number;
+  batchContext?: BatchContext | null;
 }
 
 export interface DiscoverConfig {
