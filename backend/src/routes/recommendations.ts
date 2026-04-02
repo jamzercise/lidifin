@@ -546,10 +546,27 @@ router.get("/because-you-listened", async (req, res) => {
             } else {
                 artistPlayCounts.set(key, {
                     name: artist.name,
-                    image: artist.heroUrl || null,
+                    image: null,
                     count: 1,
                     nativeId: artist.id.startsWith("jellyfin:") ? null : artist.id,
                 });
+            }
+        }
+
+        // Batch-fetch hero images for native artist IDs
+        const nativeArtistIds = Array.from(artistPlayCounts.values())
+            .map((a) => a.nativeId)
+            .filter((id): id is string => id !== null);
+        if (nativeArtistIds.length > 0) {
+            const nativeArtists = await prisma.artist.findMany({
+                where: { id: { in: nativeArtistIds } },
+                select: { id: true, heroUrl: true },
+            });
+            const heroMap = new Map(nativeArtists.map((a) => [a.id, a.heroUrl]));
+            for (const entry of artistPlayCounts.values()) {
+                if (entry.nativeId && heroMap.has(entry.nativeId)) {
+                    entry.image = heroMap.get(entry.nativeId) || null;
+                }
             }
         }
 
