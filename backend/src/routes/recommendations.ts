@@ -615,33 +615,42 @@ router.get("/because-you-listened", async (req, res) => {
                     }));
                 }
 
-                // If DB didn't yield enough, supplement with Last.fm
+                // Always try Last.fm if we don't have enough — use artist name directly
                 if (similarArtists.length < 4) {
                     try {
                         const lfmSimilar = await lastFmService.getSimilarArtists(
-                            "",
+                            "", // Empty MBID triggers name-based fallback inside the service
                             seedArtist.name,
-                            8
+                            10
                         );
                         const existingNames = new Set(
                             similarArtists.map((a: any) => a.name.toLowerCase())
                         );
+                        existingNames.add(seedArtist.name.toLowerCase());
                         for (const lfm of lfmSimilar || []) {
                             if (
                                 !existingNames.has(lfm.name.toLowerCase()) &&
                                 similarArtists.length < 8
                             ) {
+                                // Try to match against existing native artists for better data
+                                const nativeMatch = await prisma.artist.findFirst({
+                                    where: { name: { equals: lfm.name, mode: "insensitive" } },
+                                    select: { id: true, mbid: true, name: true, heroUrl: true },
+                                });
                                 similarArtists.push({
-                                    id: lfm.mbid || lfm.name,
-                                    mbid: lfm.mbid || null,
-                                    name: lfm.name,
-                                    coverArt: null,
+                                    id: nativeMatch?.id || lfm.mbid || lfm.name,
+                                    mbid: nativeMatch?.mbid || lfm.mbid || null,
+                                    name: nativeMatch?.name || lfm.name,
+                                    coverArt: nativeMatch?.heroUrl || null,
                                 });
                                 existingNames.add(lfm.name.toLowerCase());
                             }
                         }
-                    } catch {
-                        // Last.fm fallback is best-effort
+                    } catch (lfmErr) {
+                        logger.debug(
+                            `[BecauseYouListened] Last.fm fallback failed for "${seedArtist.name}":`,
+                            lfmErr instanceof Error ? lfmErr.message : lfmErr
+                        );
                     }
                 }
 
@@ -676,6 +685,15 @@ router.get("/because-you-listened", async (req, res) => {
         const validSections = sections.filter(
             (s) => s.recommendations.length > 0
         );
+
+        logger.debug(
+            `[BecauseYouListened] ${topArtists.length} seed artists → ${validSections.length} sections with recommendations`
+        );
+        if (validSections.length === 0 && topArtists.length > 0) {
+            logger.debug(
+                `[BecauseYouListened] No sections had recommendations. Seeds: ${topArtists.map((a) => a.name).join(", ")}`
+            );
+        }
 
         res.json({ sections: validSections });
     } catch (error) {
