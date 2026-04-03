@@ -352,9 +352,9 @@ router.get("/current", async (req, res) => {
             logger.error("Error logging discover response:", err);
         }
 
-        // If no tracks and no unavailable, include batch context so the UI can explain what happened
+        // If no playable tracks, include batch context so the UI can explain what happened
         let batchContext: any = null;
-        if (tracks.length === 0 && unavailable.length === 0) {
+        if (tracks.length === 0) {
             const latestBatch = await prisma.discoveryBatch.findFirst({
                 where: {
                     userId,
