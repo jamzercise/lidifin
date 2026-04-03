@@ -21,6 +21,7 @@ class LastFmService {
     private client: AxiosInstance;
     private apiKey: string;
     private initialized = false;
+    private static _cleanedEmptyCache = false;
 
     constructor() {
         // Initial value from .env (for backwards compatibility)
@@ -83,7 +84,18 @@ class LastFmService {
         artistName: string,
         limit = 30
     ): Promise<SimilarArtist[]> {
+        if (!artistMbid) {
+            return this.getSimilarArtistsByName(artistName, limit);
+        }
+
         const cacheKey = `lastfm:similar:${artistMbid}`;
+
+        // Clean up broken cache entry from previous bug where empty MBID
+        // cached empty results under "lastfm:similar:" for all artists
+        if (!LastFmService._cleanedEmptyCache) {
+            LastFmService._cleanedEmptyCache = true;
+            redisClient.del("lastfm:similar:").catch(() => {});
+        }
 
         try {
             const cached = await redisClient.get(cacheKey);

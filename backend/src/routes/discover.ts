@@ -356,7 +356,13 @@ router.get("/current", async (req, res) => {
         let batchContext: any = null;
         if (tracks.length === 0 && unavailable.length === 0) {
             const latestBatch = await prisma.discoveryBatch.findFirst({
-                where: { userId, weekStart },
+                where: {
+                    userId,
+                    OR: [
+                        { weekStart },
+                        { status: { in: ["downloading", "scanning"] } },
+                    ],
+                },
                 include: { jobs: true },
                 orderBy: { createdAt: "desc" },
             });
