@@ -3,7 +3,7 @@ import { logger } from "../utils/logger";
 import { requireAuth, requireAuthOrToken } from "../middleware/auth";
 import { prisma } from "../utils/db";
 import { lastFmService } from "../services/lastfm";
-import { resolveTrackReferences } from "../services/jellyfin";
+import { resolveTrackReferences, getJellyfinArtistImagesBatch, getJellyfinConfig } from "../services/jellyfin";
 import { resolveJellyfinArtistToNative } from "../services/jellyfinArtistBridge";
 
 const router = Router();
@@ -112,12 +112,11 @@ router.get("/for-you", async (req, res) => {
                             if (matched.length > 0) {
                                 results = matched;
                             } else {
-                                // No DB matches — return Last.fm artists directly
-                                results = lfmSimilar.slice(0, 10).map((a: any) => ({
+                                    results = lfmSimilar.slice(0, 10).map((a: any) => ({
                                     id: a.mbid || a.name,
                                     mbid: a.mbid || a.name,
                                     name: a.name,
-                                    heroUrl: null,
+                                    heroUrl: a.imageUrl || null,
                                 }));
                             }
                         }
@@ -552,7 +551,7 @@ router.get("/because-you-listened", async (req, res) => {
         // Count plays per artist
         const artistPlayCounts = new Map<
             string,
-            { name: string; image: string | null; count: number; nativeId: string | null }
+            { name: string; image: string | null; count: number; nativeId: string | null; jellyfinId: string | null }
         >();
 
         for (let i = 0; i < recentPlays.length; i++) {
@@ -564,11 +563,13 @@ router.get("/because-you-listened", async (req, res) => {
             if (existing) {
                 existing.count++;
             } else {
+                const isJellyfin = artist.id.startsWith("jellyfin:");
                 artistPlayCounts.set(key, {
                     name: artist.name,
                     image: null,
                     count: 1,
-                    nativeId: artist.id.startsWith("jellyfin:") ? null : artist.id,
+                    nativeId: isJellyfin ? null : artist.id,
+                    jellyfinId: isJellyfin ? artist.id : null,
                 });
             }
         }
@@ -586,6 +587,22 @@ router.get("/because-you-listened", async (req, res) => {
             for (const entry of artistPlayCounts.values()) {
                 if (entry.nativeId && heroMap.has(entry.nativeId)) {
                     entry.image = heroMap.get(entry.nativeId) || null;
+                }
+            }
+        }
+
+        // Fetch Jellyfin images for seed artists that still have no image
+        const jellyfinIds = Array.from(artistPlayCounts.values())
+            .filter((a) => !a.image && a.jellyfinId)
+            .map((a) => a.jellyfinId!);
+        if (jellyfinIds.length > 0) {
+            const cfg = await getJellyfinConfig();
+            if (cfg) {
+                const jellyfinImages = await getJellyfinArtistImagesBatch(cfg, jellyfinIds);
+                for (const entry of artistPlayCounts.values()) {
+                    if (!entry.image && entry.jellyfinId && jellyfinImages.has(entry.jellyfinId)) {
+                        entry.image = jellyfinImages.get(entry.jellyfinId) || null;
+                    }
                 }
             }
         }
@@ -661,7 +678,7 @@ router.get("/because-you-listened", async (req, res) => {
                                     id: nativeMatch?.id || lfm.mbid || lfm.name,
                                     mbid: nativeMatch?.mbid || lfm.mbid || null,
                                     name: nativeMatch?.name || lfm.name,
-                                    coverArt: nativeMatch?.heroUrl || null,
+                                    coverArt: nativeMatch?.heroUrl || lfm.imageUrl || null,
                                 });
                                 existingNames.add(lfm.name.toLowerCase());
                             }
