@@ -802,6 +802,39 @@ router.get("/artists/:id", async (req, res) => {
             albumsWithOwnership = dbAlbums;
         }
 
+        // Cross-reference Jellyfin: albums in Jellyfin should show as owned
+        // even if they don't have an OwnedAlbum record in Prisma
+        if (await isJellyfinMusicSource()) {
+            const unownedAlbums = albumsWithOwnership.filter((a) => !a.owned && a.rgMbid);
+            if (unownedAlbums.length > 0) {
+                try {
+                    const cfg = await getJellyfinConfig();
+                    if (cfg) {
+                        const jellyfinArtist = await getJellyfinArtistByName(cfg, artist.name);
+                        if (jellyfinArtist) {
+                            const jfAlbums = await getJellyfinAlbumsAllForArtist(
+                                cfg,
+                                `jellyfin:${jellyfinArtist.Id}`
+                            );
+                            const jfRgMbids = new Set(
+                                jfAlbums.map((a) => a.rgMbid).filter(Boolean)
+                            );
+                            for (const album of albumsWithOwnership) {
+                                if (!album.owned && album.rgMbid && jfRgMbids.has(album.rgMbid)) {
+                                    album.owned = true;
+                                }
+                            }
+                        }
+                    }
+                } catch (err) {
+                    logger.debug(
+                        `[Artist] Jellyfin ownership cross-reference failed for "${artist.name}":`,
+                        err instanceof Error ? err.message : err
+                    );
+                }
+            }
+        }
+
         // Extract top tracks from library first
         const allTracks = artist.albums.flatMap((a) => a.tracks);
         let topTracks = allTracks.slice(0, 10);
