@@ -15,7 +15,6 @@ interface SimilarArtist {
     mbid?: string;
     match: number; // 0-1 similarity score
     url: string;
-    imageUrl?: string;
 }
 
 class LastFmService {
@@ -101,13 +100,7 @@ class LastFmService {
         try {
             const cached = await redisClient.get(cacheKey);
             if (cached) {
-                const parsed = JSON.parse(cached);
-                // Re-fetch if cached data is from before imageUrl was added
-                if (Array.isArray(parsed) && parsed.length > 0 && !("imageUrl" in parsed[0])) {
-                    // Stale cache format — fall through to re-fetch
-                } else {
-                    return parsed;
-                }
+                return JSON.parse(cached);
             }
         } catch (err) {
             logger.warn("Redis get error:", err);
@@ -124,17 +117,12 @@ class LastFmService {
 
             const similar = data.similarartists?.artist || [];
 
-            const results: SimilarArtist[] = similar.map((artist: any) => {
-                const images = Array.isArray(artist.image) ? artist.image : [];
-                const largestImage = [...images].reverse().find((img: any) => img?.["#text"]);
-                return {
-                    name: artist.name,
-                    mbid: artist.mbid || undefined,
-                    match: parseFloat(artist.match) || 0,
-                    url: artist.url,
-                    imageUrl: largestImage?.["#text"] || undefined,
-                };
-            });
+            const results: SimilarArtist[] = similar.map((artist: any) => ({
+                name: artist.name,
+                mbid: artist.mbid || undefined,
+                match: parseFloat(artist.match) || 0,
+                url: artist.url,
+            }));
 
             // Cache for 7 days
             try {
@@ -174,12 +162,7 @@ class LastFmService {
         try {
             const cached = await redisClient.get(cacheKey);
             if (cached) {
-                const parsed = JSON.parse(cached);
-                if (Array.isArray(parsed) && parsed.length > 0 && !("imageUrl" in parsed[0])) {
-                    // Stale cache format — fall through to re-fetch
-                } else {
-                    return parsed;
-                }
+                return JSON.parse(cached);
             }
         } catch (err) {
             logger.warn("Redis get error:", err);
@@ -196,17 +179,12 @@ class LastFmService {
 
             const similar = data.similarartists?.artist || [];
 
-            const results: SimilarArtist[] = similar.map((artist: any) => {
-                const images = Array.isArray(artist.image) ? artist.image : [];
-                const largestImage = [...images].reverse().find((img: any) => img?.["#text"]);
-                return {
-                    name: artist.name,
-                    mbid: artist.mbid || undefined,
-                    match: parseFloat(artist.match) || 0,
-                    url: artist.url,
-                    imageUrl: largestImage?.["#text"] || undefined,
-                };
-            });
+            const results: SimilarArtist[] = similar.map((artist: any) => ({
+                name: artist.name,
+                mbid: artist.mbid || undefined,
+                match: parseFloat(artist.match) || 0,
+                url: artist.url,
+            }));
 
             // Cache for 7 days
             try {
