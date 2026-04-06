@@ -5,8 +5,72 @@ import { prisma } from "../utils/db";
 import { lastFmService } from "../services/lastfm";
 import { resolveTrackReferences, getJellyfinArtistImagesBatch, getJellyfinConfig } from "../services/jellyfin";
 import { resolveJellyfinArtistToNative } from "../services/jellyfinArtistBridge";
+import { imageProviderService } from "../services/imageProvider";
+import { redisClient } from "../utils/redis";
 
 const router = Router();
+
+const REC_IMAGE_TTL = 7 * 24 * 60 * 60; // 7 days
+
+/**
+ * Batch-fetch images for recommended artists using Redis cache + Deezer fallback.
+ * Mutates `coverArt` on each item in-place.
+ */
+async function fillRecommendationImages(
+    artists: Array<{ name: string; mbid?: string | null; coverArt?: string | null }>
+): Promise<void> {
+    const missing = artists.filter((a) => !a.coverArt);
+    if (missing.length === 0) return;
+
+    // Check Redis cache first
+    const cacheKeys = missing.map((a) => `rec:img:${a.name.toLowerCase()}`);
+    let cached: (string | null)[] = [];
+    try {
+        cached = await redisClient.mGet(cacheKeys);
+    } catch {
+        // Redis errors non-critical
+    }
+
+    const toFetch: typeof missing = [];
+    for (let i = 0; i < missing.length; i++) {
+        const val = cached[i];
+        if (val && val !== "NOT_FOUND") {
+            missing[i].coverArt = val;
+        } else if (!val) {
+            toFetch.push(missing[i]);
+        }
+        // If "NOT_FOUND", leave coverArt null (negative cache)
+    }
+
+    if (toFetch.length === 0) return;
+
+    // Fetch from Deezer/Fanart.tv in parallel (capped concurrency)
+    const results = await Promise.allSettled(
+        toFetch.map(async (artist) => {
+            const result = await imageProviderService.getArtistImage(
+                artist.name,
+                artist.mbid || undefined,
+                { timeout: 3000 }
+            );
+            return { artist, url: result?.url || null };
+        })
+    );
+
+    // Apply results and cache
+    const pipeline: Array<Promise<unknown>> = [];
+    for (const r of results) {
+        if (r.status !== "fulfilled") continue;
+        const { artist, url } = r.value;
+        const key = `rec:img:${artist.name.toLowerCase()}`;
+        if (url) {
+            artist.coverArt = url;
+            pipeline.push(redisClient.setEx(key, REC_IMAGE_TTL, url).catch(() => {}));
+        } else {
+            pipeline.push(redisClient.setEx(key, 24 * 60 * 60, "NOT_FOUND").catch(() => {}));
+        }
+    }
+    await Promise.all(pipeline);
+}
 
 router.use(requireAuthOrToken);
 
@@ -116,7 +180,7 @@ router.get("/for-you", async (req, res) => {
                                     id: a.mbid || a.name,
                                     mbid: a.mbid || a.name,
                                     name: a.name,
-                                    heroUrl: a.imageUrl || null,
+                                    heroUrl: null,
                                 }));
                             }
                         }
@@ -198,15 +262,18 @@ router.get("/for-you", async (req, res) => {
         }
 
         const artistsWithMetadata = artistsToCheck.map((artist) => {
-            // Use DB heroUrl first, then Redis cache, otherwise null
             const coverArt = artist.heroUrl || cachedImageMap.get(artist.id) || null;
 
             return {
                 ...artist,
                 coverArt,
+                mbid: artist.mbid,
                 albumCount: albumCountMap.get(artist.id) || 0,
             };
         });
+
+        // Fetch real images (Deezer/Fanart.tv) for artists still missing cover art
+        await fillRecommendationImages(artistsWithMetadata);
 
         logger.debug(
             `Recommendations: Found ${artistsWithMetadata.length} new artists`
@@ -678,7 +745,7 @@ router.get("/because-you-listened", async (req, res) => {
                                     id: nativeMatch?.id || lfm.mbid || lfm.name,
                                     mbid: nativeMatch?.mbid || lfm.mbid || null,
                                     name: nativeMatch?.name || lfm.name,
-                                    coverArt: nativeMatch?.heroUrl || lfm.imageUrl || null,
+                                    coverArt: nativeMatch?.heroUrl || null,
                                 });
                                 existingNames.add(lfm.name.toLowerCase());
                             }
@@ -722,6 +789,24 @@ router.get("/because-you-listened", async (req, res) => {
         const validSections = sections.filter(
             (s) => s.recommendations.length > 0
         );
+
+        // Fetch real images (Deezer/Fanart.tv) for recommended artists missing cover art
+        const allRecs = validSections.flatMap((s) => s.recommendations);
+        await fillRecommendationImages(allRecs);
+
+        // Also fill seed artist images that are still null
+        const seedsMissingImage = validSections
+            .filter((s) => !s.seedArtist.image)
+            .map((s) => ({ name: s.seedArtist.name, coverArt: null as string | null }));
+        if (seedsMissingImage.length > 0) {
+            await fillRecommendationImages(seedsMissingImage);
+            for (const seed of seedsMissingImage) {
+                if (seed.coverArt) {
+                    const section = validSections.find((s) => s.seedArtist.name === seed.name);
+                    if (section) section.seedArtist.image = seed.coverArt;
+                }
+            }
+        }
 
         logger.debug(
             `[BecauseYouListened] ${topArtists.length} seed artists → ${validSections.length} sections with recommendations`
