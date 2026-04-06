@@ -168,10 +168,18 @@ export async function processScan(
         spotifyImportJobId,
     } = job.data;
 
-    // When Jellyfin is the music source (Lidifin), native library scan is not used
+    // When Jellyfin is the music source, sync OwnedAlbum records instead of running a native scan.
+    // This ensures albums downloaded via Lidarr appear as owned in the UI.
     const { isJellyfinMusicSource } = await import("../../services/jellyfin");
     if (await isJellyfinMusicSource()) {
-        logger.debug(`[ScanJob ${job.id}] Jellyfin is music source; skipping native scan`);
+        logger.debug(`[ScanJob ${job.id}] Jellyfin is music source; syncing OwnedAlbum records`);
+        try {
+            const { syncJellyfinOwnedAlbums } = await import("../../services/jellyfinMetadataSync");
+            const result = await syncJellyfinOwnedAlbums();
+            logger.debug(`[ScanJob ${job.id}] OwnedAlbum sync: ${result.created} created, ${result.skipped} skipped`);
+        } catch (err: any) {
+            logger.warn(`[ScanJob ${job.id}] OwnedAlbum sync failed (non-fatal):`, err?.message);
+        }
         return {
             tracksAdded: 0,
             tracksUpdated: 0,
