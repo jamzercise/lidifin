@@ -70,7 +70,7 @@ export async function runSyncAndEnrich(): Promise<{ started: boolean; status: Je
 
     (async () => {
         try {
-            const { syncJellyfinTrackMetadata } = await import("./jellyfinMetadataSync");
+            const { syncJellyfinTrackMetadata, syncJellyfinOwnedAlbums } = await import("./jellyfinMetadataSync");
             const { enrichJellyfinTrackMetadata } = await import("./jellyfinMetadataEnrichment");
             const { isJellyfinMusicSource } = await import("./jellyfin");
             const { redisClient: rc } = await import("../utils/redis");
@@ -85,6 +85,13 @@ export async function runSyncAndEnrich(): Promise<{ started: boolean; status: Je
             if (!syncResult) {
                 await setState({ status: "idle", lastError: "Jellyfin not configured" });
                 return;
+            }
+
+            // Sync OwnedAlbum records so Jellyfin albums appear as owned in the UI
+            try {
+                await syncJellyfinOwnedAlbums();
+            } catch (err: any) {
+                // Non-fatal — don't block the rest of the sync
             }
 
             await setState({

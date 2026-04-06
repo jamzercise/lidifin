@@ -132,7 +132,7 @@ startUnifiedEnrichmentWorker().catch((err) => {
             logger.debug("Jellyfin metadata sync skipped – Jellyfin is not music source");
             return;
         }
-        const { syncJellyfinTrackMetadata } = await import("../services/jellyfinMetadataSync");
+        const { syncJellyfinTrackMetadata, syncJellyfinOwnedAlbums } = await import("../services/jellyfinMetadataSync");
         const { enrichJellyfinTrackMetadata } = await import("../services/jellyfinMetadataEnrichment");
         // Run sync 30s after startup (allow Jellyfin to be ready)
         timeouts.push(
@@ -141,6 +141,8 @@ startUnifiedEnrichmentWorker().catch((err) => {
                     const syncResult = await syncJellyfinTrackMetadata();
                     if (syncResult) {
                         logger.info(`[JellyfinMetadata] Sync: ${syncResult.synced} tracks`);
+                        // Sync OwnedAlbum records so Jellyfin albums show as owned
+                        try { await syncJellyfinOwnedAlbums(); } catch { /* non-fatal */ }
                         // Run enrichment after sync (up to 25 batches = 1250 tracks per startup)
                         let totalEnriched = 0;
                         for (let i = 0; i < 25; i++) {
@@ -164,6 +166,8 @@ startUnifiedEnrichmentWorker().catch((err) => {
                     const syncResult = await syncJellyfinTrackMetadata();
                     if (syncResult) {
                         logger.debug(`[JellyfinMetadata] Periodic sync: ${syncResult.synced} tracks`);
+                        // Sync OwnedAlbum records so newly-added albums show as owned
+                        try { await syncJellyfinOwnedAlbums(); } catch { /* non-fatal */ }
                         let totalEnriched = 0;
                         for (let i = 0; i < 20; i++) {
                             const r = await enrichJellyfinTrackMetadata();
