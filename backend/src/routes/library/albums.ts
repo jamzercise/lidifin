@@ -349,7 +349,49 @@ router.get("/albums/:id", async (req, res) => {
                 },
             },
         });
-        const isOwned = !!owned;
+        let isOwned = !!owned;
+
+        // Prisma album exists but OwnedAlbum says not owned — check Jellyfin.
+        // The Prisma record may come from enrichment/discovery while the actual
+        // music lives in Jellyfin. If found there, serve the Jellyfin version
+        // which has playable tracks.
+        if (!isOwned && album.rgMbid && (await isJellyfinMusicSource())) {
+            const cfg = await getJellyfinConfig();
+            if (cfg) {
+                const jellyfinAlbum = await getJellyfinAlbumByRgMbid(cfg, album.rgMbid);
+                if (jellyfinAlbum && jellyfinAlbum.Type === "MusicAlbum") {
+                    const jfId = `jellyfin:${jellyfinAlbum.Id}`;
+                    const tracks = await getJellyfinTracksAllForAlbum(cfg, jfId);
+                    const artist = jellyfinAlbum.AlbumArtists?.[0]
+                        ? {
+                              id: `jellyfin:${jellyfinAlbum.AlbumArtists[0].Id}`,
+                              name: jellyfinAlbum.AlbumArtists[0].Name,
+                              mbid: album.artist?.mbid ?? null,
+                          }
+                        : album.artist
+                          ? { id: album.artist.id, name: album.artist.name, mbid: album.artist.mbid ?? null }
+                          : { id: "", name: "Unknown Artist", mbid: null as string | null };
+                    const coverArt = getJellyfinImageUrl(
+                        cfg.url,
+                        jellyfinAlbum.Id,
+                        jellyfinAlbum.ImageTags?.Primary,
+                        cfg.apiKey,
+                        cfg.userId
+                    );
+                    return res.json({
+                        id: jfId,
+                        title: jellyfinAlbum.Name || album.title,
+                        artist,
+                        tracks,
+                        owned: true,
+                        coverArt,
+                        coverUrl: coverArt,
+                        rgMbid: album.rgMbid,
+                        year: album.year ?? jellyfinAlbum.ProductionYear ?? undefined,
+                    });
+                }
+            }
+        }
 
         const artistData = album.artist;
 
