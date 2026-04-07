@@ -14,6 +14,7 @@ import {
     extractRgMbid,
 } from "../../services/jellyfin";
 import { getCachedOwnedAlbumIds } from "../../services/libraryListCache";
+import { redisClient } from "../../utils/redis";
 import {
     logger,
     ALBUM_SORT_MAP,
@@ -358,7 +359,27 @@ router.get("/albums/:id", async (req, res) => {
         if (!isOwned && album.rgMbid && (await isJellyfinMusicSource())) {
             const cfg = await getJellyfinConfig();
             if (cfg) {
-                const jellyfinAlbum = await getJellyfinAlbumByRgMbid(cfg, album.rgMbid);
+                // Fast path: syncJellyfinOwnedAlbums caches rgMbid→JellyfinID.
+                // Use that for a direct item lookup instead of scanning 2000+ albums.
+                const redisCacheKey = `jf:rgmbid:${album.rgMbid}`;
+                const cachedJfId = redisClient.isReady
+                    ? await redisClient.get(redisCacheKey).catch(() => null)
+                    : null;
+
+                let jellyfinAlbum = null;
+                if (cachedJfId) {
+                    jellyfinAlbum = await getJellyfinItem(cfg, cachedJfId, "MusicAlbum").catch(() => null);
+                }
+                if (!jellyfinAlbum) {
+                    // Cold path: full scan (happens before first sync or if cache expires)
+                    jellyfinAlbum = await getJellyfinAlbumByRgMbid(cfg, album.rgMbid);
+                    if (jellyfinAlbum && redisClient.isReady) {
+                        await redisClient
+                            .setEx(redisCacheKey, 30 * 24 * 3600, jellyfinAlbum.Id)
+                            .catch(() => {});
+                    }
+                }
+
                 if (jellyfinAlbum && jellyfinAlbum.Type === "MusicAlbum") {
                     const jfId = `jellyfin:${jellyfinAlbum.Id}`;
                     const tracks = await getJellyfinTracksAllForAlbum(cfg, jfId);

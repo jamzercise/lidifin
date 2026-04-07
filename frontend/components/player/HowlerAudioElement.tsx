@@ -255,7 +255,10 @@ export const HowlerAudioElement = memo(function HowlerAudioElement() {
     useEffect(() => {
         if (isPlaying && !isBuffering) {
             heartbeatRef.current?.start();
-        } else {
+        } else if (!isBuffering) {
+            // Only stop when NOT buffering. stop() calls clearBufferTimeout(),
+            // which would cancel the 15-second recovery timer set by onStall.
+            // While buffering, leave the heartbeat as-is so the timeout survives.
             heartbeatRef.current?.stop();
         }
     }, [isPlaying, isBuffering]);

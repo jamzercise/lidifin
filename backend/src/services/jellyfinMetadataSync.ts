@@ -15,6 +15,7 @@ import {
     isJellyfinMusicSource,
 } from "./jellyfin";
 import { resolveJellyfinArtistToNative } from "./jellyfinArtistBridge";
+import { redisClient } from "../utils/redis";
 
 const BATCH_SIZE = 200;
 
@@ -182,6 +183,17 @@ export async function syncJellyfinOwnedAlbums(): Promise<{
                         update: {},
                     });
                     created++;
+
+                    // Cache rgMbid → Jellyfin ID so album detail pages can do a
+                    // single direct lookup instead of scanning the whole library.
+                    const rawJfId = album.id.startsWith("jellyfin:")
+                        ? album.id.slice("jellyfin:".length)
+                        : album.id;
+                    if (redisClient.isReady) {
+                        await redisClient
+                            .setEx(`jf:rgmbid:${album.rgMbid}`, 30 * 24 * 3600, rawJfId)
+                            .catch(() => {});
+                    }
                 } catch (err: any) {
                     logger.debug(
                         `[JellyfinOwnedSync] Failed for album "${album.title}" by "${artistName}":`,
