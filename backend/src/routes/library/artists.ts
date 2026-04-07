@@ -728,6 +728,23 @@ router.get("/artists/:id", async (req, res) => {
                     `  Filtered to ${filteredReleaseGroups.length} studio albums/EPs`
                 );
 
+                // Batch-check OwnedAlbum by rgMbid regardless of artistId.
+                // syncJellyfinOwnedAlbums may attach records to a different native
+                // artistId than the one being viewed, so we need a cross-artist lookup.
+                const mbRgMbids = filteredReleaseGroups.map((rg: any) => rg.id);
+                let globalOwnedRgMbids = new Set(ownedRgMbids);
+                if (mbRgMbids.length > 0) {
+                    try {
+                        const globalOwned = await prisma.ownedAlbum.findMany({
+                            where: { rgMbid: { in: mbRgMbids } },
+                            select: { rgMbid: true },
+                        });
+                        for (const o of globalOwned) globalOwnedRgMbids.add(o.rgMbid);
+                    } catch {
+                        // Non-critical: fall back to artist-scoped set
+                    }
+                }
+
                 // Transform MusicBrainz release groups to album format
                 // PERFORMANCE: Only check Redis cache for covers, don't make API calls
                 // This makes artist pages load instantly after the first visit
@@ -760,7 +777,7 @@ router.get("/artists/:id", async (req, res) => {
                             coverUrl,
                             coverArt: coverUrl,
                             artistId: artist.id,
-                            owned: ownedRgMbids.has(rg.id),
+                            owned: globalOwnedRgMbids.has(rg.id),
                             trackCount: 0,
                             tracks: [],
                             source: "musicbrainz" as const,
@@ -800,39 +817,6 @@ router.get("/artists/:id", async (req, res) => {
                 `[Artist] No valid MBID, using ${dbAlbums.length} albums from database`
             );
             albumsWithOwnership = dbAlbums;
-        }
-
-        // Cross-reference Jellyfin: albums in Jellyfin should show as owned
-        // even if they don't have an OwnedAlbum record in Prisma
-        if (await isJellyfinMusicSource()) {
-            const unownedAlbums = albumsWithOwnership.filter((a) => !a.owned && a.rgMbid);
-            if (unownedAlbums.length > 0) {
-                try {
-                    const cfg = await getJellyfinConfig();
-                    if (cfg) {
-                        const jellyfinArtist = await getJellyfinArtistByName(cfg, artist.name);
-                        if (jellyfinArtist) {
-                            const jfAlbums = await getJellyfinAlbumsAllForArtist(
-                                cfg,
-                                `jellyfin:${jellyfinArtist.Id}`
-                            );
-                            const jfRgMbids = new Set(
-                                jfAlbums.map((a) => a.rgMbid).filter(Boolean)
-                            );
-                            for (const album of albumsWithOwnership) {
-                                if (!album.owned && album.rgMbid && jfRgMbids.has(album.rgMbid)) {
-                                    album.owned = true;
-                                }
-                            }
-                        }
-                    }
-                } catch (err) {
-                    logger.debug(
-                        `[Artist] Jellyfin ownership cross-reference failed for "${artist.name}":`,
-                        err instanceof Error ? err.message : err
-                    );
-                }
-            }
         }
 
         // Extract top tracks from library first
