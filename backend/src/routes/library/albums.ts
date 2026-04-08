@@ -26,6 +26,14 @@ import {
 
 const router = Router();
 
+function normalizeTitle(value: string | null | undefined): string {
+    return (value ?? "")
+        .toLowerCase()
+        .replace(/[^\w\s]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+}
+
 router.get("/albums", async (req, res) => {
     try {
         const {
@@ -342,41 +350,82 @@ router.get("/albums/:id", async (req, res) => {
         }
 
         // Check ownership with O(1) indexed lookup (separate query is faster than fetching all ownedAlbums)
-        const owned = await prisma.ownedAlbum.findUnique({
-            where: {
-                artistId_rgMbid: {
-                    artistId: album.artistId,
-                    rgMbid: album.rgMbid,
-                },
-            },
-        });
+        const owned = album.rgMbid
+            ? await prisma.ownedAlbum.findFirst({
+                  where: {
+                      OR: [
+                          {
+                              artistId: album.artistId,
+                              rgMbid: album.rgMbid,
+                          },
+                          {
+                              rgMbid: album.rgMbid,
+                          },
+                      ],
+                  },
+                  select: { artistId: true, rgMbid: true },
+              })
+            : null;
         let isOwned = !!owned;
 
         // Prisma album exists but OwnedAlbum says not owned — check Jellyfin.
         // The Prisma record may come from enrichment/discovery while the actual
         // music lives in Jellyfin. If found there, serve the Jellyfin version
         // which has playable tracks.
-        if (!isOwned && album.rgMbid && (await isJellyfinMusicSource())) {
+        if (!isOwned && (await isJellyfinMusicSource())) {
             const cfg = await getJellyfinConfig();
             if (cfg) {
-                // Fast path: syncJellyfinOwnedAlbums caches rgMbid→JellyfinID.
-                // Use that for a direct item lookup instead of scanning 2000+ albums.
-                const redisCacheKey = `jf:rgmbid:${album.rgMbid}`;
-                const cachedJfId = redisClient.isReady
-                    ? await redisClient.get(redisCacheKey).catch(() => null)
-                    : null;
+                let jellyfinAlbum: any = null;
 
-                let jellyfinAlbum = null;
-                if (cachedJfId) {
-                    jellyfinAlbum = await getJellyfinItem(cfg, cachedJfId, "MusicAlbum").catch(() => null);
+                if (album.rgMbid) {
+                    // Fast path: syncJellyfinOwnedAlbums caches rgMbid→JellyfinID.
+                    // Use that for a direct item lookup instead of scanning 2000+ albums.
+                    const redisCacheKey = `jf:rgmbid:${album.rgMbid}`;
+                    const cachedJfId = redisClient.isReady
+                        ? await redisClient.get(redisCacheKey).catch(() => null)
+                        : null;
+
+                    if (cachedJfId) {
+                        jellyfinAlbum = await getJellyfinItem(cfg, cachedJfId, "MusicAlbum").catch(
+                            () => null
+                        );
+                    }
+                    if (!jellyfinAlbum) {
+                        // Cold path: full scan (happens before first sync or if cache expires)
+                        jellyfinAlbum = await getJellyfinAlbumByRgMbid(cfg, album.rgMbid);
+                        if (jellyfinAlbum && redisClient.isReady) {
+                            await redisClient
+                                .setEx(redisCacheKey, 30 * 24 * 3600, jellyfinAlbum.Id)
+                                .catch(() => {});
+                        }
+                    }
                 }
+
                 if (!jellyfinAlbum) {
-                    // Cold path: full scan (happens before first sync or if cache expires)
-                    jellyfinAlbum = await getJellyfinAlbumByRgMbid(cfg, album.rgMbid);
-                    if (jellyfinAlbum && redisClient.isReady) {
-                        await redisClient
-                            .setEx(redisCacheKey, 30 * 24 * 3600, jellyfinAlbum.Id)
-                            .catch(() => {});
+                    // MBIDs are sometimes missing or mismatched (release vs release-group).
+                    // Fallback to title/artist matching in Jellyfin for robustness.
+                    const normalizedTargetTitle = normalizeTitle(album.title);
+                    const normalizedTargetArtist = normalizeTitle(
+                        album.artist?.name ?? ""
+                    );
+                    const { albums: jfAlbums } = await getJellyfinAlbums(cfg, {
+                        search: album.title,
+                        limit: 100,
+                        offset: 0,
+                    });
+                    const candidate = jfAlbums.find((a) => {
+                        const sameTitle = normalizeTitle(a.title) === normalizedTargetTitle;
+                        if (!sameTitle) return false;
+                        if (!normalizedTargetArtist) return true;
+                        return normalizeTitle(a.artist?.name ?? "") === normalizedTargetArtist;
+                    });
+                    if (candidate?.id?.startsWith("jellyfin:")) {
+                        const rawId = candidate.id.slice("jellyfin:".length);
+                        jellyfinAlbum = await getJellyfinItem(
+                            cfg,
+                            rawId,
+                            "MusicAlbum"
+                        ).catch(() => null);
                     }
                 }
 

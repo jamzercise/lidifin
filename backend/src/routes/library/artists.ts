@@ -40,6 +40,14 @@ import { enrichJellyfinArtist } from "../../services/jellyfinArtistEnrichment";
 
 const router = Router();
 
+function normalizeAlbumTitle(value: string | null | undefined): string {
+    return (value ?? "")
+        .toLowerCase()
+        .replace(/[^\w\s]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+}
+
 router.get("/artists", async (req, res) => {
     try {
         const {
@@ -817,6 +825,63 @@ router.get("/artists/:id", async (req, res) => {
                 `[Artist] No valid MBID, using ${dbAlbums.length} albums from database`
             );
             albumsWithOwnership = dbAlbums;
+        }
+
+        // Cross-reference Jellyfin by artist+title for cases where MBIDs are
+        // missing/mismatched (e.g., release MBID vs release-group MBID).
+        if (await isJellyfinMusicSource()) {
+            const unresolved = albumsWithOwnership.filter((a: any) => !a.owned);
+            if (unresolved.length > 0) {
+                try {
+                    const cfg = await getJellyfinConfig();
+                    if (cfg) {
+                        const normalizedArtist = normalizeAlbumTitle(artist.name);
+                        const { artists: jfArtists } = await getJellyfinArtists(cfg, {
+                            search: artist.name,
+                            limit: 25,
+                            offset: 0,
+                        });
+                        const jfArtist =
+                            jfArtists.find(
+                                (a) =>
+                                    normalizeAlbumTitle(a.name) ===
+                                    normalizedArtist
+                            ) ?? null;
+
+                        if (jfArtist) {
+                            const jfAlbums = await getJellyfinAlbumsAllForArtist(
+                                cfg,
+                                jfArtist.id
+                            );
+                            const jfRg = new Set(
+                                jfAlbums
+                                    .map((a) => a.rgMbid)
+                                    .filter(Boolean)
+                            );
+                            const jfTitleKeys = new Set(
+                                jfAlbums.map((a) => normalizeAlbumTitle(a.title))
+                            );
+
+                            for (const album of albumsWithOwnership as any[]) {
+                                if (album.owned) continue;
+                                const byRg =
+                                    !!album.rgMbid && jfRg.has(album.rgMbid);
+                                const byTitle = jfTitleKeys.has(
+                                    normalizeAlbumTitle(album.title)
+                                );
+                                if (byRg || byTitle) {
+                                    album.owned = true;
+                                }
+                            }
+                        }
+                    }
+                } catch (err: any) {
+                    logger.debug(
+                        `[Artist] Jellyfin ownership cross-reference failed for "${artist.name}":`,
+                        err?.message ?? err
+                    );
+                }
+            }
         }
 
         // Extract top tracks from library first
