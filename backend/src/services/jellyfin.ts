@@ -1353,11 +1353,30 @@ export async function getJellyfinPlaylistItems(
 ): Promise<{ entryId: string; itemId: string }[]> {
     const token = getEffectiveToken(cfg);
     const client = createClient(cfg.url, token);
-    try {
-        const res = await client.get<{ Items?: { Id: string; PlaylistItemId?: string }[] }>(
+    const request = (timeout: number) =>
+        client.get<{ Items?: { Id: string; PlaylistItemId?: string }[] }>(
             `/Playlists/${playlistId}/Items`,
-            { params: { UserId: getJellyfinUserId(cfg) } }
+            {
+                params: { UserId: getJellyfinUserId(cfg) },
+                timeout,
+            }
         );
+    try {
+        let res;
+        try {
+            res = await request(15000);
+        } catch (err: any) {
+            const isTimeout =
+                err?.code === "ECONNABORTED" ||
+                /timeout/i.test(String(err?.message ?? ""));
+            if (!isTimeout) throw err;
+            // Jellyfin can be slow for large playlists; retry once with a longer timeout.
+            logger.debug(
+                "[Jellyfin] getPlaylistItems timed out, retrying with longer timeout:",
+                playlistId
+            );
+            res = await request(30000);
+        }
         const items = res.data?.Items ?? [];
         return items.map((it) => ({
             entryId: it.PlaylistItemId ?? it.Id,

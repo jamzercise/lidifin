@@ -41,7 +41,23 @@ export async function resolveJellyfinArtistToNative(
     try {
         const cached = await redisClient.get(cacheKey);
         if (cached === BRIDGE_NOT_FOUND) return null;
-        if (cached) return JSON.parse(cached) as BridgedArtist;
+        if (cached) {
+            const parsed = JSON.parse(cached) as BridgedArtist;
+            // Guard against stale cache entries (e.g. artist deleted/recreated).
+            const stillExists = await prisma.artist.findUnique({
+                where: { id: parsed.nativeId },
+                select: { id: true, name: true, mbid: true },
+            });
+            if (stillExists && isValidMbid(stillExists.mbid)) {
+                return {
+                    nativeId: stillExists.id,
+                    name: stillExists.name,
+                    mbid: stillExists.mbid,
+                };
+            }
+            // Stale bridge entry: remove and continue with fresh resolution.
+            await redisClient.del(cacheKey).catch(() => {});
+        }
     } catch {
         // Redis errors are non-critical
     }

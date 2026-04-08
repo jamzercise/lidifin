@@ -143,6 +143,8 @@ export async function syncJellyfinOwnedAlbums(): Promise<{
     let created = 0;
     let skipped = 0;
     let offset = 0;
+    const validLegacyArtistIds = new Set<string>();
+    const missingLegacyArtistIds = new Set<string>();
 
     logger.debug("[JellyfinOwnedSync] Starting OwnedAlbum sync from Jellyfin...");
 
@@ -304,21 +306,53 @@ export async function syncJellyfinOwnedAlbums(): Promise<{
 
                     // Keep legacy OwnedAlbum path for compatibility while read paths migrate.
                     if (album.rgMbid) {
-                        await prisma.ownedAlbum.upsert({
-                            where: {
-                                artistId_rgMbid: {
-                                    artistId: bridged.nativeId,
-                                    rgMbid: album.rgMbid,
-                                },
-                            },
-                            create: {
-                                artistId: bridged.nativeId,
-                                rgMbid: album.rgMbid,
-                                source: "jellyfin_sync",
-                            },
-                            update: {},
-                        });
-                        created++;
+                        let canWriteLegacy = validLegacyArtistIds.has(
+                            bridged.nativeId
+                        );
+                        if (
+                            !canWriteLegacy &&
+                            !missingLegacyArtistIds.has(bridged.nativeId)
+                        ) {
+                            const artistExists = await prisma.artist.findUnique({
+                                where: { id: bridged.nativeId },
+                                select: { id: true },
+                            });
+                            if (artistExists) {
+                                validLegacyArtistIds.add(bridged.nativeId);
+                                canWriteLegacy = true;
+                            } else {
+                                missingLegacyArtistIds.add(bridged.nativeId);
+                            }
+                        }
+
+                        if (canWriteLegacy) {
+                            try {
+                                await prisma.ownedAlbum.upsert({
+                                    where: {
+                                        artistId_rgMbid: {
+                                            artistId: bridged.nativeId,
+                                            rgMbid: album.rgMbid,
+                                        },
+                                    },
+                                    create: {
+                                        artistId: bridged.nativeId,
+                                        rgMbid: album.rgMbid,
+                                        source: "jellyfin_sync",
+                                    },
+                                    update: {},
+                                });
+                                created++;
+                            } catch (err: any) {
+                                // If artist row vanished between exists-check and upsert,
+                                // mark this artistId as missing and avoid repeated FK spam.
+                                if (err?.code === "P2003") {
+                                    validLegacyArtistIds.delete(bridged.nativeId);
+                                    missingLegacyArtistIds.add(bridged.nativeId);
+                                } else {
+                                    throw err;
+                                }
+                            }
+                        }
                     }
 
                     // Cache rgMbid → Jellyfin ID so album detail pages can do a

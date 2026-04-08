@@ -487,7 +487,9 @@ const server = app.listen(config.port, "0.0.0.0", async () => {
 // Event loop delay monitor - logs when the loop is blocked (helps diagnose "backend hung" issues)
 const EVENT_LOOP_CHECK_MS = 30000;
 const EVENT_LOOP_WARN_THRESHOLD_MS = 2000;
-let eventLoopCheckExpected = Date.now();
+// Seed expected time to the first interval tick so startup doesn't always
+// report a ~30s "delay" on the first check.
+let eventLoopCheckExpected = Date.now() + EVENT_LOOP_CHECK_MS;
 const recentDelays: number[] = [];
 const MAX_RECENT_DELAYS = 5;
 
