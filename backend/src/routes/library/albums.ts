@@ -139,7 +139,16 @@ router.get("/albums", async (req, res) => {
                 SELECT a.id
                 FROM "Album" a
                 WHERE EXISTS (SELECT 1 FROM "Track" t WHERE t."albumId" = a.id)
-                AND (a.location = 'LIBRARY' OR a."rgMbid" IN (SELECT "rgMbid" FROM "OwnedAlbum"))
+                AND (
+                    a.location = 'LIBRARY'
+                    OR a."rgMbid" IN (SELECT "rgMbid" FROM "OwnedAlbum")
+                    OR EXISTS (
+                        SELECT 1
+                        FROM "AlbumOwnershipFact" aof
+                        WHERE aof."albumId" = a.id
+                          AND aof."status" = 'OWNED'
+                    )
+                )
                 ${artistId ? Prisma.sql`AND a."artistId" = ${artistId as string}` : Prisma.empty}
                 ORDER BY ${orderClause}
                 LIMIT ${limit}
@@ -166,7 +175,16 @@ router.get("/albums", async (req, res) => {
                     SELECT COUNT(*)::bigint as count
                     FROM "Album" a
                     WHERE EXISTS (SELECT 1 FROM "Track" t WHERE t."albumId" = a.id)
-                    AND (a.location = 'LIBRARY' OR a."rgMbid" IN (SELECT "rgMbid" FROM "OwnedAlbum"))
+                    AND (
+                        a.location = 'LIBRARY'
+                        OR a."rgMbid" IN (SELECT "rgMbid" FROM "OwnedAlbum")
+                        OR EXISTS (
+                            SELECT 1
+                            FROM "AlbumOwnershipFact" aof
+                            WHERE aof."albumId" = a.id
+                              AND aof."status" = 'OWNED'
+                        )
+                    )
                     ${artistId ? Prisma.sql`AND a."artistId" = ${artistId as string}` : Prisma.empty}
                 `,
             ]);
@@ -349,24 +367,41 @@ router.get("/albums/:id", async (req, res) => {
             return res.status(404).json({ error: "Album not found" });
         }
 
-        // Check ownership with O(1) indexed lookup (separate query is faster than fetching all ownedAlbums)
-        const owned = album.rgMbid
-            ? await prisma.ownedAlbum.findFirst({
-                  where: {
-                      OR: [
-                          {
-                              artistId: album.artistId,
-                              rgMbid: album.rgMbid,
-                          },
-                          {
-                              rgMbid: album.rgMbid,
-                          },
-                      ],
-                  },
-                  select: { artistId: true, rgMbid: true },
-              })
-            : null;
-        let isOwned = !!owned;
+        // New primary ownership path: AlbumOwnershipFact (source=JELLYFIN).
+        const ownershipFact = await prisma.albumOwnershipFact.findUnique({
+            where: {
+                albumId_source: {
+                    albumId: album.id,
+                    source: "JELLYFIN",
+                },
+            },
+            select: {
+                status: true,
+                sourceAlbumId: true,
+                matchMethod: true,
+                confidence: true,
+            },
+        });
+        let isOwned = ownershipFact?.status === "OWNED";
+
+        // Compatibility fallback while we transition off OwnedAlbum reads.
+        if (!isOwned && album.rgMbid) {
+            const owned = await prisma.ownedAlbum.findFirst({
+                where: {
+                    OR: [
+                        {
+                            artistId: album.artistId,
+                            rgMbid: album.rgMbid,
+                        },
+                        {
+                            rgMbid: album.rgMbid,
+                        },
+                    ],
+                },
+                select: { artistId: true, rgMbid: true },
+            });
+            isOwned = !!owned;
+        }
 
         // Prisma album exists but OwnedAlbum says not owned — check Jellyfin.
         // The Prisma record may come from enrichment/discovery while the actual
@@ -376,6 +411,14 @@ router.get("/albums/:id", async (req, res) => {
             const cfg = await getJellyfinConfig();
             if (cfg) {
                 let jellyfinAlbum: any = null;
+
+                if (ownershipFact?.sourceAlbumId) {
+                    jellyfinAlbum = await getJellyfinItem(
+                        cfg,
+                        ownershipFact.sourceAlbumId,
+                        "MusicAlbum"
+                    ).catch(() => null);
+                }
 
                 if (album.rgMbid) {
                     // Fast path: syncJellyfinOwnedAlbums caches rgMbid→JellyfinID.
@@ -430,6 +473,100 @@ router.get("/albums/:id", async (req, res) => {
                 }
 
                 if (jellyfinAlbum && jellyfinAlbum.Type === "MusicAlbum") {
+                    const sourceAlbumId = jellyfinAlbum.Id;
+                    const method =
+                        album.rgMbid &&
+                        album.rgMbid === extractRgMbid(jellyfinAlbum.ProviderIds)
+                            ? "RGMBID"
+                            : "TITLE_ARTIST_NORMALIZED";
+
+                    // Opportunistically heal/refresh source map + ownership fact.
+                    await prisma.$transaction([
+                        prisma.albumSourceMap.upsert({
+                            where: {
+                                source_sourceAlbumId: {
+                                    source: "JELLYFIN",
+                                    sourceAlbumId,
+                                },
+                            },
+                            create: {
+                                source: "JELLYFIN",
+                                sourceAlbumId,
+                                albumId: album.id,
+                                matchMethod: method,
+                                confidence: method === "RGMBID" ? 1.0 : 0.92,
+                                evidence: {
+                                    jellyfinTitle: jellyfinAlbum.Name || album.title,
+                                    jellyfinArtist:
+                                        jellyfinAlbum.AlbumArtists?.[0]?.Name ??
+                                        album.artist?.name ??
+                                        null,
+                                    jellyfinRgMbid:
+                                        extractRgMbid(jellyfinAlbum.ProviderIds) ??
+                                        null,
+                                },
+                            },
+                            update: {
+                                albumId: album.id,
+                                matchMethod: method,
+                                confidence: method === "RGMBID" ? 1.0 : 0.92,
+                                evidence: {
+                                    jellyfinTitle: jellyfinAlbum.Name || album.title,
+                                    jellyfinArtist:
+                                        jellyfinAlbum.AlbumArtists?.[0]?.Name ??
+                                        album.artist?.name ??
+                                        null,
+                                    jellyfinRgMbid:
+                                        extractRgMbid(jellyfinAlbum.ProviderIds) ??
+                                        null,
+                                },
+                            },
+                        }),
+                        prisma.albumOwnershipFact.upsert({
+                            where: {
+                                albumId_source: {
+                                    albumId: album.id,
+                                    source: "JELLYFIN",
+                                },
+                            },
+                            create: {
+                                albumId: album.id,
+                                source: "JELLYFIN",
+                                sourceAlbumId,
+                                status: "OWNED",
+                                matchMethod: method,
+                                confidence: method === "RGMBID" ? 1.0 : 0.92,
+                                evidence: {
+                                    jellyfinTitle: jellyfinAlbum.Name || album.title,
+                                    jellyfinArtist:
+                                        jellyfinAlbum.AlbumArtists?.[0]?.Name ??
+                                        album.artist?.name ??
+                                        null,
+                                    jellyfinRgMbid:
+                                        extractRgMbid(jellyfinAlbum.ProviderIds) ??
+                                        null,
+                                },
+                            },
+                            update: {
+                                sourceAlbumId,
+                                status: "OWNED",
+                                matchMethod: method,
+                                confidence: method === "RGMBID" ? 1.0 : 0.92,
+                                observedAt: new Date(),
+                                evidence: {
+                                    jellyfinTitle: jellyfinAlbum.Name || album.title,
+                                    jellyfinArtist:
+                                        jellyfinAlbum.AlbumArtists?.[0]?.Name ??
+                                        album.artist?.name ??
+                                        null,
+                                    jellyfinRgMbid:
+                                        extractRgMbid(jellyfinAlbum.ProviderIds) ??
+                                        null,
+                                },
+                            },
+                        }),
+                    ]);
+
                     const jfId = `jellyfin:${jellyfinAlbum.Id}`;
                     const tracks = await getJellyfinTracksAllForAlbum(cfg, jfId);
                     const artist = jellyfinAlbum.AlbumArtists?.[0]

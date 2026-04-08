@@ -37,7 +37,16 @@ export async function refreshOwnedAlbumsCache(sortBy: string): Promise<number> {
         SELECT a.id
         FROM "Album" a
         WHERE EXISTS (SELECT 1 FROM "Track" t WHERE t."albumId" = a.id)
-        AND (a.location = 'LIBRARY' OR a."rgMbid" IN (SELECT "rgMbid" FROM "OwnedAlbum"))
+        AND (
+            a.location = 'LIBRARY'
+            OR a."rgMbid" IN (SELECT "rgMbid" FROM "OwnedAlbum")
+            OR EXISTS (
+                SELECT 1
+                FROM "AlbumOwnershipFact" aof
+                WHERE aof."albumId" = a.id
+                  AND aof."status" = 'OWNED'
+            )
+        )
         ORDER BY ${orderClause}
         LIMIT ${MAX_CACHED_IDS}
     `;

@@ -179,6 +179,8 @@ model Album {
   originalYear     Int?
   artist           Artist                   @relation(fields: [artistId], references: [id], onDelete: Cascade)
   tracks           Track[]
+  sourceMaps       AlbumSourceMap[]
+  ownershipFacts   AlbumOwnershipFact[]
 
   @@index([artistId])
   @@index([location])
@@ -446,6 +448,43 @@ model OwnedAlbum {
 
   @@id([artistId, rgMbid])
   @@index([artistId])
+}
+
+/// Maps external source album identifiers to canonical Album rows.
+model AlbumSourceMap {
+  id            String      @id @default(cuid())
+  source        SourceSystem
+  sourceAlbumId String
+  albumId       String
+  confidence    Float       @default(1.0)
+  matchMethod   MatchMethod
+  evidence      Json?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  album         Album       @relation(fields: [albumId], references: [id], onDelete: Cascade)
+
+  @@unique([source, sourceAlbumId])
+  @@index([albumId])
+}
+
+/// Canonical ownership fact used by read paths (album/artist pages).
+model AlbumOwnershipFact {
+  id            String          @id @default(cuid())
+  albumId       String
+  source        SourceSystem
+  sourceAlbumId String?
+  status        OwnershipStatus @default(UNKNOWN)
+  matchMethod   MatchMethod
+  confidence    Float           @default(1.0)
+  evidence      Json?
+  observedAt    DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  album         Album           @relation(fields: [albumId], references: [id], onDelete: Cascade)
+
+  @@unique([albumId, source])
+  @@index([status])
+  @@index([albumId, status])
+  @@index([source, sourceAlbumId])
 }
 
 model DownloadJob {
@@ -932,6 +971,31 @@ enum ListenSource {
 enum AlbumLocation {
   LIBRARY
   DISCOVER
+}
+
+enum SourceSystem {
+  NATIVE
+  JELLYFIN
+  MUSICBRAINZ
+  LASTFM
+  DEEZER
+  SPOTIFY
+}
+
+enum OwnershipStatus {
+  OWNED
+  UNOWNED
+  UNKNOWN
+  CONFLICT
+}
+
+enum MatchMethod {
+  EXACT_SOURCE_ID
+  RGMBID
+  ARTIST_RGMBID
+  TITLE_ARTIST_NORMALIZED
+  TITLE_ARTIST_FUZZY
+  MANUAL
 }
 
 model TrackEmbedding {

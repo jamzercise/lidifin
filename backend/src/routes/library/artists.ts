@@ -125,6 +125,18 @@ router.get("/artists", async (req, res) => {
             where.OR = [
                 { libraryAlbumCount: { gt: 0 } },
                 { ownedAlbums: { some: {} } },
+                {
+                    albums: {
+                        some: {
+                            ownershipFacts: {
+                                some: {
+                                    status: "OWNED",
+                                    source: "JELLYFIN",
+                                },
+                            },
+                        },
+                    },
+                },
             ];
         } else if (filter === "discovery") {
             // Artists with ONLY discovery albums (no library albums)
@@ -743,11 +755,24 @@ router.get("/artists/:id", async (req, res) => {
                 let globalOwnedRgMbids = new Set(ownedRgMbids);
                 if (mbRgMbids.length > 0) {
                     try {
-                        const globalOwned = await prisma.ownedAlbum.findMany({
+                        // Primary path: canonical ownership facts.
+                        const factOwned = await prisma.album.findMany({
+                            where: {
+                                rgMbid: { in: mbRgMbids },
+                                ownershipFacts: {
+                                    some: { status: "OWNED", source: "JELLYFIN" },
+                                },
+                            },
+                            select: { rgMbid: true },
+                        });
+                        for (const o of factOwned) globalOwnedRgMbids.add(o.rgMbid);
+
+                        // Compatibility fallback while transitioning from OwnedAlbum reads.
+                        const legacyOwned = await prisma.ownedAlbum.findMany({
                             where: { rgMbid: { in: mbRgMbids } },
                             select: { rgMbid: true },
                         });
-                        for (const o of globalOwned) globalOwnedRgMbids.add(o.rgMbid);
+                        for (const o of legacyOwned) globalOwnedRgMbids.add(o.rgMbid);
                     } catch {
                         // Non-critical: fall back to artist-scoped set
                     }
