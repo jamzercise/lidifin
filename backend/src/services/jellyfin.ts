@@ -50,6 +50,7 @@ export interface ResolvedAlbum {
     title: string;
     coverArt: string | null;
     artist?: { id: string; name: string };
+    albumArtists?: { id: string; name: string }[];
     year?: number;
     /** MusicBrainz release group ID when available from Jellyfin ProviderIds */
     rgMbid?: string;
@@ -382,6 +383,9 @@ export async function getJellyfinAlbums(
         artist: a.AlbumArtists?.[0]
             ? { id: `${JELLYFIN_PREFIX}${a.AlbumArtists[0].Id}`, name: a.AlbumArtists[0].Name }
             : undefined,
+        albumArtists: (a.AlbumArtists ?? [])
+            .filter((aa) => !!aa?.Id && !!aa?.Name)
+            .map((aa) => ({ id: `${JELLYFIN_PREFIX}${aa.Id}`, name: aa.Name })),
         year: a.ProductionYear ?? undefined,
         rgMbid: extractRgMbid(a.ProviderIds),
     }));

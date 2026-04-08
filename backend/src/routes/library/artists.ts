@@ -595,6 +595,7 @@ router.get("/artists/:id", async (req, res) => {
                         listeners: undefined,
                         playcount: undefined,
                         albums: ownedAlbums,
+                        appearsOn: [],
                         topTracks: topTracks.map((t) => ({
                             id: t.id,
                             title: t.title,
@@ -667,6 +668,44 @@ router.get("/artists/:id", async (req, res) => {
         const dbAlbums = artist.albums.map((album) => ({
             ...album,
             owned: true, // If it's in the database with tracks, user owns it!
+            coverArt: album.coverUrl,
+            source: "database" as const,
+        }));
+        const normalizedArtistName =
+            artist.normalizedName?.trim() || normalizeAlbumTitle(artist.name);
+        const appearsOnDbAlbumsRaw = await prisma.album.findMany({
+            where: {
+                artistId: { not: artist.id },
+                albumArtistCredits: {
+                    some: {
+                        OR: [
+                            { artistId: artist.id },
+                            { normalizedDisplayName: normalizedArtistName },
+                        ],
+                    },
+                },
+            },
+            orderBy: { year: Prisma.SortOrder.desc },
+            include: {
+                artist: true,
+                tracks: {
+                    orderBy: { trackNo: Prisma.SortOrder.asc },
+                    take: 10,
+                    include: {
+                        album: {
+                            select: {
+                                id: true,
+                                title: true,
+                                coverUrl: true,
+                            },
+                        },
+                    },
+                },
+            },
+        });
+        const appearsOnDbAlbums = appearsOnDbAlbumsRaw.map((album) => ({
+            ...album,
+            owned: true,
             coverArt: album.coverUrl,
             source: "database" as const,
         }));
@@ -1294,6 +1333,7 @@ router.get("/artists/:id", async (req, res) => {
             bio: getArtistDisplaySummary(artist),
             genres: getMergedGenres(artist),
             albums: albumsWithOwnership,
+            appearsOn: appearsOnDbAlbums,
             topTracks,
             similarArtists,
         });

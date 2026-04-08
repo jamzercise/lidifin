@@ -43,6 +43,7 @@ export default function ArtistPage() {
     const {
         artist,
         albums,
+        appearsOn,
         loading,
         error,
         source,
@@ -275,6 +276,15 @@ export default function ArtistPage() {
                         onPlayAlbum={handlePlayAlbum}
                         sortBy={sortBy}
                         onSortChange={setSortBy}
+                    />
+
+                    {/* Appears On (compilation/credits where this artist is not primary) */}
+                    <Discography
+                        albums={appearsOn}
+                        colors={colors}
+                        onPlayAlbum={handlePlayAlbum}
+                        title="Appears On"
+                        showSort={false}
                     />
 
                     {/* Available Albums to Download */}

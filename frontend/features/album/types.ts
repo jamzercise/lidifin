@@ -8,6 +8,12 @@ export interface Album {
         mbid?: string;
         name: string;
     };
+    albumArtists?: Array<{
+        id: string;
+        mbid?: string | null;
+        name: string;
+    }>;
+    isCompilation?: boolean;
     year?: number;
     genre?: string;
     coverArt?: string;
@@ -31,6 +37,10 @@ export interface Track {
     discNumber?: number;
     playCount?: number;
     artist?: {
+        id?: string;
+        name?: string;
+    };
+    albumArtist?: {
         id?: string;
         name?: string;
     };

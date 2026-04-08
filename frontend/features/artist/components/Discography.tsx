@@ -12,8 +12,10 @@ interface DiscographyProps {
     albums: Album[];
     colors: ColorPalette | null;
     onPlayAlbum: (albumId: string, albumTitle: string) => Promise<void>;
-    sortBy: "year" | "dateAdded";
-    onSortChange: (sortBy: "year" | "dateAdded") => void;
+    sortBy?: "year" | "dateAdded";
+    onSortChange?: (sortBy: "year" | "dateAdded") => void;
+    title?: string;
+    showSort?: boolean;
 }
 
 export function Discography({
@@ -22,6 +24,8 @@ export function Discography({
     onPlayAlbum,
     sortBy,
     onSortChange,
+    title = "Discography",
+    showSort = true,
 }: DiscographyProps) {
     const prefetchAlbum = usePrefetchAlbum();
     if (!albums || albums.length === 0) {
@@ -31,18 +35,20 @@ export function Discography({
     return (
         <section>
             <div className="flex items-center justify-between mb-4">
-                <h2 className="text-xl font-bold">Discography</h2>
+                <h2 className="text-xl font-bold">{title}</h2>
                 {/* Sort Dropdown */}
-                <select
-                    value={sortBy}
-                    onChange={(e) =>
-                        onSortChange(e.target.value as "year" | "dateAdded")
-                    }
-                    className="px-3 py-1.5 bg-white/5 border border-white/10 rounded-full text-white text-xs focus:outline-none focus:border-white/20 [&>option]:bg-[#1a1a1a] [&>option]:text-white"
-                >
-                    <option value="year">Year (Newest)</option>
-                    <option value="dateAdded">Date Added (Recent)</option>
-                </select>
+                {showSort && sortBy && onSortChange && (
+                    <select
+                        value={sortBy}
+                        onChange={(e) =>
+                            onSortChange(e.target.value as "year" | "dateAdded")
+                        }
+                        className="px-3 py-1.5 bg-white/5 border border-white/10 rounded-full text-white text-xs focus:outline-none focus:border-white/20 [&>option]:bg-[#1a1a1a] [&>option]:text-white"
+                    >
+                        <option value="year">Year (Newest)</option>
+                        <option value="dateAdded">Date Added (Recent)</option>
+                    </select>
+                )}
             </div>
             <div
                 data-tv-section="discography"

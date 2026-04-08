@@ -146,6 +146,8 @@ model Artist {
   totalTrackCount     Int                      @default(0)
   albums              Album[]
   ownedAlbums         OwnedAlbum[]
+  albumArtistCredits  AlbumArtistCredit[]
+  trackArtistCredits  TrackArtistCredit[]
   similarFrom         SimilarArtist[]          @relation("FromArtist")
   similarTo           SimilarArtist[]          @relation("ToArtist")
 
@@ -177,8 +179,10 @@ model Album {
   userCoverUrl     String?
   userGenres       Json?
   originalYear     Int?
+  isCompilation    Boolean                  @default(false)
   artist           Artist                   @relation(fields: [artistId], references: [id], onDelete: Cascade)
   tracks           Track[]
+  albumArtistCredits AlbumArtistCredit[]
   sourceMaps       AlbumSourceMap[]
   ownershipFacts   AlbumOwnershipFact[]
 
@@ -250,6 +254,7 @@ model Track {
   
   moodBuckets        MoodBucket[]
   album              Album                    @relation(fields: [albumId], references: [id], onDelete: Cascade)
+  trackArtistCredits TrackArtistCredit[]
   trackGenres        TrackGenre[]
   transcodedFiles    TranscodedFile[]
   embedding          TrackEmbedding?
@@ -448,6 +453,54 @@ model OwnedAlbum {
 
   @@id([artistId, rgMbid])
   @@index([artistId])
+}
+
+/// Normalized album-level artist credits (supports compilations and multi-artist albums).
+model AlbumArtistCredit {
+  id                    String          @id @default(cuid())
+  albumId               String
+  artistId              String?
+  displayName           String
+  normalizedDisplayName String          @default("")
+  role                  ArtistCreditRole @default(PRIMARY)
+  sortOrder             Int             @default(0)
+  source                SourceSystem    @default(NATIVE)
+  sourceArtistId        String?
+  confidence            Float           @default(1.0)
+  evidence              Json?
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+  album                 Album           @relation(fields: [albumId], references: [id], onDelete: Cascade)
+  artist                Artist?         @relation(fields: [artistId], references: [id], onDelete: SetNull)
+
+  @@index([albumId, sortOrder])
+  @@index([artistId])
+  @@index([normalizedDisplayName])
+  @@index([source, sourceArtistId])
+}
+
+/// Normalized track-level artist credits (supports per-track attribution on compilations).
+model TrackArtistCredit {
+  id                    String           @id @default(cuid())
+  trackId               String
+  artistId              String?
+  displayName           String
+  normalizedDisplayName String           @default("")
+  role                  ArtistCreditRole @default(PRIMARY)
+  sortOrder             Int              @default(0)
+  source                SourceSystem     @default(NATIVE)
+  sourceArtistId        String?
+  confidence            Float            @default(1.0)
+  evidence              Json?
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
+  track                 Track            @relation(fields: [trackId], references: [id], onDelete: Cascade)
+  artist                Artist?          @relation(fields: [artistId], references: [id], onDelete: SetNull)
+
+  @@index([trackId, sortOrder])
+  @@index([artistId])
+  @@index([normalizedDisplayName])
+  @@index([source, sourceArtistId])
 }
 
 /// Maps external source album identifiers to canonical Album rows.
@@ -996,6 +1049,13 @@ enum MatchMethod {
   TITLE_ARTIST_NORMALIZED
   TITLE_ARTIST_FUZZY
   MANUAL
+}
+
+enum ArtistCreditRole {
+  PRIMARY
+  COMPILATION
+  FEATURED
+  CONTRIBUTOR
 }
 
 model TrackEmbedding {

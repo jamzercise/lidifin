@@ -41,6 +41,13 @@ export function AlbumHero({
     };
 
     const totalDuration = formatDuration(album.duration);
+    const albumArtists =
+        album.albumArtists && album.albumArtists.length > 0
+            ? album.albumArtists
+            : album.artist
+              ? [album.artist]
+              : [];
+    const visibleArtists = albumArtists.slice(0, 3);
 
     return (
         <div className="relative">
@@ -142,13 +149,32 @@ export function AlbumHero({
                             )}
                         </div>
                         <div className="flex flex-wrap items-center gap-1 text-sm text-white/70 mb-1">
-                            {album.artist && (
-                                <Link
-                                    href={`/artist/${encodeURIComponent(toArtistRouteId(album.artist))}`}
-                                    className="font-medium text-white hover:underline"
+                            {visibleArtists.map((artist, index) => (
+                                <div
+                                    key={`${artist.id || artist.name}-${index}`}
+                                    className="inline-flex items-center gap-1"
                                 >
-                                    {album.artist.name}
-                                </Link>
+                                    {artist.id ? (
+                                        <Link
+                                            href={`/artist/${encodeURIComponent(toArtistRouteId(artist))}`}
+                                            className="font-medium text-white hover:underline"
+                                        >
+                                            {artist.name}
+                                        </Link>
+                                    ) : (
+                                        <span className="font-medium text-white">
+                                            {artist.name}
+                                        </span>
+                                    )}
+                                    {index < visibleArtists.length - 1 && (
+                                        <span className="text-white/50">,</span>
+                                    )}
+                                </div>
+                            ))}
+                            {albumArtists.length > visibleArtists.length && (
+                                <span className="text-white/60">
+                                    +{albumArtists.length - visibleArtists.length} more
+                                </span>
                             )}
                             {displayData.year && (
                                 <>

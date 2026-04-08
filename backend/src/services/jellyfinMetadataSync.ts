@@ -18,6 +18,7 @@ import { resolveJellyfinArtistToNative } from "./jellyfinArtistBridge";
 import { redisClient } from "../utils/redis";
 
 const BATCH_SIZE = 200;
+const VARIOUS_ARTISTS_MBID = "89ad4ac3-39f7-470e-963a-56509c546377";
 
 function normalizeTitle(value: string | null | undefined): string {
     return (value ?? "")
@@ -25,6 +26,34 @@ function normalizeTitle(value: string | null | undefined): string {
         .replace(/[^\w\s]/g, " ")
         .replace(/\s+/g, " ")
         .trim();
+}
+
+function isVariousArtistsName(value: string | null | undefined): boolean {
+    const normalized = normalizeTitle(value);
+    return (
+        normalized === "various artists" ||
+        normalized === "various artist" ||
+        normalized === "various" ||
+        normalized === "va"
+    );
+}
+
+async function ensureCanonicalVariousArtistId(): Promise<string> {
+    const existing = await prisma.artist.findUnique({
+        where: { mbid: VARIOUS_ARTISTS_MBID },
+        select: { id: true },
+    });
+    if (existing) return existing.id;
+    const created = await prisma.artist.create({
+        data: {
+            mbid: VARIOUS_ARTISTS_MBID,
+            name: "Various Artists",
+            normalizedName: normalizeTitle("Various Artists"),
+            enrichmentStatus: "pending",
+        },
+        select: { id: true },
+    });
+    return created.id;
 }
 
 export interface SyncResult {
@@ -117,6 +146,114 @@ export async function syncJellyfinTrackMetadata(): Promise<SyncResult | null> {
     }
 }
 
+async function syncCanonicalAlbumArtistCredits(
+    canonicalAlbumId: string,
+    jellyfinAlbum: {
+        title: string;
+        artist?: { id: string; name: string };
+        albumArtists?: { id: string; name: string }[];
+    },
+    fallbackPrimaryArtistId?: string | null
+): Promise<void> {
+    const rawArtists =
+        jellyfinAlbum.albumArtists && jellyfinAlbum.albumArtists.length > 0
+            ? jellyfinAlbum.albumArtists
+            : jellyfinAlbum.artist
+              ? [jellyfinAlbum.artist]
+              : [];
+
+    if (rawArtists.length === 0 && !fallbackPrimaryArtistId) return;
+
+    const credits: Array<{
+        artistId: string | null;
+        displayName: string;
+        normalizedDisplayName: string;
+        role: "PRIMARY" | "COMPILATION";
+        sortOrder: number;
+        sourceArtistId: string | null;
+    }> = [];
+
+    for (let i = 0; i < rawArtists.length; i++) {
+        const sourceArtist = rawArtists[i];
+        const displayName = sourceArtist.name?.trim() || "Unknown Artist";
+        const normalizedDisplayName = normalizeTitle(displayName);
+
+        let artistId: string | null = null;
+        if (isVariousArtistsName(displayName)) {
+            artistId = await ensureCanonicalVariousArtistId();
+        } else {
+            const bridged = await resolveJellyfinArtistToNative(displayName, null);
+            artistId = bridged?.nativeId ?? null;
+        }
+
+        const sourceArtistId = sourceArtist.id.startsWith("jellyfin:")
+            ? sourceArtist.id.slice("jellyfin:".length)
+            : sourceArtist.id;
+
+        credits.push({
+            artistId,
+            displayName,
+            normalizedDisplayName,
+            role: isVariousArtistsName(displayName) ? "COMPILATION" : "PRIMARY",
+            sortOrder: i,
+            sourceArtistId: sourceArtistId || null,
+        });
+    }
+
+    if (credits.length === 0 && fallbackPrimaryArtistId) {
+        const fallbackArtist = await prisma.artist.findUnique({
+            where: { id: fallbackPrimaryArtistId },
+            select: { id: true, name: true },
+        });
+        if (fallbackArtist) {
+            credits.push({
+                artistId: fallbackArtist.id,
+                displayName: fallbackArtist.name,
+                normalizedDisplayName: normalizeTitle(fallbackArtist.name),
+                role: "PRIMARY",
+                sortOrder: 0,
+                sourceArtistId: null,
+            });
+        }
+    }
+
+    if (credits.length === 0) return;
+
+    const uniqueArtistKeys = new Set(
+        credits.map((c) => c.normalizedDisplayName).filter(Boolean)
+    );
+    const hasVariousArtists = credits.some((c) =>
+        isVariousArtistsName(c.displayName)
+    );
+    const isCompilation = hasVariousArtists || uniqueArtistKeys.size > 1;
+
+    await prisma.$transaction([
+        prisma.albumArtistCredit.deleteMany({
+            where: { albumId: canonicalAlbumId, source: "JELLYFIN" },
+        }),
+        prisma.albumArtistCredit.createMany({
+            data: credits.map((credit) => ({
+                albumId: canonicalAlbumId,
+                artistId: credit.artistId,
+                displayName: credit.displayName,
+                normalizedDisplayName: credit.normalizedDisplayName,
+                role: credit.role,
+                sortOrder: credit.sortOrder,
+                source: "JELLYFIN",
+                sourceArtistId: credit.sourceArtistId,
+                confidence: 0.95,
+                evidence: {
+                    jellyfinAlbumTitle: jellyfinAlbum.title,
+                },
+            })),
+        }),
+        prisma.album.update({
+            where: { id: canonicalAlbumId },
+            data: { isCompilation },
+        }),
+    ]);
+}
+
 /**
  * Sync OwnedAlbum records for all albums currently in the Jellyfin library.
  *
@@ -161,14 +298,16 @@ export async function syncJellyfinOwnedAlbums(): Promise<{
                 processed++;
 
                 const artistName = album.artist?.name;
-                if (!artistName) {
+                if (!artistName && !album.rgMbid) {
                     skipped++;
                     continue;
                 }
 
                 try {
-                    const bridged = await resolveJellyfinArtistToNative(artistName, null);
-                    if (!bridged) {
+                    const bridged = artistName
+                        ? await resolveJellyfinArtistToNative(artistName, null)
+                        : null;
+                    if (!bridged && !album.rgMbid) {
                         skipped++;
                         continue;
                     }
@@ -198,36 +337,40 @@ export async function syncJellyfinOwnedAlbums(): Promise<{
                         });
                     }
                     if (!canonicalAlbum) {
-                        const exactTitle = await prisma.album.findFirst({
-                            where: {
-                                artistId: bridged.nativeId,
-                                title: { equals: album.title, mode: "insensitive" },
-                            },
-                            select: {
-                                id: true,
-                                rgMbid: true,
-                                title: true,
-                                artistId: true,
-                            },
-                        });
-                        canonicalAlbum = exactTitle;
+                        if (bridged?.nativeId) {
+                            const exactTitle = await prisma.album.findFirst({
+                                where: {
+                                    artistId: bridged.nativeId,
+                                    title: { equals: album.title, mode: "insensitive" },
+                                },
+                                select: {
+                                    id: true,
+                                    rgMbid: true,
+                                    title: true,
+                                    artistId: true,
+                                },
+                            });
+                            canonicalAlbum = exactTitle;
+                        }
                     }
                     if (!canonicalAlbum) {
-                        const normalizedTarget = normalizeTitle(album.title);
-                        const titleCandidates = await prisma.album.findMany({
-                            where: { artistId: bridged.nativeId },
-                            select: {
-                                id: true,
-                                rgMbid: true,
-                                title: true,
-                                artistId: true,
-                            },
-                            take: 50,
-                        });
-                        canonicalAlbum =
-                            titleCandidates.find(
-                                (c) => normalizeTitle(c.title) === normalizedTarget
-                            ) ?? null;
+                        if (bridged?.nativeId) {
+                            const normalizedTarget = normalizeTitle(album.title);
+                            const titleCandidates = await prisma.album.findMany({
+                                where: { artistId: bridged.nativeId },
+                                select: {
+                                    id: true,
+                                    rgMbid: true,
+                                    title: true,
+                                    artistId: true,
+                                },
+                                take: 50,
+                            });
+                            canonicalAlbum =
+                                titleCandidates.find(
+                                    (c) => normalizeTitle(c.title) === normalizedTarget
+                                ) ?? null;
+                        }
                     }
 
                     const matchMethod =
@@ -302,10 +445,20 @@ export async function syncJellyfinOwnedAlbums(): Promise<{
                                 },
                             },
                         });
+
+                        await syncCanonicalAlbumArtistCredits(
+                            canonicalAlbum.id,
+                            {
+                                title: album.title,
+                                artist: album.artist,
+                                albumArtists: album.albumArtists,
+                            },
+                            bridged?.nativeId ?? null
+                        );
                     }
 
                     // Keep legacy OwnedAlbum path for compatibility while read paths migrate.
-                    if (album.rgMbid) {
+                    if (album.rgMbid && bridged?.nativeId) {
                         let canWriteLegacy = validLegacyArtistIds.has(
                             bridged.nativeId
                         );

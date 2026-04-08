@@ -34,6 +34,34 @@ function normalizeTitle(value: string | null | undefined): string {
         .trim();
 }
 
+function isVariousArtistsName(value: string): boolean {
+    return (
+        value === "various artists" ||
+        value === "various artist" ||
+        value === "various" ||
+        value === "va"
+    );
+}
+
+function getAlbumArtistsFromJellyfinItem(item: any): Array<{ id: string; name: string }> {
+    return (item?.AlbumArtists ?? [])
+        .filter((a: any) => !!a?.Id && !!a?.Name)
+        .map((a: any) => ({
+            id: `jellyfin:${a.Id}`,
+            name: a.Name,
+        }));
+}
+
+function isCompilationAlbumFromArtists(
+    albumArtists: Array<{ id: string; name: string }>
+): boolean {
+    const normalized = albumArtists
+        .map((a) => normalizeTitle(a.name))
+        .filter(Boolean);
+    if (normalized.some((n) => isVariousArtistsName(n))) return true;
+    return new Set(normalized).size > 1;
+}
+
 router.get("/albums", async (req, res) => {
     try {
         const {
@@ -73,6 +101,19 @@ router.get("/albums", async (req, res) => {
                         coverArt: a.coverArt,
                         coverUrl: a.coverArt,
                         artist: a.artist,
+                        albumArtists:
+                            a.albumArtists && a.albumArtists.length > 0
+                                ? a.albumArtists
+                                : a.artist
+                                  ? [a.artist]
+                                  : [],
+                        isCompilation: isCompilationAlbumFromArtists(
+                            a.albumArtists && a.albumArtists.length > 0
+                                ? a.albumArtists
+                                : a.artist
+                                  ? [a.artist]
+                                  : []
+                        ),
                         year: a.year,
                         rgMbid: a.rgMbid,
                     })),
@@ -278,6 +319,7 @@ router.get("/albums/:id", async (req, res) => {
             if (!albumItem || albumItem.Type !== "MusicAlbum") {
                 return res.status(404).json({ error: "Album not found" });
             }
+            const albumArtists = getAlbumArtistsFromJellyfinItem(albumItem);
             const artist = albumItem.AlbumArtists?.[0]
                 ? {
                       id: `jellyfin:${albumItem.AlbumArtists[0].Id}`,
@@ -297,6 +339,10 @@ router.get("/albums/:id", async (req, res) => {
                 id: resolvedId,
                 title: albumItem.Name,
                 artist,
+                albumArtists: albumArtists.length > 0 ? albumArtists : [artist],
+                isCompilation: isCompilationAlbumFromArtists(
+                    albumArtists.length > 0 ? albumArtists : [artist]
+                ),
                 tracks,
                 owned: true,
                 coverArt,
@@ -321,8 +367,34 @@ router.get("/albums/:id", async (req, res) => {
                         name: true,
                     },
                 },
+                albumArtistCredits: {
+                    orderBy: { sortOrder: Prisma.SortOrder.asc },
+                    include: {
+                        artist: {
+                            select: {
+                                id: true,
+                                name: true,
+                                mbid: true,
+                            },
+                        },
+                    },
+                },
                 tracks: {
                     orderBy: { trackNo: Prisma.SortOrder.asc },
+                    include: {
+                        trackArtistCredits: {
+                            orderBy: { sortOrder: Prisma.SortOrder.asc },
+                            include: {
+                                artist: {
+                                    select: {
+                                        id: true,
+                                        name: true,
+                                        mbid: true,
+                                    },
+                                },
+                            },
+                        },
+                    },
                 },
             },
         });
@@ -335,6 +407,7 @@ router.get("/albums/:id", async (req, res) => {
                 if (albumItem && albumItem.Type === "MusicAlbum") {
                     const resolvedId = `jellyfin:${albumItem.Id}`;
                     const tracks = await getJellyfinTracksAllForAlbum(cfg, resolvedId);
+                    const albumArtists = getAlbumArtistsFromJellyfinItem(albumItem);
                     const artist = albumItem.AlbumArtists?.[0]
                         ? {
                               id: `jellyfin:${albumItem.AlbumArtists[0].Id}`,
@@ -353,6 +426,10 @@ router.get("/albums/:id", async (req, res) => {
                         id: resolvedId,
                         title: albumItem.Name,
                         artist,
+                        albumArtists: albumArtists.length > 0 ? albumArtists : [artist],
+                        isCompilation: isCompilationAlbumFromArtists(
+                            albumArtists.length > 0 ? albumArtists : [artist]
+                        ),
                         tracks,
                         owned: true,
                         coverArt,
@@ -451,17 +528,45 @@ router.get("/albums/:id", async (req, res) => {
                     const normalizedTargetArtist = normalizeTitle(
                         album.artist?.name ?? ""
                     );
-                    const { albums: jfAlbums } = await getJellyfinAlbums(cfg, {
-                        search: album.title,
-                        limit: 100,
-                        offset: 0,
-                    });
-                    const candidate = jfAlbums.find((a) => {
-                        const sameTitle = normalizeTitle(a.title) === normalizedTargetTitle;
-                        if (!sameTitle) return false;
-                        if (!normalizedTargetArtist) return true;
-                        return normalizeTitle(a.artist?.name ?? "") === normalizedTargetArtist;
-                    });
+                    let candidate:
+                        | {
+                              id: string;
+                              title: string;
+                              coverArt: string | null;
+                              artist?: { id: string; name: string };
+                              year?: number;
+                              rgMbid?: string;
+                          }
+                        | undefined;
+                    let offset = 0;
+                    const limit = 100;
+                    while (!candidate) {
+                        const { albums: jfAlbums, total } = await getJellyfinAlbums(cfg, {
+                            search: album.title,
+                            limit,
+                            offset,
+                        });
+                        if (jfAlbums.length === 0) break;
+
+                        candidate = jfAlbums.find((a) => {
+                            const sameTitle =
+                                normalizeTitle(a.title) === normalizedTargetTitle;
+                            if (!sameTitle) return false;
+
+                            if (!normalizedTargetArtist) return true;
+                            if (isVariousArtistsName(normalizedTargetArtist)) return true;
+
+                            const normalizedCandidateArtist = normalizeTitle(
+                                a.artist?.name ?? ""
+                            );
+                            if (!normalizedCandidateArtist) return true;
+                            return normalizedCandidateArtist === normalizedTargetArtist;
+                        });
+
+                        if (candidate) break;
+                        offset += jfAlbums.length;
+                        if (offset >= total || jfAlbums.length < limit) break;
+                    }
                     if (candidate?.id?.startsWith("jellyfin:")) {
                         const rawId = candidate.id.slice("jellyfin:".length);
                         jellyfinAlbum = await getJellyfinItem(
@@ -474,6 +579,13 @@ router.get("/albums/:id", async (req, res) => {
 
                 if (jellyfinAlbum && jellyfinAlbum.Type === "MusicAlbum") {
                     const sourceAlbumId = jellyfinAlbum.Id;
+                    const albumArtists = getAlbumArtistsFromJellyfinItem(jellyfinAlbum);
+                    const primaryAlbumArtists =
+                        albumArtists.length > 0
+                            ? albumArtists
+                            : album.artist
+                              ? [{ id: album.artist.id, name: album.artist.name }]
+                              : [];
                     const method =
                         album.rgMbid &&
                         album.rgMbid === extractRgMbid(jellyfinAlbum.ProviderIds)
@@ -565,10 +677,108 @@ router.get("/albums/:id", async (req, res) => {
                                 },
                             },
                         }),
+                        prisma.albumArtistCredit.deleteMany({
+                            where: {
+                                albumId: album.id,
+                                source: "JELLYFIN",
+                            },
+                        }),
+                        ...(primaryAlbumArtists.length > 0
+                            ? [
+                                  prisma.albumArtistCredit.createMany({
+                                      data: primaryAlbumArtists.map((a, idx) => ({
+                                          albumId: album.id,
+                                          artistId:
+                                              a.id && !a.id.startsWith("jellyfin:")
+                                                  ? a.id
+                                                  : null,
+                                          displayName: a.name,
+                                          normalizedDisplayName: normalizeTitle(a.name),
+                                          role: isVariousArtistsName(normalizeTitle(a.name))
+                                              ? "COMPILATION"
+                                              : "PRIMARY",
+                                          sortOrder: idx,
+                                          source: "JELLYFIN",
+                                          sourceArtistId: a.id.startsWith("jellyfin:")
+                                              ? a.id.slice("jellyfin:".length)
+                                              : null,
+                                          confidence: method === "RGMBID" ? 1.0 : 0.92,
+                                          evidence: {
+                                              jellyfinAlbumTitle:
+                                                  jellyfinAlbum.Name || album.title,
+                                          },
+                                      })),
+                                  }),
+                              ]
+                            : []),
+                        prisma.album.update({
+                            where: { id: album.id },
+                            data: {
+                                isCompilation:
+                                    isCompilationAlbumFromArtists(primaryAlbumArtists),
+                            },
+                        }),
                     ]);
 
                     const jfId = `jellyfin:${jellyfinAlbum.Id}`;
                     const tracks = await getJellyfinTracksAllForAlbum(cfg, jfId);
+                    if (album.tracks.length > 0) {
+                        const jellyfinTrackByTitle = new Map<
+                            string,
+                            { id: string; name: string }
+                        >();
+                        for (const t of tracks) {
+                            const key = normalizeTitle(t.title);
+                            if (!key || jellyfinTrackByTitle.has(key)) continue;
+                            if (!t.artist?.name) continue;
+                            jellyfinTrackByTitle.set(key, {
+                                id: t.artist.id,
+                                name: t.artist.name,
+                            });
+                        }
+
+                        const trackCreditRows = album.tracks
+                            .map((nativeTrack, idx) => {
+                                const matched = jellyfinTrackByTitle.get(
+                                    normalizeTitle(nativeTrack.title)
+                                );
+                                if (!matched?.name) return null;
+                                return {
+                                    trackId: nativeTrack.id,
+                                    artistId: null as string | null,
+                                    displayName: matched.name,
+                                    normalizedDisplayName: normalizeTitle(matched.name),
+                                    role: "PRIMARY" as const,
+                                    sortOrder: 0,
+                                    source: "JELLYFIN" as const,
+                                    sourceArtistId: matched.id.startsWith("jellyfin:")
+                                        ? matched.id.slice("jellyfin:".length)
+                                        : null,
+                                    confidence: 0.9,
+                                    evidence: {
+                                        jellyfinTrackIndex: idx,
+                                        jellyfinAlbumId: jellyfinAlbum.Id,
+                                    },
+                                };
+                            })
+                            .filter((row): row is NonNullable<typeof row> => !!row);
+
+                        await prisma.$transaction([
+                            prisma.trackArtistCredit.deleteMany({
+                                where: {
+                                    trackId: { in: album.tracks.map((t) => t.id) },
+                                    source: "JELLYFIN",
+                                },
+                            }),
+                            ...(trackCreditRows.length > 0
+                                ? [
+                                      prisma.trackArtistCredit.createMany({
+                                          data: trackCreditRows,
+                                      }),
+                                  ]
+                                : []),
+                        ]);
+                    }
                     const artist = jellyfinAlbum.AlbumArtists?.[0]
                         ? {
                               id: `jellyfin:${jellyfinAlbum.AlbumArtists[0].Id}`,
@@ -589,6 +799,15 @@ router.get("/albums/:id", async (req, res) => {
                         id: jfId,
                         title: jellyfinAlbum.Name || album.title,
                         artist,
+                        albumArtists:
+                            primaryAlbumArtists.length > 0
+                                ? primaryAlbumArtists
+                                : [artist],
+                        isCompilation: isCompilationAlbumFromArtists(
+                            primaryAlbumArtists.length > 0
+                                ? primaryAlbumArtists
+                                : [artist]
+                        ),
                         tracks,
                         owned: true,
                         coverArt,
@@ -600,11 +819,51 @@ router.get("/albums/:id", async (req, res) => {
             }
         }
 
-        const artistData = album.artist;
+        const albumArtists =
+            album.albumArtistCredits.length > 0
+                ? album.albumArtistCredits.map((credit) => ({
+                      id: credit.artist?.id ?? credit.artistId ?? "",
+                      name: credit.artist?.name ?? credit.displayName,
+                      mbid: credit.artist?.mbid ?? null,
+                  }))
+                : album.artist
+                  ? [
+                        {
+                            id: album.artist.id,
+                            name: album.artist.name,
+                            mbid: album.artist.mbid ?? null,
+                        },
+                    ]
+                  : [];
+        const primaryArtist = albumArtists[0] ?? album.artist;
+        const tracks = album.tracks.map((track) => {
+            const primaryTrackCredit = track.trackArtistCredits[0];
+            const trackArtist = primaryTrackCredit
+                ? {
+                      id: primaryTrackCredit.artist?.id ?? primaryTrackCredit.artistId ?? "",
+                      name:
+                          primaryTrackCredit.artist?.name ??
+                          primaryTrackCredit.displayName,
+                      mbid: primaryTrackCredit.artist?.mbid ?? null,
+                  }
+                : primaryArtist
+                  ? {
+                        id: primaryArtist.id,
+                        name: primaryArtist.name,
+                        mbid: primaryArtist.mbid ?? null,
+                    }
+                  : undefined;
+            return {
+                ...track,
+                artist: trackArtist,
+            };
+        });
 
         res.json({
             ...album,
-            artist: artistData,
+            artist: primaryArtist,
+            albumArtists,
+            tracks,
             owned: isOwned,
             coverArt: album.coverUrl,
         });

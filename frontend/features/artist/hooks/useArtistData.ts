@@ -129,6 +129,14 @@ export function useArtistData() {
                   return b.year - a.year;
               }
           });
+    const appearsOn = !mergedArtist?.appearsOn
+        ? []
+        : [...mergedArtist.appearsOn].sort((a, b) => {
+              if (a.year == null && b.year == null) return 0;
+              if (a.year == null) return 1;
+              if (b.year == null) return -1;
+              return b.year - a.year;
+          });
 
     // Handle errors - only show toast once, don't auto-navigate
     // The page component should handle displaying a "not found" state
@@ -142,6 +150,7 @@ export function useArtistData() {
     return {
         artist: mergedArtist,
         albums,
+        appearsOn,
         loading: isLoading,
         error: isError,
         source,
