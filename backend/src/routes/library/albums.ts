@@ -7,6 +7,7 @@ import {
     getJellyfinConfig,
     isJellyfinMusicSource,
     getJellyfinAlbums,
+    getJellyfinAlbumContainers,
     getJellyfinAlbumByRgMbid,
     getJellyfinTracksAllForAlbum,
     getJellyfinItem,
@@ -71,12 +72,27 @@ function tokenSet(value: string): Set<string> {
     );
 }
 
+function normalizeTitleLoose(value: string | null | undefined): string {
+    return normalizeTitle(value)
+        .replace(
+            /\b(?:box\s*set|disc|disk|cd|volume|vol|part|pt)\s*(?:\d+|[ivxlcdm]+)\b/gi,
+            " "
+        )
+        .replace(/\b(?:deluxe|edition|expanded|remaster(?:ed)?)\b/gi, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+}
+
 function titlesLikelySame(a: string, b: string): boolean {
     const na = normalizeTitle(a);
     const nb = normalizeTitle(b);
     if (!na || !nb) return false;
     if (na === nb) return true;
+    const la = normalizeTitleLoose(a);
+    const lb = normalizeTitleLoose(b);
+    if (la && lb && la === lb) return true;
     if (na.includes(nb) || nb.includes(na)) return true;
+    if (la && lb && (la.includes(lb) || lb.includes(la))) return true;
     const aTokens = tokenSet(na);
     const bTokens = tokenSet(nb);
     if (aTokens.size === 0 || bTokens.size === 0) return false;
@@ -652,6 +668,60 @@ router.get("/albums/:id", async (req, res) => {
                             if (offset >= total || jfAlbums.length < limit) break;
                         }
                     }
+
+                    // Extra fallback: Jellyfin can classify some releases as BoxSet.
+                    // Search both MusicAlbum and BoxSet containers before giving up.
+                    if (!candidate) {
+                        for (const searchTerm of searchTerms) {
+                            if (candidate) break;
+                            let offset = 0;
+                            const limit = 100;
+                            while (!candidate) {
+                                const { items, total } =
+                                    await getJellyfinAlbumContainers(cfg, {
+                                        search: searchTerm,
+                                        limit,
+                                        offset,
+                                    });
+                                if (items.length === 0) break;
+                                const matched = items.find((item) =>
+                                    isCandidateMatch({
+                                        title: item.Name,
+                                        artist: item.AlbumArtists?.[0]
+                                            ? {
+                                                  id: `jellyfin:${item.AlbumArtists[0].Id}`,
+                                                  name: item.AlbumArtists[0].Name,
+                                              }
+                                            : undefined,
+                                    })
+                                );
+                                if (matched) {
+                                    candidate = {
+                                        id: `jellyfin:${matched.Id}`,
+                                        title: matched.Name,
+                                        coverArt: getJellyfinImageUrl(
+                                            cfg.url,
+                                            matched.Id,
+                                            matched.ImageTags?.Primary,
+                                            cfg.apiKey,
+                                            cfg.userId
+                                        ),
+                                        artist: matched.AlbumArtists?.[0]
+                                            ? {
+                                                  id: `jellyfin:${matched.AlbumArtists[0].Id}`,
+                                                  name: matched.AlbumArtists[0].Name,
+                                              }
+                                            : undefined,
+                                        year: matched.ProductionYear ?? undefined,
+                                        rgMbid: extractRgMbid(matched.ProviderIds),
+                                    };
+                                    break;
+                                }
+                                offset += items.length;
+                                if (offset >= total || items.length < limit) break;
+                            }
+                        }
+                    }
                     if (candidate?.id?.startsWith("jellyfin:")) {
                         const rawId = candidate.id.slice("jellyfin:".length);
                         jellyfinAlbum = await getJellyfinItem(
@@ -662,7 +732,11 @@ router.get("/albums/:id", async (req, res) => {
                     }
                 }
 
-                if (jellyfinAlbum && jellyfinAlbum.Type === "MusicAlbum") {
+                if (
+                    jellyfinAlbum &&
+                    (jellyfinAlbum.Type === "MusicAlbum" ||
+                        jellyfinAlbum.Type === "BoxSet")
+                ) {
                     const sourceAlbumId = jellyfinAlbum.Id;
                     const albumArtists = getAlbumArtistsFromJellyfinItem(jellyfinAlbum);
                     const primaryAlbumArtists =

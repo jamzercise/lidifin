@@ -400,6 +400,48 @@ export async function getJellyfinAlbums(
     return result;
 }
 
+/**
+ * Fetch album-like containers from Jellyfin (MusicAlbum + BoxSet).
+ * Used as a resilient fallback when album identity mismatches occur.
+ */
+export async function getJellyfinAlbumContainers(
+    cfg: JellyfinConfig,
+    options?: {
+        limit?: number;
+        offset?: number;
+        search?: string;
+    }
+): Promise<{ items: JellyfinItem[]; total: number }> {
+    const userId = getEffectiveUserId(cfg);
+    const token = getEffectiveToken(cfg);
+    const client = createClient(cfg.url, token);
+    const path = userId ? `/Users/${userId}/Items` : "/Items";
+    const limit = options?.limit ?? 100;
+    const offset = options?.offset ?? 0;
+
+    const params: Record<string, string | number | boolean> = {
+        IncludeItemTypes: "MusicAlbum,BoxSet",
+        Recursive: "true",
+        Limit: limit,
+        StartIndex: offset,
+        Fields: "Id,Name,ProductionYear,AlbumArtists,ParentId,ImageTags,ProviderIds,Type",
+        EnableTotalRecordCount: true,
+    };
+    if (options?.search) {
+        params.SearchTerm = options.search;
+    }
+
+    const res = await client.get<{ Items: JellyfinItem[]; TotalRecordCount?: number }>(
+        path,
+        { params }
+    );
+    const items = (res.data?.Items ?? []).filter(
+        (item) => item?.Type === "MusicAlbum" || item?.Type === "BoxSet"
+    );
+    const total = res.data?.TotalRecordCount ?? items.length;
+    return { items, total };
+}
+
 const ALBUMS_PAGE_SIZE = 200;
 
 /**

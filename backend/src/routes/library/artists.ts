@@ -52,6 +52,15 @@ function normalizeAlbumTitle(value: string | null | undefined): string {
         .trim();
 }
 
+function albumIdentityKey(album: {
+    rgMbid?: string | null;
+    title: string;
+    year?: number | null;
+}): string {
+    if (album.rgMbid) return `rg:${album.rgMbid}`;
+    return `title:${normalizeAlbumTitle(album.title)}:${album.year ?? "unknown"}`;
+}
+
 function pickBestArtistCandidate<
     T extends {
         id: string;
@@ -676,9 +685,45 @@ router.get("/artists/:id", async (req, res) => {
         // For enriched artists with ownedAlbums, skip expensive MusicBrainz calls.
         // Only fetch from MusicBrainz if the artist hasn't been enriched yet.
         let albumsWithOwnership = [];
-        const ownedRgMbids = new Set(artist.ownedAlbums.map((o) => o.rgMbid));
-        const isEnriched =
-            artist.ownedAlbums.length > 0 || artist.heroUrl !== null;
+        const aliasCandidates =
+            artistCandidates.length > 0 ? artistCandidates : [artist];
+        const aliasCandidateIds = Array.from(
+            new Set(aliasCandidates.map((c) => c.id))
+        );
+        const normalizedArtistNames = Array.from(
+            new Set([
+                ...normalizedAliases,
+                ...aliasCandidates
+                    .map((c) => c.normalizedName?.trim())
+                    .filter((n): n is string => !!n),
+            ])
+        );
+        const ownedRgMbids = new Set(
+            aliasCandidates.flatMap((c) => c.ownedAlbums.map((o) => o.rgMbid))
+        );
+
+        // Merge alias-sibling native albums so split artists still show one
+        // complete owned discography during read-time resolution.
+        const mergedNativeAlbumsByKey = new Map<
+            string,
+            (typeof artist.albums)[number]
+        >();
+        for (const candidate of aliasCandidates) {
+            for (const nativeAlbum of candidate.albums) {
+                const key = albumIdentityKey(nativeAlbum);
+                const existing = mergedNativeAlbumsByKey.get(key);
+                if (!existing) {
+                    mergedNativeAlbumsByKey.set(key, nativeAlbum);
+                    continue;
+                }
+                const existingTracks = existing.tracks?.length ?? 0;
+                const candidateTracks = nativeAlbum.tracks?.length ?? 0;
+                if (candidateTracks > existingTracks) {
+                    mergedNativeAlbumsByKey.set(key, nativeAlbum);
+                }
+            }
+        }
+        const mergedNativeAlbums = Array.from(mergedNativeAlbumsByKey.values());
 
         // If artist has temp MBID, try to find real MBID by searching MusicBrainz
         let effectiveMbid = artist.mbid;
@@ -726,22 +771,28 @@ router.get("/artists/:id", async (req, res) => {
         }
 
         // Albums from database have actual tracks on disk - they MUST show as owned
-        const dbAlbums = artist.albums.map((album) => ({
+        const dbAlbums = mergedNativeAlbums.map((album) => ({
             ...album,
             owned: true, // If it's in the database with tracks, user owns it!
             coverArt: album.coverUrl,
             source: "database" as const,
         }));
-        const normalizedArtistName =
-            artist.normalizedName?.trim() || normalizeArtistName(artist.name);
         const appearsOnDbAlbumsRaw = await prisma.album.findMany({
             where: {
-                artistId: { not: artist.id },
+                artistId: { notIn: aliasCandidateIds },
                 albumArtistCredits: {
                     some: {
                         OR: [
-                            { artistId: artist.id },
-                            { normalizedDisplayName: normalizedArtistName },
+                            { artistId: { in: aliasCandidateIds } },
+                            ...(normalizedArtistNames.length > 0
+                                ? [
+                                      {
+                                          normalizedDisplayName: {
+                                              in: normalizedArtistNames,
+                                          },
+                                      },
+                                  ]
+                                : []),
                         ],
                     },
                 },
@@ -776,7 +827,6 @@ router.get("/artists/:id", async (req, res) => {
         );
 
         // Always fetch discography if we have a valid MBID - users need to see what's available
-        const hasDbAlbums = dbAlbums.length > 0;
         const shouldFetchDiscography =
             effectiveMbid && !effectiveMbid.startsWith("temp-");
 
@@ -1019,7 +1069,7 @@ router.get("/artists/:id", async (req, res) => {
         }
 
         // Extract top tracks from library first
-        const allTracks = artist.albums.flatMap((a) => a.tracks);
+        const allTracks = mergedNativeAlbums.flatMap((a) => a.tracks);
         let topTracks = allTracks.slice(0, 10);
 
         // Get user play counts for all tracks
