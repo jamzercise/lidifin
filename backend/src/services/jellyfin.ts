@@ -642,19 +642,43 @@ export async function getJellyfinAlbumByRgMbid(
     const userId = getEffectiveUserId(cfg);
     const client = createClient(cfg.url, token);
     const path = userId ? `/Users/${userId}/Items` : "/Items";
-    const maxToSearch = 2000;
+    // Keep this bounded so slow Jellyfin instances don't stall album route responses.
+    const maxToSearch = 600;
     let offset = 0;
 
     while (offset < maxToSearch) {
-        const res = await client.get<{ Items: JellyfinItem[]; TotalRecordCount?: number }>(path, {
-            params: {
-                IncludeItemTypes: "MusicAlbum",
-                Recursive: "true",
-                Limit: 100,
-                StartIndex: offset,
-                Fields: "Id,Name,ProductionYear,AlbumArtists,ParentId,ImageTags,ProviderIds",
-            },
-        });
+        let res:
+            | import("axios").AxiosResponse<{
+                  Items: JellyfinItem[];
+                  TotalRecordCount?: number;
+              }>
+            | null = null;
+        try {
+            res = await client.get<{
+                Items: JellyfinItem[];
+                TotalRecordCount?: number;
+            }>(path, {
+                params: {
+                    IncludeItemTypes: "MusicAlbum,BoxSet",
+                    Recursive: "true",
+                    Limit: 100,
+                    StartIndex: offset,
+                    Fields: "Id,Name,ProviderIds,Type",
+                },
+                timeout: 15000,
+            });
+        } catch (err: any) {
+            const isTimeout =
+                err?.code === "ECONNABORTED" ||
+                String(err?.message ?? "").includes("timeout");
+            if (isTimeout) {
+                logger.warn(
+                    `[Jellyfin] rgMbid album scan timed out at offset ${offset}; skipping deep scan`
+                );
+                return null;
+            }
+            throw err;
+        }
         const items = res.data?.Items ?? [];
         if (items.length === 0) break;
 

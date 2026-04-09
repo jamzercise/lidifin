@@ -570,7 +570,16 @@ router.get("/albums/:id", async (req, res) => {
                     }
                     if (!jellyfinAlbum) {
                         // Cold path: full scan (happens before first sync or if cache expires)
-                        jellyfinAlbum = await getJellyfinAlbumByRgMbid(cfg, album.rgMbid);
+                        jellyfinAlbum = await getJellyfinAlbumByRgMbid(
+                            cfg,
+                            album.rgMbid
+                        ).catch((err) => {
+                            logger.debug(
+                                `[Album] Jellyfin rgMbid scan failed for "${album.title}" (${album.rgMbid}):`,
+                                err instanceof Error ? err.message : err
+                            );
+                            return null;
+                        });
                         if (jellyfinAlbum && redisClient.isReady) {
                             await redisClient
                                 .setEx(redisCacheKey, 30 * 24 * 3600, jellyfinAlbum.Id)
@@ -638,11 +647,21 @@ router.get("/albums/:id", async (req, res) => {
                         let offset = 0;
                         const limit = 100;
                         while (!candidate) {
-                            const { albums: jfAlbums, total } = await getJellyfinAlbums(cfg, {
-                                search: searchTerm,
-                                limit,
-                                offset,
-                            });
+                            let jfResult: Awaited<ReturnType<typeof getJellyfinAlbums>>;
+                            try {
+                                jfResult = await getJellyfinAlbums(cfg, {
+                                    search: searchTerm,
+                                    limit,
+                                    offset,
+                                });
+                            } catch (err) {
+                                logger.debug(
+                                    `[Album] Jellyfin title search failed for "${searchTerm}" at offset ${offset}:`,
+                                    err instanceof Error ? err.message : err
+                                );
+                                break;
+                            }
+                            const { albums: jfAlbums, total } = jfResult;
                             if (jfAlbums.length === 0) break;
                             candidate = jfAlbums.find(isCandidateMatch);
                             if (candidate) break;
@@ -657,10 +676,20 @@ router.get("/albums/:id", async (req, res) => {
                         const limit = 100;
                         const maxToSearch = 5000;
                         while (!candidate && offset < maxToSearch) {
-                            const { albums: jfAlbums, total } = await getJellyfinAlbums(cfg, {
-                                limit,
-                                offset,
-                            });
+                            let jfResult: Awaited<ReturnType<typeof getJellyfinAlbums>>;
+                            try {
+                                jfResult = await getJellyfinAlbums(cfg, {
+                                    limit,
+                                    offset,
+                                });
+                            } catch (err) {
+                                logger.debug(
+                                    `[Album] Jellyfin full scan failed at offset ${offset}:`,
+                                    err instanceof Error ? err.message : err
+                                );
+                                break;
+                            }
+                            const { albums: jfAlbums, total } = jfResult;
                             if (jfAlbums.length === 0) break;
                             candidate = jfAlbums.find(isCandidateMatch);
                             if (candidate) break;
@@ -677,12 +706,23 @@ router.get("/albums/:id", async (req, res) => {
                             let offset = 0;
                             const limit = 100;
                             while (!candidate) {
-                                const { items, total } =
-                                    await getJellyfinAlbumContainers(cfg, {
+                                let containerResult: Awaited<
+                                    ReturnType<typeof getJellyfinAlbumContainers>
+                                >;
+                                try {
+                                    containerResult = await getJellyfinAlbumContainers(cfg, {
                                         search: searchTerm,
                                         limit,
                                         offset,
                                     });
+                                } catch (err) {
+                                    logger.debug(
+                                        `[Album] Jellyfin container search failed for "${searchTerm}" at offset ${offset}:`,
+                                        err instanceof Error ? err.message : err
+                                    );
+                                    break;
+                                }
+                                const { items, total } = containerResult;
                                 if (items.length === 0) break;
                                 const matched = items.find((item) =>
                                     isCandidateMatch({

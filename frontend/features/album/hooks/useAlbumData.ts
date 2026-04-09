@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import { queryKeys } from "@/hooks/useQueries";
 import { api } from "@/lib/api";
+import type { ApiError } from "@/lib/api";
 import { useDownloadContext } from "@/lib/download-context";
 import type { AlbumSource } from "../types";
 import { useMemo, useEffect, useRef } from "react";
@@ -27,7 +28,14 @@ export function useAlbumData(albumId?: string) {
             if (!id) throw new Error("Album ID is required");
             try {
                 return await api.getAlbum(id);
-            } catch {
+            } catch (err) {
+                const status = (err as ApiError | undefined)?.status;
+                // Only fall back to discovery when the library endpoint says "not found".
+                // For timeouts/5xx we should surface the error instead of replacing with
+                // preview/unowned data that looks like a regression.
+                if (status !== 404) {
+                    throw err;
+                }
                 return await api.getAlbumDiscovery(id);
             }
         },

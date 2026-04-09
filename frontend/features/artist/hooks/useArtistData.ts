@@ -2,6 +2,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/hooks/useQueries";
 import { api } from "@/lib/api";
+import type { ApiError } from "@/lib/api";
 import { useDownloadContext } from "@/lib/download-context";
 import { toArtistRouteId } from "@/lib/route-ids";
 import { ArtistSource } from "../types";
@@ -27,9 +28,15 @@ export function useArtistData() {
             if (!id) throw new Error("Artist ID is required");
             try {
                 return await api.getArtist(id);
-            } catch {
+            } catch (err) {
+                const status = (err as ApiError | undefined)?.status;
                 if (id.startsWith("jellyfin:")) {
                     throw new Error("Artist not found");
+                }
+                // Only use discovery fallback for true "not found" cases.
+                // For 5xx/timeouts we must not silently replace library data.
+                if (status !== 404) {
+                    throw err;
                 }
                 return await api.getArtistDiscovery(id);
             }

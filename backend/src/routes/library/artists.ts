@@ -52,6 +52,14 @@ function normalizeAlbumTitle(value: string | null | undefined): string {
         .trim();
 }
 
+function albumTitlesLikelySame(a: string, b: string): boolean {
+    const na = normalizeAlbumTitle(a);
+    const nb = normalizeAlbumTitle(b);
+    if (!na || !nb) return false;
+    if (na === nb) return true;
+    return na.includes(nb) || nb.includes(na);
+}
+
 function albumIdentityKey(album: {
     rgMbid?: string | null;
     title: string;
@@ -1055,6 +1063,55 @@ router.get("/artists/:id", async (req, res) => {
                                 );
                                 if (byRg || byTitle) {
                                     album.owned = true;
+                                }
+                            }
+                        }
+
+                        // Global title fallback: if artist lookup misses due naming/indexing
+                        // differences, still attempt to mark unresolved MB albums as owned by
+                        // searching Jellyfin by album title and validating artist alias match.
+                        const unresolvedAfterArtistPass = (
+                            albumsWithOwnership as any[]
+                        ).filter((a) => !a.owned);
+                        if (unresolvedAfterArtistPass.length > 0) {
+                            const uniqueTitles = Array.from(
+                                new Set(
+                                    unresolvedAfterArtistPass.map((a) =>
+                                        normalizeAlbumTitle(a.title)
+                                    )
+                                )
+                            ).filter(Boolean);
+                            for (const normalizedTitle of uniqueTitles.slice(0, 20)) {
+                                const { albums: titleMatches } = await getJellyfinAlbums(
+                                    cfg,
+                                    {
+                                        search: normalizedTitle,
+                                        limit: 100,
+                                        offset: 0,
+                                    }
+                                );
+                                if (titleMatches.length === 0) continue;
+
+                                for (const album of albumsWithOwnership as any[]) {
+                                    if (album.owned) continue;
+                                    const matched = titleMatches.find((jfa) => {
+                                        if (
+                                            !albumTitlesLikelySame(
+                                                jfa.title,
+                                                album.title
+                                            )
+                                        ) {
+                                            return false;
+                                        }
+                                        const jfArtistName = jfa.artist?.name ?? "";
+                                        if (!jfArtistName) return true;
+                                        return normalizedArtistAliases.has(
+                                            normalizeArtistName(jfArtistName)
+                                        );
+                                    });
+                                    if (matched) {
+                                        album.owned = true;
+                                    }
                                 }
                             }
                         }
