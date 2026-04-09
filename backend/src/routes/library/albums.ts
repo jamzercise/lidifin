@@ -62,6 +62,32 @@ function isCompilationAlbumFromArtists(
     return new Set(normalized).size > 1;
 }
 
+function tokenSet(value: string): Set<string> {
+    return new Set(
+        value
+            .split(" ")
+            .map((t) => t.trim())
+            .filter((t) => t.length >= 3)
+    );
+}
+
+function titlesLikelySame(a: string, b: string): boolean {
+    const na = normalizeTitle(a);
+    const nb = normalizeTitle(b);
+    if (!na || !nb) return false;
+    if (na === nb) return true;
+    if (na.includes(nb) || nb.includes(na)) return true;
+    const aTokens = tokenSet(na);
+    const bTokens = tokenSet(nb);
+    if (aTokens.size === 0 || bTokens.size === 0) return false;
+    let overlap = 0;
+    for (const t of aTokens) {
+        if (bTokens.has(t)) overlap++;
+    }
+    const minSize = Math.min(aTokens.size, bTokens.size);
+    return overlap >= Math.max(2, Math.floor(minSize * 0.7));
+}
+
 router.get("/albums", async (req, res) => {
     try {
         const {
@@ -379,6 +405,14 @@ router.get("/albums/:id", async (req, res) => {
                         },
                     },
                 },
+                sourceMaps: {
+                    where: { source: "JELLYFIN" },
+                    orderBy: { updatedAt: Prisma.SortOrder.desc },
+                    take: 3,
+                    select: {
+                        sourceAlbumId: true,
+                    },
+                },
                 tracks: {
                     orderBy: { trackNo: Prisma.SortOrder.asc },
                     include: {
@@ -460,6 +494,13 @@ router.get("/albums/:id", async (req, res) => {
             },
         });
         let isOwned = ownershipFact?.status === "OWNED";
+        const sourceAlbumHints = [
+            ownershipFact?.sourceAlbumId,
+            ...album.sourceMaps.map((m) => m.sourceAlbumId),
+        ].filter(
+            (id, index, all): id is string =>
+                !!id && all.indexOf(id) === index
+        );
 
         // Compatibility fallback while we transition off OwnedAlbum reads.
         if (!isOwned && album.rgMbid) {
@@ -489,10 +530,11 @@ router.get("/albums/:id", async (req, res) => {
             if (cfg) {
                 let jellyfinAlbum: any = null;
 
-                if (ownershipFact?.sourceAlbumId) {
+                for (const sourceAlbumId of sourceAlbumHints) {
+                    if (jellyfinAlbum) break;
                     jellyfinAlbum = await getJellyfinItem(
                         cfg,
-                        ownershipFact.sourceAlbumId,
+                        sourceAlbumId,
                         "MusicAlbum"
                     ).catch(() => null);
                 }
@@ -528,6 +570,9 @@ router.get("/albums/:id", async (req, res) => {
                     const normalizedTargetArtist = normalizeTitle(
                         album.artist?.name ?? ""
                     );
+                    const isVariousTargetArtist =
+                        !!normalizedTargetArtist &&
+                        isVariousArtistsName(normalizedTargetArtist);
                     let candidate:
                         | {
                               id: string;
@@ -538,34 +583,74 @@ router.get("/albums/:id", async (req, res) => {
                               rgMbid?: string;
                           }
                         | undefined;
-                    let offset = 0;
-                    const limit = 100;
-                    while (!candidate) {
-                        const { albums: jfAlbums, total } = await getJellyfinAlbums(cfg, {
-                            search: album.title,
-                            limit,
-                            offset,
-                        });
-                        if (jfAlbums.length === 0) break;
+                    const isCandidateMatch = (a: {
+                        title: string;
+                        artist?: { id: string; name: string };
+                    }) => {
+                        const sameTitle = titlesLikelySame(
+                            a.title,
+                            normalizedTargetTitle
+                        );
+                        if (!sameTitle) return false;
 
-                        candidate = jfAlbums.find((a) => {
-                            const sameTitle =
-                                normalizeTitle(a.title) === normalizedTargetTitle;
-                            if (!sameTitle) return false;
+                        if (!normalizedTargetArtist || isVariousTargetArtist) return true;
 
-                            if (!normalizedTargetArtist) return true;
-                            if (isVariousArtistsName(normalizedTargetArtist)) return true;
+                        const normalizedCandidateArtist = normalizeTitle(
+                            a.artist?.name ?? ""
+                        );
+                        if (!normalizedCandidateArtist) return true;
+                        return (
+                            normalizedCandidateArtist === normalizedTargetArtist ||
+                            isVariousArtistsName(normalizedCandidateArtist)
+                        );
+                    };
 
-                            const normalizedCandidateArtist = normalizeTitle(
-                                a.artist?.name ?? ""
-                            );
-                            if (!normalizedCandidateArtist) return true;
-                            return normalizedCandidateArtist === normalizedTargetArtist;
-                        });
-
+                    // Try indexed Jellyfin search first using a few title variants.
+                    const searchTerms = Array.from(
+                        new Set(
+                            [
+                                album.title,
+                                album.title.replace(/[()[\]{}]/g, " ").trim(),
+                                album.title
+                                    .replace(/\bbox\s*set\b/gi, "")
+                                    .trim(),
+                            ].filter((v) => !!v)
+                        )
+                    );
+                    for (const searchTerm of searchTerms) {
                         if (candidate) break;
-                        offset += jfAlbums.length;
-                        if (offset >= total || jfAlbums.length < limit) break;
+                        let offset = 0;
+                        const limit = 100;
+                        while (!candidate) {
+                            const { albums: jfAlbums, total } = await getJellyfinAlbums(cfg, {
+                                search: searchTerm,
+                                limit,
+                                offset,
+                            });
+                            if (jfAlbums.length === 0) break;
+                            candidate = jfAlbums.find(isCandidateMatch);
+                            if (candidate) break;
+                            offset += jfAlbums.length;
+                            if (offset >= total || jfAlbums.length < limit) break;
+                        }
+                    }
+
+                    // Final cold path: paginated full scan by normalized title similarity.
+                    if (!candidate) {
+                        let offset = 0;
+                        const limit = 100;
+                        const maxToSearch = 5000;
+                        while (!candidate && offset < maxToSearch) {
+                            const { albums: jfAlbums, total } = await getJellyfinAlbums(cfg, {
+                                limit,
+                                offset,
+                            });
+                            if (jfAlbums.length === 0) break;
+                            candidate = jfAlbums.find(isCandidateMatch);
+                            if (candidate) break;
+                            offset += jfAlbums.length;
+                            if (offset >= total || jfAlbums.length < limit) break;
+                        }
                     }
                     if (candidate?.id?.startsWith("jellyfin:")) {
                         const rawId = candidate.id.slice("jellyfin:".length);
