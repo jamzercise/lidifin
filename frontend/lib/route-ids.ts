@@ -5,6 +5,24 @@
  */
 
 const JELLYFIN_PREFIX = "jellyfin:";
+const ARTICLE_MAP: Record<string, string> = {
+    the: "The",
+    a: "A",
+    an: "An",
+};
+
+function canonicalizeArtistArticleOrder(name: string): string {
+    const trimmed = (name ?? "").trim();
+    if (!trimmed) return "";
+    const trailingArticleMatch = trimmed.match(/^(.+),\s*(the|a|an)$/i);
+    if (!trailingArticleMatch) return trimmed;
+    const base = trailingArticleMatch[1].trim();
+    const article =
+        ARTICLE_MAP[trailingArticleMatch[2].toLowerCase()] ??
+        trailingArticleMatch[2];
+    if (!base) return trimmed;
+    return `${article} ${base}`;
+}
 
 /**
  * Convert an internal ID to a URL-safe route ID (strips jellyfin: prefix).
@@ -30,7 +48,7 @@ export function toArtistRouteId(artist: {
     name?: string;
 }): string {
     const name = artist.name?.trim();
-    if (name) return name;
+    if (name) return canonicalizeArtistArticleOrder(name);
     if (artist.mbid) return artist.mbid;
     return artist.id ?? "";
 }

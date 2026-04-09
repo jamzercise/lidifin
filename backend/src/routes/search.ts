@@ -17,6 +17,10 @@ import {
 } from "../services/jellyfin";
 import axios from "axios";
 import { redisClient } from "../utils/redis";
+import {
+    canonicalizeArtistArticleOrder,
+    normalizeArtistName,
+} from "../utils/artistNormalization";
 
 const router = Router();
 
@@ -136,15 +140,25 @@ async function searchJellyfin(
 }
 
 function mergeResults(postgres: SearchResults, jellyfin: Partial<SearchResults>): SearchResults {
-    const seenArtists = new Set(postgres.artists.map((a) => a.name.toLowerCase()));
+    const artistKey = (name: string) =>
+        normalizeArtistName(canonicalizeArtistArticleOrder(name));
+
+    const seenArtists = new Set<string>();
     const seenAlbums = new Set(postgres.albums.map((a) => `${a.title.toLowerCase()}|${a.artistName.toLowerCase()}`));
     const seenTracks = new Set(postgres.tracks.map((t) => `${t.title.toLowerCase()}|${t.artistName.toLowerCase()}`));
 
-    const mergedArtists = [...postgres.artists];
+    const mergedArtists: typeof postgres.artists = [];
+    for (const a of postgres.artists) {
+        const key = artistKey(a.name);
+        if (seenArtists.has(key)) continue;
+        mergedArtists.push(a);
+        seenArtists.add(key);
+    }
     for (const a of jellyfin.artists ?? []) {
-        if (!seenArtists.has(a.name.toLowerCase())) {
+        const key = artistKey(a.name);
+        if (!seenArtists.has(key)) {
             mergedArtists.push(a);
-            seenArtists.add(a.name.toLowerCase());
+            seenArtists.add(key);
         }
     }
 

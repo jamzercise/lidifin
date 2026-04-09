@@ -12,6 +12,11 @@
 
 import { logger } from "../utils/logger";
 import { prisma } from "../utils/db";
+import {
+    canonicalizeArtistArticleOrder,
+    getPreferredArtistName,
+    normalizeArtistName,
+} from "../utils/artistNormalization";
 
 interface IntegrityReport {
     expiredExclusions: number;
@@ -21,6 +26,65 @@ interface IntegrityReport {
     consolidatedArtists: number;
     orphanedArtists: number;
     oldDownloadJobs: number;
+}
+
+type ConsolidationArtist = {
+    id: string;
+    mbid: string;
+    name: string;
+    normalizedName: string;
+    heroUrl: string | null;
+    similarArtistsJson: unknown;
+    _count: {
+        albums: number;
+        ownedAlbums: number;
+        albumArtistCredits: number;
+        trackArtistCredits: number;
+    };
+};
+
+function isTempMbid(mbid: string | null | undefined): boolean {
+    return !!mbid && mbid.startsWith("temp-");
+}
+
+function hasValidMbid(artist: Pick<ConsolidationArtist, "mbid">): boolean {
+    return !!artist.mbid && !isTempMbid(artist.mbid);
+}
+
+function artistNameConsolidationKey(
+    artist: Pick<ConsolidationArtist, "name">
+): string {
+    return `name:${normalizeArtistName(canonicalizeArtistArticleOrder(artist.name))}`;
+}
+
+function scoreArtistForCanonical(artist: ConsolidationArtist): number {
+    let score = 0;
+    if (hasValidMbid(artist)) score += 1000;
+    if (artist.heroUrl) score += 15;
+    if (Array.isArray(artist.similarArtistsJson) && artist.similarArtistsJson.length > 0) {
+        score += 10;
+    }
+    score += artist._count.albums * 10;
+    score += artist._count.ownedAlbums * 14;
+    score += artist._count.albumArtistCredits * 4;
+    score += artist._count.trackArtistCredits * 2;
+
+    // Prefer canonical leading-article names ("The Books")
+    if (
+        artist.name.trim() === canonicalizeArtistArticleOrder(artist.name.trim())
+    ) {
+        score += 8;
+    }
+    return score;
+}
+
+function pickCanonicalArtist(group: ConsolidationArtist[]): ConsolidationArtist {
+    const sorted = [...group].sort((a, b) => {
+        const diff = scoreArtistForCanonical(b) - scoreArtistForCanonical(a);
+        if (diff !== 0) return diff;
+        return a.id.localeCompare(b.id);
+    });
+    return sorted[0];
 }
 
 export async function runDataIntegrityCheck(): Promise<IntegrityReport> {
@@ -265,49 +329,258 @@ export async function runDataIntegrityCheck(): Promise<IntegrityReport> {
         );
     }
 
-    // 7. Consolidate duplicate artists (same name, one with temp MBID, one with real)
-    const tempArtists = await prisma.artist.findMany({
-        where: {
-            mbid: { startsWith: "temp-" },
-        },
-        include: { albums: true },
-    });
-
-    for (const tempArtist of tempArtists) {
-        // Find a real artist with the same normalized name
-        const realArtist = await prisma.artist.findFirst({
-            where: {
-                normalizedName: tempArtist.normalizedName,
-                mbid: { not: { startsWith: "temp-" } },
-            },
-        });
-
-        if (realArtist) {
-            // Move all albums from temp artist to real artist
-            await prisma.album.updateMany({
-                where: { artistId: tempArtist.id },
-                data: { artistId: realArtist.id },
-            });
-
-            // Delete SimilarArtist relations
-            await prisma.similarArtist.deleteMany({
-                where: {
-                    OR: [
-                        { fromArtistId: tempArtist.id },
-                        { toArtistId: tempArtist.id },
-                    ],
+    // 7. Consolidate duplicate artists:
+    // - temp MBID <-> real MBID duplicates
+    // - alias form duplicates ("Books, The" <-> "The Books")
+    const allArtists = (await prisma.artist.findMany({
+        select: {
+            id: true,
+            mbid: true,
+            name: true,
+            normalizedName: true,
+            heroUrl: true,
+            similarArtistsJson: true,
+            _count: {
+                select: {
+                    albums: true,
+                    ownedAlbums: true,
+                    albumArtistCredits: true,
+                    trackArtistCredits: true,
                 },
-            });
+            },
+        },
+    })) as ConsolidationArtist[];
 
-            // Delete temp artist
-            await prisma.artist.delete({
-                where: { id: tempArtist.id },
-            });
+    const mbidGroups = new Map<string, ConsolidationArtist[]>();
+    const nameGroups = new Map<string, ConsolidationArtist[]>();
+    for (const artist of allArtists) {
+        if (hasValidMbid(artist)) {
+            const mbidKey = `mbid:${artist.mbid.toLowerCase()}`;
+            const existingMbid = mbidGroups.get(mbidKey) ?? [];
+            existingMbid.push(artist);
+            mbidGroups.set(mbidKey, existingMbid);
+        }
+        const nameKey = artistNameConsolidationKey(artist);
+        const existingName = nameGroups.get(nameKey) ?? [];
+        existingName.push(artist);
+        nameGroups.set(nameKey, existingName);
+    }
 
-            report.consolidatedArtists++;
-            logger.debug(
-                `     Consolidated "${tempArtist.name}" (temp) into real artist`
+    // Build artist-merge graph:
+    // - always connect identical valid MBIDs
+    // - connect same-name aliases only when one side lacks a valid MBID
+    //   (or both share MBID), to avoid merging distinct artists with same name.
+    const adjacency = new Map<string, Set<string>>();
+    const connect = (a: ConsolidationArtist, b: ConsolidationArtist) => {
+        if (a.id === b.id) return;
+        if (!adjacency.has(a.id)) adjacency.set(a.id, new Set());
+        if (!adjacency.has(b.id)) adjacency.set(b.id, new Set());
+        adjacency.get(a.id)!.add(b.id);
+        adjacency.get(b.id)!.add(a.id);
+    };
+
+    for (const group of mbidGroups.values()) {
+        if (group.length < 2) continue;
+        for (let i = 0; i < group.length; i++) {
+            for (let j = i + 1; j < group.length; j++) {
+                connect(group[i], group[j]);
+            }
+        }
+    }
+    for (const group of nameGroups.values()) {
+        if (group.length < 2) continue;
+        for (let i = 0; i < group.length; i++) {
+            for (let j = i + 1; j < group.length; j++) {
+                const a = group[i];
+                const b = group[j];
+                const compatibleByMbid =
+                    !hasValidMbid(a) ||
+                    !hasValidMbid(b) ||
+                    a.mbid.toLowerCase() === b.mbid.toLowerCase();
+                if (compatibleByMbid) {
+                    connect(a, b);
+                }
+            }
+        }
+    }
+
+    const byId = new Map(allArtists.map((a) => [a.id, a]));
+    const visited = new Set<string>();
+    const duplicateClusters: ConsolidationArtist[][] = [];
+
+    for (const artist of allArtists) {
+        if (visited.has(artist.id)) continue;
+        const neighbors = adjacency.get(artist.id);
+        if (!neighbors || neighbors.size === 0) continue;
+
+        const stack = [artist.id];
+        const component = new Set<string>();
+        while (stack.length > 0) {
+            const current = stack.pop()!;
+            if (visited.has(current)) continue;
+            visited.add(current);
+            component.add(current);
+            for (const next of adjacency.get(current) ?? []) {
+                if (!visited.has(next)) stack.push(next);
+            }
+        }
+
+        if (component.size > 1) {
+            duplicateClusters.push(
+                Array.from(component)
+                    .map((id) => byId.get(id))
+                    .filter(Boolean) as ConsolidationArtist[]
             );
+        }
+    }
+
+    for (const cluster of duplicateClusters) {
+        const canonical = pickCanonicalArtist(cluster);
+        const duplicates = cluster.filter((a) => a.id !== canonical.id);
+        for (const duplicate of duplicates) {
+            try {
+                // Keep best metadata on canonical artist
+                const mergedName = canonicalizeArtistArticleOrder(
+                    getPreferredArtistName(canonical.name, duplicate.name)
+                );
+                const mergedMbid = hasValidMbid(canonical)
+                    ? canonical.mbid
+                    : hasValidMbid(duplicate)
+                        ? duplicate.mbid
+                        : canonical.mbid;
+                const mergedHeroUrl = canonical.heroUrl ?? duplicate.heroUrl ?? null;
+
+                await prisma.artist.update({
+                    where: { id: canonical.id },
+                    data: {
+                        name: mergedName,
+                        normalizedName: normalizeArtistName(mergedName),
+                        mbid: mergedMbid,
+                        heroUrl: mergedHeroUrl,
+                    },
+                });
+                canonical.name = mergedName;
+                canonical.normalizedName = normalizeArtistName(mergedName);
+                canonical.mbid = mergedMbid;
+                canonical.heroUrl = mergedHeroUrl;
+
+                await prisma.album.updateMany({
+                    where: { artistId: duplicate.id },
+                    data: { artistId: canonical.id },
+                });
+
+                // Repoint normalized credits so "Appears On" and track-level attribution stay intact.
+                await prisma.albumArtistCredit.updateMany({
+                    where: { artistId: duplicate.id },
+                    data: { artistId: canonical.id },
+                });
+                await prisma.trackArtistCredit.updateMany({
+                    where: { artistId: duplicate.id },
+                    data: { artistId: canonical.id },
+                });
+
+                // Move OwnedAlbum rows with conflict-safe merge on composite key.
+                const duplicateOwned = await prisma.ownedAlbum.findMany({
+                    where: { artistId: duplicate.id },
+                });
+                for (const owned of duplicateOwned) {
+                    const canonicalOwned = await prisma.ownedAlbum.findUnique({
+                        where: {
+                            artistId_rgMbid: {
+                                artistId: canonical.id,
+                                rgMbid: owned.rgMbid,
+                            },
+                        },
+                    });
+                    if (canonicalOwned) {
+                        await prisma.ownedAlbum.delete({
+                            where: {
+                                artistId_rgMbid: {
+                                    artistId: duplicate.id,
+                                    rgMbid: owned.rgMbid,
+                                },
+                            },
+                        });
+                    } else {
+                        await prisma.ownedAlbum.update({
+                            where: {
+                                artistId_rgMbid: {
+                                    artistId: duplicate.id,
+                                    rgMbid: owned.rgMbid,
+                                },
+                            },
+                            data: { artistId: canonical.id },
+                        });
+                    }
+                }
+
+                // Merge SimilarArtist edges while preserving strongest weight.
+                const oldEdges = await prisma.similarArtist.findMany({
+                    where: {
+                        OR: [
+                            { fromArtistId: duplicate.id },
+                            { toArtistId: duplicate.id },
+                        ],
+                    },
+                });
+                for (const edge of oldEdges) {
+                    const fromArtistId =
+                        edge.fromArtistId === duplicate.id
+                            ? canonical.id
+                            : edge.fromArtistId;
+                    const toArtistId =
+                        edge.toArtistId === duplicate.id
+                            ? canonical.id
+                            : edge.toArtistId;
+                    if (fromArtistId === toArtistId) continue;
+
+                    const existingEdge = await prisma.similarArtist.findUnique({
+                        where: {
+                            fromArtistId_toArtistId: { fromArtistId, toArtistId },
+                        },
+                    });
+                    if (existingEdge) {
+                        if (edge.weight > existingEdge.weight) {
+                            await prisma.similarArtist.update({
+                                where: {
+                                    fromArtistId_toArtistId: {
+                                        fromArtistId,
+                                        toArtistId,
+                                    },
+                                },
+                                data: { weight: edge.weight },
+                            });
+                        }
+                    } else {
+                        await prisma.similarArtist.create({
+                            data: { fromArtistId, toArtistId, weight: edge.weight },
+                        });
+                    }
+                }
+
+                await prisma.similarArtist.deleteMany({
+                    where: {
+                        OR: [
+                            { fromArtistId: duplicate.id },
+                            { toArtistId: duplicate.id },
+                        ],
+                    },
+                });
+
+                await prisma.artist.delete({
+                    where: { id: duplicate.id },
+                });
+
+                report.consolidatedArtists++;
+                logger.debug(
+                    `     Consolidated duplicate artist "${duplicate.name}" -> "${mergedName}"`
+                );
+            } catch (err: unknown) {
+                logger.warn(
+                    `[Integrity] Failed consolidating artist "${duplicate.name}" into "${canonical.name}":`,
+                    err instanceof Error ? err.message : err
+                );
+            }
         }
     }
 

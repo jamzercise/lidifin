@@ -37,6 +37,10 @@ import {
     extractArtistMbid,
 } from "../../services/jellyfin";
 import { enrichJellyfinArtist } from "../../services/jellyfinArtistEnrichment";
+import {
+    getArtistNameAliases,
+    normalizeArtistName,
+} from "../../utils/artistNormalization";
 
 const router = Router();
 
@@ -46,6 +50,47 @@ function normalizeAlbumTitle(value: string | null | undefined): string {
         .replace(/[^\w\s]/g, " ")
         .replace(/\s+/g, " ")
         .trim();
+}
+
+function pickBestArtistCandidate<
+    T extends {
+        id: string;
+        mbid: string;
+        name: string;
+        normalizedName: string;
+        heroUrl: string | null;
+        albums: unknown[];
+        ownedAlbums: unknown[];
+        similarArtistsJson?: unknown;
+    }
+>(
+    candidates: T[],
+    targetAliases: string[]
+): T | null {
+    if (candidates.length === 0) return null;
+    const aliasSet = new Set(targetAliases.map((a) => normalizeArtistName(a)));
+
+    let best = candidates[0];
+    let bestScore = -1;
+    for (const c of candidates) {
+        let score = 0;
+        const validMbid = !!c.mbid && !c.mbid.startsWith("temp-");
+        if (validMbid) score += 40;
+        if (c.heroUrl) score += 15;
+        if (Array.isArray(c.similarArtistsJson) && c.similarArtistsJson.length > 0) {
+            score += 15;
+        }
+        score += c.albums.length * 8;
+        score += c.ownedAlbums.length * 12;
+        if (aliasSet.has(normalizeArtistName(c.name))) score += 20;
+        if (aliasSet.has(c.normalizedName)) score += 10;
+
+        if (score > bestScore) {
+            best = c;
+            bestScore = score;
+        }
+    }
+    return best;
 }
 
 router.get("/artists", async (req, res) => {
@@ -522,19 +567,31 @@ router.get("/artists/:id", async (req, res) => {
             // We now use similarArtistsJson which is fetched by default
         };
 
-        // Single query with OR to find artist by ID, name, or MBID
+        // Resolve with alias-aware artist matching:
+        // - "The Books" and "Books, The" should map to the same artist row.
         const decodedName = decodeURIComponent(idParam);
+        const artistAliases = getArtistNameAliases(decodedName);
+        const normalizedAliases = Array.from(
+            new Set(artistAliases.map((a) => normalizeArtistName(a)))
+        );
         const isMbidFormat = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idParam);
-        let artist = await prisma.artist.findFirst({
+        const artistCandidates = await prisma.artist.findMany({
             where: {
                 OR: [
                     { id: idParam },
-                    { name: { equals: decodedName, mode: "insensitive" } },
+                    ...artistAliases.map((alias) => ({
+                        name: { equals: alias, mode: "insensitive" as const },
+                    })),
+                    ...(normalizedAliases.length > 0
+                        ? [{ normalizedName: { in: normalizedAliases } }]
+                        : []),
                     ...(isMbidFormat ? [{ mbid: idParam }] : []),
                 ],
             },
             include: artistInclude,
+            take: 10,
         });
+        let artist = pickBestArtistCandidate(artistCandidates, artistAliases);
 
         // If not in Prisma and Jellyfin mode: try artist by jellyfin:uuid or by name (e.g. /artist/Lucero)
         if (!artist && (await isJellyfinMusicSource())) {
@@ -547,7 +604,10 @@ router.get("/artists/:id", async (req, res) => {
                     if (item?.Type === "MusicArtist") artistItem = item;
                 }
                 if (!artistItem) {
-                    artistItem = await getJellyfinArtistByName(cfg, decodedName);
+                    for (const alias of artistAliases) {
+                        artistItem = await getJellyfinArtistByName(cfg, alias);
+                        if (artistItem) break;
+                    }
                 }
                 if (artistItem && artistItem.Type === "MusicArtist") {
                     const resolvedId = `jellyfin:${artistItem.Id}`;
@@ -627,10 +687,11 @@ router.get("/artists/:id", async (req, res) => {
                 ` Artist has temp/no MBID, searching MusicBrainz for ${artist.name}...`
             );
             try {
-                const searchResults = await musicBrainzService.searchArtist(
-                    artist.name,
-                    1
-                );
+                let searchResults: Array<{ id: string }> = [];
+                for (const alias of getArtistNameAliases(artist.name)) {
+                    searchResults = await musicBrainzService.searchArtist(alias, 1);
+                    if (searchResults.length > 0) break;
+                }
                 if (searchResults.length > 0) {
                     effectiveMbid = searchResults[0].id;
                     logger.debug(`  Found MBID: ${effectiveMbid}`);
@@ -672,7 +733,7 @@ router.get("/artists/:id", async (req, res) => {
             source: "database" as const,
         }));
         const normalizedArtistName =
-            artist.normalizedName?.trim() || normalizeAlbumTitle(artist.name);
+            artist.normalizedName?.trim() || normalizeArtistName(artist.name);
         const appearsOnDbAlbumsRaw = await prisma.album.findMany({
             where: {
                 artistId: { not: artist.id },
@@ -899,18 +960,27 @@ router.get("/artists/:id", async (req, res) => {
                 try {
                     const cfg = await getJellyfinConfig();
                     if (cfg) {
-                        const normalizedArtist = normalizeAlbumTitle(artist.name);
-                        const { artists: jfArtists } = await getJellyfinArtists(cfg, {
-                            search: artist.name,
-                            limit: 25,
-                            offset: 0,
-                        });
-                        const jfArtist =
-                            jfArtists.find(
-                                (a) =>
-                                    normalizeAlbumTitle(a.name) ===
-                                    normalizedArtist
-                            ) ?? null;
+                        const artistAliasesForSearch = getArtistNameAliases(
+                            artist.name
+                        );
+                        const normalizedArtistAliases = new Set(
+                            artistAliasesForSearch.map((n) => normalizeArtistName(n))
+                        );
+                        let jfArtist: { id: string; name: string } | null = null;
+                        for (const alias of artistAliasesForSearch) {
+                            const { artists: jfArtists } = await getJellyfinArtists(cfg, {
+                                search: alias,
+                                limit: 25,
+                                offset: 0,
+                            });
+                            jfArtist =
+                                jfArtists.find((a) =>
+                                    normalizedArtistAliases.has(
+                                        normalizeArtistName(a.name)
+                                    )
+                                ) ?? null;
+                            if (jfArtist) break;
+                        }
 
                         if (jfArtist) {
                             const jfAlbums = await getJellyfinAlbumsAllForArtist(

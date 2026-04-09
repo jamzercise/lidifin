@@ -10,6 +10,11 @@ import * as fuzz from "fuzzball";
  */
 export const VARIOUS_ARTISTS_CANONICAL = "Various Artists";
 export const VARIOUS_ARTISTS_MBID = "89ad4ac3-39f7-470e-963a-56509c546377";
+const ARTICLE_MAP: Record<string, string> = {
+    the: "The",
+    a: "A",
+    an: "An",
+};
 
 /**
  * Check if an artist name is a variation of "Various Artists"
@@ -33,6 +38,58 @@ export function canonicalizeVariousArtists(name: string): string {
     }
 
     return name;
+}
+
+/**
+ * Canonicalize names with trailing articles:
+ * - "Books, The" -> "The Books"
+ * - "Story, A"   -> "A Story"
+ */
+export function canonicalizeArtistArticleOrder(name: string): string {
+    const trimmed = (name ?? "").trim();
+    if (!trimmed) return "";
+
+    const trailingArticleMatch = trimmed.match(/^(.+),\s*(the|a|an)$/i);
+    if (!trailingArticleMatch) {
+        return trimmed;
+    }
+
+    const base = trailingArticleMatch[1].trim();
+    const article = ARTICLE_MAP[trailingArticleMatch[2].toLowerCase()] ?? trailingArticleMatch[2];
+    if (!base) return trimmed;
+    return `${article} ${base}`;
+}
+
+/**
+ * Convert a canonical leading-article name to trailing-article variant:
+ * - "The Books" -> "Books, The"
+ */
+export function toTrailingArticleArtistName(name: string): string {
+    const trimmed = (name ?? "").trim();
+    if (!trimmed) return "";
+
+    const leadingArticleMatch = trimmed.match(/^(the|a|an)\s+(.+)$/i);
+    if (!leadingArticleMatch) {
+        return trimmed;
+    }
+
+    const article = ARTICLE_MAP[leadingArticleMatch[1].toLowerCase()] ?? leadingArticleMatch[1];
+    const base = leadingArticleMatch[2].trim();
+    if (!base) return trimmed;
+    return `${base}, ${article}`;
+}
+
+/**
+ * Generate common alias forms for artist lookups/routing.
+ */
+export function getArtistNameAliases(name: string): string[] {
+    const raw = (name ?? "").trim();
+    if (!raw) return [];
+
+    const canonical = canonicalizeArtistArticleOrder(canonicalizeVariousArtists(raw));
+    const trailing = toTrailingArticleArtistName(canonical);
+    const dedup = new Set<string>([raw, canonical, trailing].filter(Boolean));
+    return Array.from(dedup);
 }
 
 /**
@@ -91,7 +148,10 @@ export function getPreferredArtistName(name1: string, name2: string): string {
  */
 export function normalizeArtistName(name: string): string {
     if (name == null) return "";
-    let normalized = stripDiacritics(name.trim().toLowerCase());
+    const canonicalized = canonicalizeArtistArticleOrder(
+        canonicalizeVariousArtists(name)
+    );
+    let normalized = stripDiacritics(canonicalized.trim().toLowerCase());
     
     // Normalize "&" to "and" (handles "Of Mice & Men" vs "Of Mice And Men")
     normalized = normalized.replace(/\s*&\s*/g, ' and ');
