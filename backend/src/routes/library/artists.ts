@@ -27,6 +27,7 @@ import {
 import {
     isJellyfinMusicSource,
     getJellyfinConfig,
+    getJellyfinAlbums,
     getJellyfinArtists,
     getJellyfinAlbumsAllForArtist,
     getJellyfinArtistAlbumCounts,
@@ -1094,7 +1095,10 @@ router.get("/artists/:id", async (req, res) => {
 
                                 for (const album of albumsWithOwnership as any[]) {
                                     if (album.owned) continue;
-                                    const matched = titleMatches.find((jfa) => {
+                                    const matched = titleMatches.find((jfa: {
+                                        title: string;
+                                        artist?: { id: string; name: string };
+                                    }) => {
                                         if (
                                             !albumTitlesLikelySame(
                                                 jfa.title,
