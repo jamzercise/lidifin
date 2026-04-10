@@ -55,12 +55,16 @@ export function toArtistRouteId(artist: {
 
 /**
  * Get the album route ID for links.
- * Prefers MusicBrainz rgMbid when available (for /album/{mbid} URLs).
+ * For Jellyfin albums, prefer Jellyfin ID for direct and reliable lookup.
+ * Otherwise prefers MusicBrainz rgMbid when available (for /album/{mbid} URLs).
  * Falls back to id (Jellyfin UUID or native) when no rgMbid.
  */
 export function toAlbumRouteId(album: string | { id?: string; rgMbid?: string | null }): string {
     const id = typeof album === "string" ? album : album.id;
     const rgMbid = typeof album === "string" ? undefined : album.rgMbid;
+    if (id?.startsWith(JELLYFIN_PREFIX)) {
+        return toRouteId(id);
+    }
     if (rgMbid) return rgMbid;
     return toRouteId(id ?? "");
 }

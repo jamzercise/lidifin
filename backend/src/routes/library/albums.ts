@@ -358,7 +358,10 @@ router.get("/albums/:id", async (req, res) => {
                 getJellyfinItem(cfg, rawId, "MusicAlbum"),
                 getJellyfinTracksAllForAlbum(cfg, resolvedId),
             ]);
-            if (!albumItem || albumItem.Type !== "MusicAlbum") {
+            if (
+                !albumItem ||
+                (albumItem.Type !== "MusicAlbum" && albumItem.Type !== "BoxSet")
+            ) {
                 return res.status(404).json({ error: "Album not found" });
             }
             const albumArtists = getAlbumArtistsFromJellyfinItem(albumItem);
@@ -454,7 +457,10 @@ router.get("/albums/:id", async (req, res) => {
             const cfg = await getJellyfinConfig();
             if (cfg) {
                 const albumItem = await getJellyfinAlbumByRgMbid(cfg, idParam);
-                if (albumItem && albumItem.Type === "MusicAlbum") {
+                if (
+                    albumItem &&
+                    (albumItem.Type === "MusicAlbum" || albumItem.Type === "BoxSet")
+                ) {
                     const resolvedId = `jellyfin:${albumItem.Id}`;
                     const tracks = await getJellyfinTracksAllForAlbum(cfg, resolvedId);
                     const albumArtists = getAlbumArtistsFromJellyfinItem(albumItem);
