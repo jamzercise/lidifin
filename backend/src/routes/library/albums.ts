@@ -104,6 +104,51 @@ function titlesLikelySame(a: string, b: string): boolean {
     return overlap >= Math.max(2, Math.floor(minSize * 0.7));
 }
 
+const ALBUM_LOOKUP_CIRCUIT_OPEN_KEY = "jf:circuit:album_lookup:open";
+const ALBUM_LOOKUP_CIRCUIT_FAILS_KEY = "jf:circuit:album_lookup:fails";
+const ALBUM_LOOKUP_CIRCUIT_FAIL_THRESHOLD = 3;
+const ALBUM_LOOKUP_CIRCUIT_OPEN_SECONDS = 90;
+const ALBUM_LOOKUP_CIRCUIT_FAIL_WINDOW_SECONDS = 5 * 60;
+const ALBUM_LOOKUP_MISS_TTL_SECONDS = 10 * 60;
+
+function albumLookupMissKey(id: string): string {
+    return `jf:album_lookup:miss:${id}`;
+}
+
+async function isAlbumLookupCircuitOpen(): Promise<boolean> {
+    if (!redisClient.isReady) return false;
+    const open = await redisClient.get(ALBUM_LOOKUP_CIRCUIT_OPEN_KEY).catch(() => null);
+    return open === "1";
+}
+
+async function recordAlbumLookupFailure(reason: string): Promise<void> {
+    if (!redisClient.isReady) return;
+    const failures = await redisClient
+        .incr(ALBUM_LOOKUP_CIRCUIT_FAILS_KEY)
+        .catch(() => null);
+    if (!failures) return;
+    if (failures === 1) {
+        await redisClient
+            .expire(ALBUM_LOOKUP_CIRCUIT_FAILS_KEY, ALBUM_LOOKUP_CIRCUIT_FAIL_WINDOW_SECONDS)
+            .catch(() => {});
+    }
+    if (failures >= ALBUM_LOOKUP_CIRCUIT_FAIL_THRESHOLD) {
+        await redisClient
+            .setEx(ALBUM_LOOKUP_CIRCUIT_OPEN_KEY, ALBUM_LOOKUP_CIRCUIT_OPEN_SECONDS, "1")
+            .catch(() => {});
+        logger.warn(
+            `[Album] Jellyfin lookup circuit opened after ${failures} failures (${reason})`
+        );
+    }
+}
+
+async function recordAlbumLookupSuccess(): Promise<void> {
+    if (!redisClient.isReady) return;
+    await redisClient
+        .del(ALBUM_LOOKUP_CIRCUIT_OPEN_KEY, ALBUM_LOOKUP_CIRCUIT_FAILS_KEY)
+        .catch(() => {});
+}
+
 router.get("/albums", async (req, res) => {
     try {
         const {
@@ -456,7 +501,40 @@ router.get("/albums/:id", async (req, res) => {
         if (!album && MBID_REGEX.test(idParam) && (await isJellyfinMusicSource())) {
             const cfg = await getJellyfinConfig();
             if (cfg) {
-                const albumItem = await getJellyfinAlbumByRgMbid(cfg, idParam);
+                const mbidMissKey = albumLookupMissKey(`mbid:${idParam}`);
+                const hasMissCache = redisClient.isReady
+                    ? (await redisClient.get(mbidMissKey).catch(() => null)) === "1"
+                    : false;
+                const circuitOpen = await isAlbumLookupCircuitOpen();
+                if (hasMissCache || circuitOpen) {
+                    logger.debug(
+                        `[Album] Skipping MBID deep lookup for ${idParam} (${hasMissCache ? "miss-cache" : "circuit-open"})`
+                    );
+                    return res.status(404).json({ error: "Album not found" });
+                }
+
+                let albumItem = null as Awaited<ReturnType<typeof getJellyfinAlbumByRgMbid>>;
+                try {
+                    albumItem = await getJellyfinAlbumByRgMbid(cfg, idParam);
+                    if (albumItem) {
+                        await recordAlbumLookupSuccess();
+                        if (redisClient.isReady) {
+                            await redisClient.del(mbidMissKey).catch(() => {});
+                        }
+                    } else if (redisClient.isReady) {
+                        await redisClient
+                            .setEx(mbidMissKey, ALBUM_LOOKUP_MISS_TTL_SECONDS, "1")
+                            .catch(() => {});
+                    }
+                } catch (err) {
+                    await recordAlbumLookupFailure("mbid-route");
+                    if (redisClient.isReady) {
+                        await redisClient
+                            .setEx(mbidMissKey, ALBUM_LOOKUP_MISS_TTL_SECONDS, "1")
+                            .catch(() => {});
+                    }
+                    throw err;
+                }
                 if (
                     albumItem &&
                     (albumItem.Type === "MusicAlbum" || albumItem.Type === "BoxSet")
@@ -551,6 +629,14 @@ router.get("/albums/:id", async (req, res) => {
             const cfg = await getJellyfinConfig();
             if (cfg) {
                 let jellyfinAlbum: any = null;
+                const lookupMissKey = albumLookupMissKey(
+                    album.rgMbid ? `${album.id}:${album.rgMbid}` : album.id
+                );
+                const hasMissCache = redisClient.isReady
+                    ? (await redisClient.get(lookupMissKey).catch(() => null)) === "1"
+                    : false;
+                const lookupCircuitOpen = await isAlbumLookupCircuitOpen();
+                let attemptedExpensiveLookup = false;
 
                 for (const sourceAlbumId of sourceAlbumHints) {
                     if (jellyfinAlbum) break;
@@ -575,17 +661,24 @@ router.get("/albums/:id", async (req, res) => {
                         );
                     }
                     if (!jellyfinAlbum) {
-                        // Cold path: full scan (happens before first sync or if cache expires)
-                        jellyfinAlbum = await getJellyfinAlbumByRgMbid(
-                            cfg,
-                            album.rgMbid
-                        ).catch((err) => {
+                        if (hasMissCache || lookupCircuitOpen) {
                             logger.debug(
-                                `[Album] Jellyfin rgMbid scan failed for "${album.title}" (${album.rgMbid}):`,
-                                err instanceof Error ? err.message : err
+                                `[Album] Skipping rgMbid deep scan for "${album.title}" (${hasMissCache ? "miss-cache" : "circuit-open"})`
                             );
-                            return null;
-                        });
+                        } else {
+                            attemptedExpensiveLookup = true;
+                            jellyfinAlbum = await getJellyfinAlbumByRgMbid(
+                                cfg,
+                                album.rgMbid
+                            ).catch(async (err) => {
+                                logger.debug(
+                                    `[Album] Jellyfin rgMbid scan failed for "${album.title}" (${album.rgMbid}):`,
+                                    err instanceof Error ? err.message : err
+                                );
+                                await recordAlbumLookupFailure("rgmbid-scan");
+                                return null;
+                            });
+                        }
                         if (jellyfinAlbum && redisClient.isReady) {
                             await redisClient
                                 .setEx(redisCacheKey, 30 * 24 * 3600, jellyfinAlbum.Id)
@@ -594,7 +687,8 @@ router.get("/albums/:id", async (req, res) => {
                     }
                 }
 
-                if (!jellyfinAlbum) {
+                if (!jellyfinAlbum && !hasMissCache && !lookupCircuitOpen) {
+                    attemptedExpensiveLookup = true;
                     // MBIDs are sometimes missing or mismatched (release vs release-group).
                     // Fallback to title/artist matching in Jellyfin for robustness.
                     const normalizedTargetTitle = normalizeTitle(album.title);
@@ -652,6 +746,8 @@ router.get("/albums/:id", async (req, res) => {
                         if (candidate) break;
                         let offset = 0;
                         const limit = 100;
+                        let pages = 0;
+                        const maxPagesPerTerm = 3;
                         while (!candidate) {
                             let jfResult: Awaited<ReturnType<typeof getJellyfinAlbums>>;
                             try {
@@ -665,6 +761,7 @@ router.get("/albums/:id", async (req, res) => {
                                     `[Album] Jellyfin title search failed for "${searchTerm}" at offset ${offset}:`,
                                     err instanceof Error ? err.message : err
                                 );
+                                await recordAlbumLookupFailure("title-search");
                                 break;
                             }
                             const { albums: jfAlbums, total } = jfResult;
@@ -672,37 +769,15 @@ router.get("/albums/:id", async (req, res) => {
                             candidate = jfAlbums.find(isCandidateMatch);
                             if (candidate) break;
                             offset += jfAlbums.length;
+                            pages += 1;
                             if (offset >= total || jfAlbums.length < limit) break;
+                            if (pages >= maxPagesPerTerm) break;
                         }
                     }
 
-                    // Final cold path: paginated full scan by normalized title similarity.
-                    if (!candidate) {
-                        let offset = 0;
-                        const limit = 100;
-                        const maxToSearch = 5000;
-                        while (!candidate && offset < maxToSearch) {
-                            let jfResult: Awaited<ReturnType<typeof getJellyfinAlbums>>;
-                            try {
-                                jfResult = await getJellyfinAlbums(cfg, {
-                                    limit,
-                                    offset,
-                                });
-                            } catch (err) {
-                                logger.debug(
-                                    `[Album] Jellyfin full scan failed at offset ${offset}:`,
-                                    err instanceof Error ? err.message : err
-                                );
-                                break;
-                            }
-                            const { albums: jfAlbums, total } = jfResult;
-                            if (jfAlbums.length === 0) break;
-                            candidate = jfAlbums.find(isCandidateMatch);
-                            if (candidate) break;
-                            offset += jfAlbums.length;
-                            if (offset >= total || jfAlbums.length < limit) break;
-                        }
-                    }
+                    // Intentionally avoid deep full-library scans on interactive routes.
+                    // If indexed search does not find a candidate, defer reconciliation to
+                    // background jobs instead of blocking this request.
 
                     // Extra fallback: Jellyfin can classify some releases as BoxSet.
                     // Search both MusicAlbum and BoxSet containers before giving up.
@@ -711,6 +786,8 @@ router.get("/albums/:id", async (req, res) => {
                             if (candidate) break;
                             let offset = 0;
                             const limit = 100;
+                            let pages = 0;
+                            const maxPagesPerTerm = 2;
                             while (!candidate) {
                                 let containerResult: Awaited<
                                     ReturnType<typeof getJellyfinAlbumContainers>
@@ -726,6 +803,7 @@ router.get("/albums/:id", async (req, res) => {
                                         `[Album] Jellyfin container search failed for "${searchTerm}" at offset ${offset}:`,
                                         err instanceof Error ? err.message : err
                                     );
+                                    await recordAlbumLookupFailure("container-search");
                                     break;
                                 }
                                 const { items, total } = containerResult;
@@ -764,7 +842,9 @@ router.get("/albums/:id", async (req, res) => {
                                     break;
                                 }
                                 offset += items.length;
+                                pages += 1;
                                 if (offset >= total || items.length < limit) break;
+                                if (pages >= maxPagesPerTerm) break;
                             }
                         }
                     }
@@ -776,6 +856,21 @@ router.get("/albums/:id", async (req, res) => {
                             "MusicAlbum"
                         ).catch(() => null);
                     }
+                } else if (!jellyfinAlbum && (hasMissCache || lookupCircuitOpen)) {
+                    logger.debug(
+                        `[Album] Skipping expensive Jellyfin title scan for "${album.title}" (${hasMissCache ? "miss-cache" : "circuit-open"})`
+                    );
+                }
+
+                if (jellyfinAlbum) {
+                    await recordAlbumLookupSuccess();
+                    if (redisClient.isReady) {
+                        await redisClient.del(lookupMissKey).catch(() => {});
+                    }
+                } else if (attemptedExpensiveLookup && redisClient.isReady) {
+                    await redisClient
+                        .setEx(lookupMissKey, ALBUM_LOOKUP_MISS_TTL_SECONDS, "1")
+                        .catch(() => {});
                 }
 
                 if (

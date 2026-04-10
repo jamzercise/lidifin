@@ -27,6 +27,7 @@ import { runDataIntegrityCheck } from "./dataIntegrity";
 import { simpleDownloadManager } from "../services/simpleDownloadManager";
 import { queueCleaner } from "../jobs/queueCleaner";
 import { enrichmentStateService } from "../services/enrichmentState";
+import { runSyncAndEnrich } from "../services/jellyfinMetadataJob";
 import {
     startLibraryListCacheRefresh,
     stopLibraryListCacheRefresh,
@@ -36,6 +37,76 @@ import {
 // Track intervals and timeouts for cleanup
 const intervals: NodeJS.Timeout[] = [];
 const timeouts: NodeJS.Timeout[] = [];
+
+const OFFPEAK_START_HOUR = Math.max(
+    0,
+    Math.min(
+        23,
+        parseInt(process.env.MAINTENANCE_OFFPEAK_START_HOUR ?? "1", 10) || 1
+    )
+);
+const OFFPEAK_END_HOUR = Math.max(
+    0,
+    Math.min(
+        23,
+        parseInt(process.env.MAINTENANCE_OFFPEAK_END_HOUR ?? "6", 10) || 6
+    )
+);
+const IDLE_ACTIVITY_WINDOW_MINUTES = Math.max(
+    5,
+    parseInt(process.env.MAINTENANCE_IDLE_MINUTES ?? "20", 10) || 20
+);
+
+logger.debug(
+    `[Maintenance] off-peak window ${OFFPEAK_START_HOUR}:00-${OFFPEAK_END_HOUR}:00, idle threshold ${IDLE_ACTIVITY_WINDOW_MINUTES}m`
+);
+
+function isWithinOffpeakWindow(date = new Date()): boolean {
+    const hour = date.getHours();
+    if (OFFPEAK_START_HOUR === OFFPEAK_END_HOUR) return true;
+    if (OFFPEAK_START_HOUR < OFFPEAK_END_HOUR) {
+        return hour >= OFFPEAK_START_HOUR && hour < OFFPEAK_END_HOUR;
+    }
+    return hour >= OFFPEAK_START_HOUR || hour < OFFPEAK_END_HOUR;
+}
+
+async function hasRecentUserActivity(
+    minutes = IDLE_ACTIVITY_WINDOW_MINUTES
+): Promise<boolean> {
+    const since = new Date(Date.now() - minutes * 60 * 1000);
+    const [recentPlayback, recentPlay] = await Promise.all([
+        prisma.playbackState.findFirst({
+            where: {
+                trackId: { not: null },
+                updatedAt: { gte: since },
+            },
+            select: { userId: true },
+        }),
+        prisma.play.findFirst({
+            where: { playedAt: { gte: since } },
+            select: { id: true },
+            orderBy: { playedAt: "desc" },
+        }),
+    ]);
+    return !!recentPlayback || !!recentPlay;
+}
+
+async function shouldRunHeavyMaintenance(taskName: string): Promise<boolean> {
+    try {
+        if (isWithinOffpeakWindow()) return true;
+        const recentlyActive = await hasRecentUserActivity();
+        if (!recentlyActive) return true;
+        logger.debug(
+            `[Maintenance] Deferring ${taskName} until off-peak/idle window`
+        );
+        return false;
+    } catch (err) {
+        logger.warn(
+            `[Maintenance] Activity check failed for ${taskName}, running anyway`
+        );
+        return true;
+    }
+}
 
 // Register processors with named job types
 scanQueue.process("scan", processScan);
@@ -132,58 +203,61 @@ startUnifiedEnrichmentWorker().catch((err) => {
             logger.debug("Jellyfin metadata sync skipped – Jellyfin is not music source");
             return;
         }
-        const { syncJellyfinTrackMetadata, syncJellyfinOwnedAlbums } = await import("../services/jellyfinMetadataSync");
-        const { enrichJellyfinTrackMetadata } = await import("../services/jellyfinMetadataEnrichment");
+        const { syncJellyfinOwnedAlbums } = await import(
+            "../services/jellyfinMetadataSync"
+        );
+
+        const runOwnedAlbumSync = async (label: string) => {
+            try {
+                await syncJellyfinOwnedAlbums();
+                logger.debug(`[JellyfinMetadata] ${label}: owned album sync complete`);
+            } catch (err: any) {
+                logger.warn(
+                    `[JellyfinMetadata] ${label}: owned album sync failed:`,
+                    err?.message
+                );
+            }
+        };
+
+        const runHeavyMetadataPass = async (label: string) => {
+            const shouldRun = await shouldRunHeavyMaintenance(
+                `Jellyfin metadata ${label}`
+            );
+            if (!shouldRun) return;
+            try {
+                const result = await runSyncAndEnrich();
+                if (!result.started) {
+                    logger.debug(
+                        `[JellyfinMetadata] ${label}: job already ${result.status}, skipping`
+                    );
+                    return;
+                }
+                logger.debug(`[JellyfinMetadata] ${label}: started background sync/enrich`);
+            } catch (err: any) {
+                logger.warn(
+                    `[JellyfinMetadata] ${label}: background sync/enrich failed to start:`,
+                    err?.message
+                );
+            }
+        };
+
         // Run sync 30s after startup (allow Jellyfin to be ready)
         timeouts.push(
             setTimeout(async () => {
-                try {
-                    const syncResult = await syncJellyfinTrackMetadata();
-                    if (syncResult) {
-                        logger.info(`[JellyfinMetadata] Sync: ${syncResult.synced} tracks`);
-                        // Sync OwnedAlbum records so Jellyfin albums show as owned
-                        try { await syncJellyfinOwnedAlbums(); } catch { /* non-fatal */ }
-                        // Run enrichment after sync (up to 25 batches = 1250 tracks per startup)
-                        let totalEnriched = 0;
-                        for (let i = 0; i < 25; i++) {
-                            const r = await enrichJellyfinTrackMetadata();
-                            if (!r || r.enriched === 0) break;
-                            totalEnriched += r.enriched;
-                        }
-                        if (totalEnriched > 0) {
-                            logger.info(`[JellyfinMetadata] Enrichment: ${totalEnriched} tracks`);
-                        }
-                    }
-                } catch (err: any) {
-                    logger.warn("[JellyfinMetadata] Sync/enrich failed:", err?.message);
-                }
+                await runOwnedAlbumSync("startup");
+                await runHeavyMetadataPass("startup");
             }, 30000)
         );
         // Schedule periodic sync every 6 hours
         intervals.push(
             setInterval(async () => {
-                try {
-                    const syncResult = await syncJellyfinTrackMetadata();
-                    if (syncResult) {
-                        logger.debug(`[JellyfinMetadata] Periodic sync: ${syncResult.synced} tracks`);
-                        // Sync OwnedAlbum records so newly-added albums show as owned
-                        try { await syncJellyfinOwnedAlbums(); } catch { /* non-fatal */ }
-                        let totalEnriched = 0;
-                        for (let i = 0; i < 20; i++) {
-                            const r = await enrichJellyfinTrackMetadata();
-                            if (!r || r.enriched === 0) break;
-                            totalEnriched += r.enriched;
-                        }
-                        if (totalEnriched > 0) {
-                            logger.debug(`[JellyfinMetadata] Periodic enrichment: ${totalEnriched} tracks`);
-                        }
-                    }
-                } catch (err: any) {
-                    logger.warn("[JellyfinMetadata] Periodic sync failed:", err?.message);
-                }
+                await runOwnedAlbumSync("periodic");
+                await runHeavyMetadataPass("periodic");
             }, 6 * 60 * 60 * 1000)
         );
-        logger.debug("Jellyfin metadata sync scheduled (30s delay, then every 6h)");
+        logger.debug(
+            "Jellyfin metadata maintenance scheduled (owned album sync every 6h, heavy sync/enrich on off-peak/idle)"
+        );
     } catch (err) {
         logger.warn("Jellyfin metadata sync setup failed:", err);
     }
@@ -259,24 +333,44 @@ logger.debug("Worker processors registered and event handlers attached");
 // Start Discovery Weekly cron scheduler (Sundays at 8 PM)
 startDiscoverWeeklyCron();
 
+async function runDataIntegrityCheckWhenIdle(trigger: string): Promise<void> {
+    const shouldRun = await shouldRunHeavyMaintenance(
+        `data integrity check (${trigger})`
+    );
+    if (!shouldRun) {
+        // Re-attempt in 1 hour so maintenance still happens regularly during low activity.
+        timeouts.push(
+            setTimeout(() => {
+                runDataIntegrityCheckWhenIdle("deferred").catch((err) => {
+                    logger.error("Deferred data integrity check failed:", err);
+                });
+            }, 60 * 60 * 1000)
+        );
+        return;
+    }
+    runDataIntegrityCheck().catch((err) => {
+        logger.error("Data integrity check failed:", err);
+    });
+}
+
 // Run data integrity check on startup and then every 24 hours
 timeouts.push(
     setTimeout(() => {
-        runDataIntegrityCheck().catch((err) => {
-            logger.error("Data integrity check failed:", err);
+        runDataIntegrityCheckWhenIdle("startup").catch((err) => {
+            logger.error("Data integrity check scheduling failed:", err);
         });
     }, 10000) // Run 10 seconds after startup
 );
 
 intervals.push(
     setInterval(() => {
-        runDataIntegrityCheck().catch((err) => {
-            logger.error("Data integrity check failed:", err);
+        runDataIntegrityCheckWhenIdle("periodic").catch((err) => {
+            logger.error("Data integrity check scheduling failed:", err);
         });
     }, 24 * 60 * 60 * 1000) // Run every 24 hours
 );
 
-logger.debug("Data integrity check scheduled (every 24 hours)");
+logger.debug("Data integrity check scheduled (every 24 hours, off-peak/idle-aware)");
 
 /**
  * Wrap an async operation with a timeout to prevent indefinite hangs
@@ -319,6 +413,13 @@ async function withTimeout<T>(
 // This prevents zombie operations from accumulating when operations exceed their timeout.
 async function runReconciliationCycle() {
     try {
+        const shouldRun = await shouldRunHeavyMaintenance(
+            "download reconciliation cycle"
+        );
+        if (!shouldRun) {
+            timeouts.push(setTimeout(runReconciliationCycle, 5 * 60 * 1000));
+            return;
+        }
         const { lidarrService } = await import("../services/lidarr");
         if (!(await lidarrService.isEnabled())) {
             logger.debug("Reconciliation skipped – Lidarr not configured");
@@ -392,6 +493,13 @@ logger.debug("Stale download cleanup scheduled (every 2 minutes, self-rescheduli
 // Self-rescheduling Lidarr queue cleanup (replaces setInterval to prevent pile-up)
 async function runLidarrCleanupCycle() {
     try {
+        const shouldRun = await shouldRunHeavyMaintenance(
+            "lidarr queue cleanup cycle"
+        );
+        if (!shouldRun) {
+            timeouts.push(setTimeout(runLidarrCleanupCycle, 10 * 60 * 1000));
+            return;
+        }
         const { lidarrService } = await import("../services/lidarr");
         if (!(await lidarrService.isEnabled())) {
             logger.debug("Lidarr queue cleanup skipped – Lidarr not configured");
