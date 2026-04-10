@@ -144,9 +144,8 @@ async function recordAlbumLookupFailure(reason: string): Promise<void> {
 
 async function recordAlbumLookupSuccess(): Promise<void> {
     if (!redisClient.isReady) return;
-    await redisClient
-        .del(ALBUM_LOOKUP_CIRCUIT_OPEN_KEY, ALBUM_LOOKUP_CIRCUIT_FAILS_KEY)
-        .catch(() => {});
+    await redisClient.del(ALBUM_LOOKUP_CIRCUIT_OPEN_KEY).catch(() => {});
+    await redisClient.del(ALBUM_LOOKUP_CIRCUIT_FAILS_KEY).catch(() => {});
 }
 
 router.get("/albums", async (req, res) => {
