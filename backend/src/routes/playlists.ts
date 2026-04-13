@@ -60,6 +60,14 @@ const createPlaylistSchema = z.object({
     name: z.string().min(1).max(200),
     isPublic: z.boolean().optional().default(false),
 });
+const updatePlaylistSchema = z
+    .object({
+        name: z.string().min(1).max(200).optional(),
+        isPublic: z.boolean().optional(),
+    })
+    .refine((value) => value.name !== undefined || value.isPublic !== undefined, {
+        message: "At least one field is required",
+    });
 
 const addTrackSchema = z.object({
     trackId: z.string(),
@@ -463,7 +471,7 @@ router.put("/:id", async (req, res) => {
             return res.status(401).json({ error: "Unauthorized" });
         }
         const userId = req.user.id;
-        const data = createPlaylistSchema.parse(req.body);
+        const data = updatePlaylistSchema.parse(req.body);
 
         // Check ownership
         const existing = await prisma.playlist.findUnique({
@@ -478,23 +486,40 @@ router.put("/:id", async (req, res) => {
             return res.status(403).json({ error: "Access denied" });
         }
 
+        const nextName =
+            typeof data.name === "string" ? data.name.trim() : undefined;
+        const shouldSyncJellyfinName =
+            !!existing.jellyfinPlaylistId &&
+            !!nextName &&
+            nextName !== existing.name;
+
+        // Linked playlists are reconciled from Jellyfin on list fetch.
+        // Require Jellyfin rename success first so local state doesn't "flip back".
+        if (shouldSyncJellyfinName) {
+            const cfg = await getJellyfinConfig();
+            if (cfg) {
+                const synced = await updateJellyfinPlaylistName(
+                    cfg,
+                    existing.jellyfinPlaylistId!,
+                    nextName
+                );
+                if (!synced) {
+                    return res.status(502).json({
+                        error: "Failed to rename playlist in Jellyfin",
+                    });
+                }
+            }
+        }
+
         const playlist = await prisma.playlist.update({
             where: { id: req.params.id },
             data: {
-                name: data.name,
-                isPublic: data.isPublic,
+                ...(nextName !== undefined ? { name: nextName } : {}),
+                ...(typeof data.isPublic === "boolean"
+                    ? { isPublic: data.isPublic }
+                    : {}),
             },
         });
-
-        // Sync name to Jellyfin when applicable
-        if (playlist.jellyfinPlaylistId && data.name) {
-            const cfg = await getJellyfinConfig();
-            if (cfg) {
-                updateJellyfinPlaylistName(cfg, playlist.jellyfinPlaylistId, data.name).catch(
-                    (err) => logger.warn("[Playlists] Failed to update Jellyfin playlist name:", err?.message)
-                );
-            }
-        }
 
         res.json(playlist);
     } catch (error) {
