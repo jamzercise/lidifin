@@ -1046,24 +1046,44 @@ router.get("/artists/:id", async (req, res) => {
                                 cfg,
                                 jfArtist.id
                             );
-                            const jfRg = new Set(
-                                jfAlbums
-                                    .map((a) => a.rgMbid)
-                                    .filter(Boolean)
-                            );
-                            const jfTitleKeys = new Set(
-                                jfAlbums.map((a) => normalizeAlbumTitle(a.title))
-                            );
+                            const jfAlbumsByRg = new Map<
+                                string,
+                                (typeof jfAlbums)[number]
+                            >();
+                            const jfAlbumsByTitle = new Map<
+                                string,
+                                (typeof jfAlbums)[number]
+                            >();
+                            for (const jfAlbum of jfAlbums) {
+                                if (jfAlbum.rgMbid && !jfAlbumsByRg.has(jfAlbum.rgMbid)) {
+                                    jfAlbumsByRg.set(jfAlbum.rgMbid, jfAlbum);
+                                }
+                                const titleKey = normalizeAlbumTitle(jfAlbum.title);
+                                if (titleKey && !jfAlbumsByTitle.has(titleKey)) {
+                                    jfAlbumsByTitle.set(titleKey, jfAlbum);
+                                }
+                            }
 
                             for (const album of albumsWithOwnership as any[]) {
                                 if (album.owned) continue;
-                                const byRg =
-                                    !!album.rgMbid && jfRg.has(album.rgMbid);
-                                const byTitle = jfTitleKeys.has(
+                                const matchedByRg =
+                                    !!album.rgMbid
+                                        ? jfAlbumsByRg.get(album.rgMbid)
+                                        : undefined;
+                                const matchedByTitle = jfAlbumsByTitle.get(
                                     normalizeAlbumTitle(album.title)
                                 );
-                                if (byRg || byTitle) {
+                                const matched = matchedByRg ?? matchedByTitle;
+                                if (matched) {
                                     album.owned = true;
+                                    album.id = matched.id;
+                                    if (!album.coverArt && matched.coverArt) {
+                                        album.coverArt = matched.coverArt;
+                                        album.coverUrl = matched.coverArt;
+                                    }
+                                    if (!album.year && matched.year) {
+                                        album.year = matched.year;
+                                    }
                                 }
                             }
                         }
@@ -1115,6 +1135,14 @@ router.get("/artists/:id", async (req, res) => {
                                     });
                                     if (matched) {
                                         album.owned = true;
+                                        album.id = matched.id;
+                                        if (!album.coverArt && matched.coverArt) {
+                                            album.coverArt = matched.coverArt;
+                                            album.coverUrl = matched.coverArt;
+                                        }
+                                        if (!album.year && matched.year) {
+                                            album.year = matched.year;
+                                        }
                                     }
                                 }
                             }
