@@ -60,13 +60,23 @@ export class AudioStreamingService {
     }
 
     /**
-     * Get file path for streaming (either original or transcoded)
+     * Get file path for streaming (either original or transcoded).
+     *
+     * `sourceFileSizeBytes` and `sourceDurationSec` are optional but strongly
+     * recommended: when provided we use them to compute an average bitrate
+     * estimate (size×8 / duration) instead of opening and parsing the whole
+     * audio file with music-metadata on every transcode request. The estimate
+     * is more than accurate enough for the only decision being made here
+     * ("is the source already at or below the target bitrate?") and avoids a
+     * hot-path I/O+CPU stall that was contributing to event-loop blocking.
      */
     async getStreamFilePath(
         trackId: string,
         quality: Quality,
         sourceModified: Date,
-        sourceAbsolutePath: string
+        sourceAbsolutePath: string,
+        sourceFileSizeBytes?: number,
+        sourceDurationSec?: number
     ): Promise<StreamFileInfo> {
         logger.debug(`[AudioStreaming] Request: trackId=${trackId}, quality=${quality}, source=${path.basename(sourceAbsolutePath)}`);
         
@@ -100,26 +110,21 @@ export class AudioStreamingService {
         // Check source file bitrate to avoid pointless upsampling
         const targetBitrate = QUALITY_SETTINGS[quality].bitrate;
         if (targetBitrate) {
-            try {
-                const metadata = await parseFile(sourceAbsolutePath);
-                const sourceBitrate = metadata.format.bitrate
-                    ? Math.round(metadata.format.bitrate / 1000)
-                    : null;
+            const sourceBitrate = await this.estimateSourceBitrateKbps(
+                trackId,
+                sourceAbsolutePath,
+                sourceFileSizeBytes,
+                sourceDurationSec
+            );
 
-                if (sourceBitrate && sourceBitrate <= targetBitrate) {
-                    logger.debug(
-                        `[STREAM] Source bitrate (${sourceBitrate}kbps) <= target (${targetBitrate}kbps), serving original`
-                    );
-                    return {
-                        filePath: sourceAbsolutePath,
-                        mimeType: this.getMimeType(sourceAbsolutePath),
-                    };
-                }
-            } catch (err) {
-                logger.warn(
-                    `[STREAM] Failed to read source metadata, will transcode anyway:`,
-                    err
+            if (sourceBitrate && sourceBitrate <= targetBitrate) {
+                logger.debug(
+                    `[STREAM] Source bitrate (${sourceBitrate}kbps) <= target (${targetBitrate}kbps), serving original`
                 );
+                return {
+                    filePath: sourceAbsolutePath,
+                    mimeType: this.getMimeType(sourceAbsolutePath),
+                };
             }
         }
 
@@ -149,6 +154,87 @@ export class AudioStreamingService {
             filePath: transcodedPath,
             mimeType: "audio/mpeg",
         };
+    }
+
+    /**
+     * Estimate the source file's average bitrate in kbps.
+     *
+     * Order of preference:
+     *   1. From DB-supplied `fileSize` + `duration` (free, exact average).
+     *   2. From a small in-memory cache of prior parseFile() results.
+     *   3. As a last resort, parseFile() the source file and cache the result.
+     *
+     * Returns null only if every path fails (e.g. duration is missing AND the
+     * file can't be parsed). Callers should treat null as "transcode anyway".
+     */
+    private async estimateSourceBitrateKbps(
+        trackId: string,
+        sourceAbsolutePath: string,
+        sourceFileSizeBytes?: number,
+        sourceDurationSec?: number
+    ): Promise<number | null> {
+        // Path 1: arithmetic from DB-known fileSize+duration. This is the only
+        // path that should ever execute on the hot streaming loop. Math is
+        // synchronous and microseconds; no file I/O.
+        if (
+            typeof sourceFileSizeBytes === "number" &&
+            sourceFileSizeBytes > 0 &&
+            typeof sourceDurationSec === "number" &&
+            sourceDurationSec > 0
+        ) {
+            const kbps = Math.round(
+                (sourceFileSizeBytes * 8) / sourceDurationSec / 1000
+            );
+            return Number.isFinite(kbps) && kbps > 0 ? kbps : null;
+        }
+
+        // Path 2: cached parseFile result for this track. Bitrate is intrinsic
+        // to the file contents, so once we've parsed a track we can reuse the
+        // value forever (or until the cache LRU evicts it). Cache is keyed by
+        // trackId because trackId is the unique-per-file identity here.
+        const cached = AudioStreamingService.bitrateCache.get(trackId);
+        if (cached !== undefined) {
+            return cached;
+        }
+
+        // Path 3: fall back to parseFile. Should be rare in practice because
+        // every Track row in the DB has fileSize and duration. Logged at warn
+        // so the operator can tell when we're forced into the slow path.
+        try {
+            const metadata = await parseFile(sourceAbsolutePath);
+            const kbps = metadata.format.bitrate
+                ? Math.round(metadata.format.bitrate / 1000)
+                : null;
+            AudioStreamingService.cacheBitrate(trackId, kbps);
+            return kbps;
+        } catch (err) {
+            logger.warn(
+                `[STREAM] Failed to read source metadata for bitrate check, will transcode anyway:`,
+                err
+            );
+            // Cache the null too so we don't keep retrying a busted file.
+            AudioStreamingService.cacheBitrate(trackId, null);
+            return null;
+        }
+    }
+
+    /**
+     * Process-wide LRU of trackId -> sourceBitrateKbps (or null if we tried and
+     * failed). Bounded so a long-running process can't accumulate one entry
+     * per track in the library.
+     */
+    private static bitrateCache = new Map<string, number | null>();
+    private static readonly BITRATE_CACHE_MAX = 1024;
+
+    private static cacheBitrate(trackId: string, kbps: number | null): void {
+        if (this.bitrateCache.size >= this.BITRATE_CACHE_MAX) {
+            // Cheap LRU: drop the oldest insertion (Map preserves insertion order).
+            const firstKey = this.bitrateCache.keys().next().value;
+            if (firstKey !== undefined) {
+                this.bitrateCache.delete(firstKey);
+            }
+        }
+        this.bitrateCache.set(trackId, kbps);
     }
 
     /**

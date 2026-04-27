@@ -718,13 +718,19 @@ router.get("/tracks/:id/stream", async (req, res) => {
                     `[STREAM] Using native file: ${track.filePath} (${requestedQuality})`
                 );
 
-                // Get stream file (either original or transcoded)
+                // Get stream file (either original or transcoded). Pass the
+                // DB-known fileSize and duration so the bitrate-vs-target
+                // upsampling check can be done arithmetically instead of
+                // re-parsing the entire audio file with music-metadata on
+                // every transcode request (was a hot-path event-loop blocker).
                 const { filePath, mimeType } =
                     await streamingService.getStreamFilePath(
                         track.id,
                         requestedQuality as any,
                         track.fileModified,
-                        absolutePath
+                        absolutePath,
+                        track.fileSize,
+                        track.duration
                     );
 
                 // Stream file with range support
@@ -772,7 +778,9 @@ router.get("/tracks/:id/stream", async (req, res) => {
                             track.id,
                             "original",
                             track.fileModified,
-                            absolutePath
+                            absolutePath,
+                            track.fileSize,
+                            track.duration
                         );
 
                     await streamingService.streamFileWithRangeSupport(
