@@ -14,8 +14,8 @@ declare module "./client" {
         rebuildDiscoverWeekly(): Promise<{ message: string; batchId: string; completedJobs?: number }>;
         likeDiscoverAlbum(albumId: string): Promise<{ success: boolean }>;
         unlikeDiscoverAlbum(albumId: string): Promise<{ success: boolean }>;
-        getDiscoverConfig(): Promise<{ id: string; userId: string; playlistSize: number; enabled: boolean; lastGeneratedAt: string | null }>;
-        updateDiscoverConfig(config: { playlistSize?: number; enabled?: boolean }): Promise<{ id: string; userId: string; playlistSize: number; enabled: boolean; lastGeneratedAt: string | null }>;
+        getDiscoverConfig(): Promise<{ id: string; userId: string; playlistSize: number; exclusionMonths: number; downloadRatio: number; enabled: boolean; lastGeneratedAt: string | null }>;
+        updateDiscoverConfig(config: { playlistSize?: number; exclusionMonths?: number; downloadRatio?: number; enabled?: boolean }): Promise<{ id: string; userId: string; playlistSize: number; exclusionMonths: number; downloadRatio: number; enabled: boolean; lastGeneratedAt: string | null }>;
         clearDiscoverPlaylist(): Promise<{ success: boolean; message: string; likedMoved: number; activeDeleted: number }>;
         getDiscoverExclusions(): Promise<{ exclusions: Array<{ id: string; albumMbid: string; artistName: string; albumTitle: string; lastSuggestedAt: string; expiresAt: string }>; count: number }>;
         clearDiscoverExclusions(): Promise<{ success: boolean; message: string; clearedCount: number }>;
@@ -60,7 +60,7 @@ ApiClient.prototype.getDiscoverConfig = async function (this: ApiClient) {
     return this.request("/discover/config");
 };
 
-ApiClient.prototype.updateDiscoverConfig = async function (this: ApiClient, config: { playlistSize?: number; enabled?: boolean }) {
+ApiClient.prototype.updateDiscoverConfig = async function (this: ApiClient, config: { playlistSize?: number; exclusionMonths?: number; downloadRatio?: number; enabled?: boolean }) {
     return this.request("/discover/config", {
         method: "PATCH",
         body: JSON.stringify(config),

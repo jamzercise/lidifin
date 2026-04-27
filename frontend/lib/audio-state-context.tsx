@@ -267,15 +267,14 @@ export function AudioStateProvider({ children }: { children: ReactNode }) {
     const [isHydrated] = useState(
         () => typeof window !== "undefined"
     );
+    void isHydrated; // Hydration flag preserved for downstream consumers; intentionally unused here.
 
-    // On mobile: force volume to 100% (no volume control in mobile player UI)
-    useEffect(() => {
-        if (typeof window === "undefined" || !isHydrated) return;
-        const isMobile = window.innerWidth < 768 || "ontouchstart" in window;
-        if (isMobile) {
-            setVolume(1);
-        }
-    }, [isHydrated]);
+    // Mobile volume is initialized to 1 in the lazy `volume` initializer above
+    // (see useState at the top of this provider). A post-mount useEffect that
+    // calls setVolume(1) would just trigger an extra render — React 19's
+    // compiler flags it as a cascading render. Keep all device-class detection
+    // at initialization time.
+
     const [lastServerSync, setLastServerSync] = useState<Date | null>(null);
 
     // Vibe mode state

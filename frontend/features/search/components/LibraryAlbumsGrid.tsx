@@ -30,7 +30,7 @@ export function LibraryAlbumsGrid({ albums }: LibraryAlbumsGridProps) {
                             {album.coverUrl || album.albumId ? (
                                 <Image
                                     src={api.getCoverArtUrl(
-                                        album.coverUrl || album.albumId,
+                                        album.coverUrl || album.albumId || "",
                                         200
                                     )}
                                     alt={album.title}

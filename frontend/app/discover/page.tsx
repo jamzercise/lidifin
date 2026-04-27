@@ -15,6 +15,7 @@ import { TrackList } from "@/features/discover/components/TrackList";
 import { UnavailableAlbums } from "@/features/discover/components/UnavailableAlbums";
 import { HowItWorks } from "@/features/discover/components/HowItWorks";
 import type { BatchContext } from "@/features/discover/types";
+import type { BatchStatus } from "@/features/discover/hooks/useDiscoverData";
 
 export default function DiscoverWeeklyPage() {
     const { currentTrack } = useAudioState();
@@ -153,7 +154,7 @@ function BatchContextView({
     isGenerating: boolean;
     onRebuild: () => void;
     onGenerate: () => void;
-    batchStatus: any;
+    batchStatus: BatchStatus | null;
 }) {
     const [isRebuilding, setIsRebuilding] = useState(false);
 

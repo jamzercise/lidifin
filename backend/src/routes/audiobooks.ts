@@ -5,6 +5,7 @@ import { audiobookCacheService } from "../services/audiobookCache";
 import { prisma } from "../utils/db";
 import { requireAuthOrToken } from "../middleware/auth";
 import { imageLimiter, apiLimiter } from "../middleware/rateLimiter";
+import { headerToString } from "../utils/httpClient";
 
 const router = Router();
 
@@ -651,20 +652,19 @@ router.get("/:id/stream", requireAuthOrToken, async (req, res) => {
         res.status(responseStatus);
 
         // Set content type - ensure it's audio
-        const contentType = headers["content-type"] || "audio/mpeg";
+        const contentType = headerToString(headers["content-type"]) || "audio/mpeg";
         res.setHeader("Content-Type", contentType);
 
-        // Set other headers
-        if (headers["content-length"]) {
-            res.setHeader("Content-Length", headers["content-length"]);
+        // Set other headers (axios headers may be number/array/AxiosHeaders; normalize to strings)
+        const contentLength = headerToString(headers["content-length"]);
+        if (contentLength) {
+            res.setHeader("Content-Length", contentLength);
         }
-        if (headers["accept-ranges"]) {
-            res.setHeader("Accept-Ranges", headers["accept-ranges"]);
-        } else {
-            res.setHeader("Accept-Ranges", "bytes");
-        }
-        if (headers["content-range"]) {
-            res.setHeader("Content-Range", headers["content-range"]);
+        const acceptRanges = headerToString(headers["accept-ranges"]);
+        res.setHeader("Accept-Ranges", acceptRanges || "bytes");
+        const contentRange = headerToString(headers["content-range"]);
+        if (contentRange) {
+            res.setHeader("Content-Range", contentRange);
         }
 
         res.setHeader("Cache-Control", "public, max-age=0");

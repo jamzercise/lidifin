@@ -244,7 +244,7 @@ export default function PlaylistDetailPage() {
     };
 
     // Calculate cover arts from playlist tracks for mosaic (memoized)
-    const coverUrls = useMemo(() => {
+    const coverUrls = useMemo<(string | null | undefined)[]>(() => {
         if (!playlist?.items || playlist.items.length === 0) return [];
 
         const tracksWithCovers = playlist.items.filter(
@@ -254,7 +254,11 @@ export default function PlaylistDetailPage() {
 
         // Get unique cover arts (up to 4)
         const uniqueCovers = Array.from(
-            new Set(tracksWithCovers.map((item) => item.track.album.coverArt))
+            new Set<string | null | undefined>(
+                tracksWithCovers.map(
+                    (item: PlaylistItem) => item.track.album?.coverArt
+                )
+            )
         ).slice(0, 4);
 
         return uniqueCovers;
@@ -432,7 +436,7 @@ export default function PlaylistDetailPage() {
                                     .slice(0, 4)
                                     .map(
                                         (
-                                            url: string | undefined,
+                                            url: string | null | undefined,
                                             index: number
                                         ) => {
                                             if (!url) return null;

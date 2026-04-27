@@ -28,7 +28,25 @@ export type HowlerEventType =
     | "playerror"
     | "timeupdate";
 
-export type HowlerEventCallback = (data?: unknown) => void;
+// Per-event payload shapes. Listed here because the emitter is the source of
+// truth: `play|pause|stop|end` carry no payload, `load` carries duration,
+// `seek|timeupdate` carry time, `volume` carries volume, `*error` carry error.
+export interface HowlerEventPayloads {
+    play: void;
+    pause: void;
+    stop: void;
+    end: void;
+    seek: { time: number };
+    timeupdate: { time: number };
+    load: { duration: number };
+    volume: { volume: number };
+    loaderror: { error: unknown };
+    playerror: { error: unknown };
+}
+
+export type HowlerEventCallback<E extends HowlerEventType = HowlerEventType> = (
+    data: HowlerEventPayloads[E]
+) => void;
 
 interface HowlerEngineState {
     currentSrc: string | null;
@@ -42,7 +60,7 @@ interface HowlerEngineState {
 class HowlerEngine {
     private howl: Howl | null = null;
     private timeUpdateInterval: NodeJS.Timeout | null = null;
-    private eventListeners: Map<HowlerEventType, Set<HowlerEventCallback>> =
+    private eventListeners: Map<HowlerEventType, Set<HowlerEventCallback<HowlerEventType>>> =
         new Map();
     private state: HowlerEngineState = {
         currentSrc: null,
@@ -647,24 +665,33 @@ class HowlerEngine {
     /**
      * Subscribe to events
      */
-    on(event: HowlerEventType, callback: HowlerEventCallback): void {
-        this.eventListeners.get(event)?.add(callback);
+    on<E extends HowlerEventType>(event: E, callback: HowlerEventCallback<E>): void {
+        this.eventListeners
+            .get(event)
+            ?.add(callback as HowlerEventCallback<HowlerEventType>);
     }
 
     /**
      * Unsubscribe from events
      */
-    off(event: HowlerEventType, callback: HowlerEventCallback): void {
-        this.eventListeners.get(event)?.delete(callback);
+    off<E extends HowlerEventType>(event: E, callback: HowlerEventCallback<E>): void {
+        this.eventListeners
+            .get(event)
+            ?.delete(callback as HowlerEventCallback<HowlerEventType>);
     }
 
     /**
      * Emit event to all listeners
      */
-    private emit(event: HowlerEventType, data?: unknown): void {
+    private emit<E extends HowlerEventType>(
+        event: E,
+        data?: HowlerEventPayloads[E]
+    ): void {
         this.eventListeners.get(event)?.forEach((callback) => {
             try {
-                callback(data);
+                (callback as HowlerEventCallback<E>)(
+                    data as HowlerEventPayloads[E]
+                );
             } catch (err) {
                 console.error(
                     `[HowlerEngine] Event listener error (${event}):`,

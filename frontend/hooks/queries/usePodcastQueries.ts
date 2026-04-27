@@ -33,10 +33,11 @@ export function usePodcastQuery(id: string | undefined) {
                 return await api.getPodcast(id);
             } catch (error) {
                 // If podcast not found (404), return null to allow preview mode
+                const err = error as { status?: number; message?: string };
                 if (
-                    error?.status === 404 ||
-                    error?.message?.includes("not found") ||
-                    error?.message?.includes("not subscribed")
+                    err?.status === 404 ||
+                    err?.message?.includes("not found") ||
+                    err?.message?.includes("not subscribed")
                 ) {
                     return null;
                 }

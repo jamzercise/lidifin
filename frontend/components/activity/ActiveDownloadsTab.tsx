@@ -127,7 +127,7 @@ export function ActiveDownloadsTab() {
                                     >
                                         {download.status}
                                     </span>
-                                    {download.metadata?.statusText && (
+                                    {Boolean(download.metadata?.statusText) && (
                                         <>
                                             <span className="text-xs text-white/30">
                                                 •
@@ -136,13 +136,13 @@ export function ActiveDownloadsTab() {
                                                 className={cn(
                                                     "text-xs font-medium",
                                                     download.metadata
-                                                        .currentSource ===
+                                                        ?.currentSource ===
                                                         "lidarr"
                                                         ? "text-purple-400"
                                                         : "text-teal-400"
                                                 )}
                                             >
-                                                {String(download.metadata.statusText)}
+                                                {String(download.metadata?.statusText)}
                                             </span>
                                         </>
                                     )}
@@ -168,8 +168,10 @@ export function ActiveDownloadsTab() {
                                 {download.metadata?.currentSource ===
                                     "soulseek" && (
                                     <div className="mt-2 space-y-1.5">
-                                        {download.metadata
-                                            .soulseekSearchQuery && (
+                                        {Boolean(
+                                            download.metadata
+                                                .soulseekSearchQuery
+                                        ) && (
                                             <p className="text-xs text-white/50 truncate">
                                                 Search:{" "}
                                                 {String(download.metadata.soulseekSearchQuery)}

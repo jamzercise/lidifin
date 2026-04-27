@@ -10,6 +10,9 @@ const nextConfig: NextConfig = {
     // resolution, event loop blocked). 60s gives more headroom without excessive resource hogging.
     experimental: {
         proxyTimeout: 60 * 1000,
+        // Enable per-icon imports for tree-shaking. lucide-react ships ~1k icons;
+        // without this Next can pull the whole barrel into a route's bundle.
+        optimizePackageImports: ["lucide-react", "framer-motion", "recharts"],
     },
     // Allow dev origins for local network testing
     allowedDevOrigins: [

@@ -47,18 +47,39 @@ client.connect()
   .catch(err => { console.warn('[REDIS] Cache clear failed (non-critical):', err.message); });
 " || echo "[REDIS] Cache clear skipped (Redis unavailable)"
 
-# Generate session secret if not provided
-if [ -z "$SESSION_SECRET" ] || [ "$SESSION_SECRET" = "changeme-generate-secure-key" ]; then
-  echo "[WARN] SESSION_SECRET not set or using default. Generating random key..."
-  export SESSION_SECRET=$(node -e "console.log(require('crypto').randomBytes(32).toString('base64'))")
-  echo "Generated SESSION_SECRET (will not persist across restarts - set it in .env for production)"
+# In production, refuse to start without these secrets. The previous fallbacks
+# (random per-restart SESSION_SECRET, hardcoded SETTINGS_ENCRYPTION_KEY) are
+# unsafe:
+#   - regenerated SESSION_SECRET logs out every user on every restart
+#   - hardcoded SETTINGS_ENCRYPTION_KEY means anyone running default config
+#     shares an encryption key with every other default-config deployment, so
+#     stored credentials can be decrypted cross-instance
+# Outside production we still fall back so dev/test boot cleanly.
+IS_PRODUCTION="false"
+if [ "${NODE_ENV:-production}" = "production" ]; then
+  IS_PRODUCTION="true"
 fi
 
-# Ensure encryption key is stable between restarts
-if [ -z "$SETTINGS_ENCRYPTION_KEY" ]; then
-  echo "[WARN] SETTINGS_ENCRYPTION_KEY not set."
-  echo "   Falling back to the default development key so encrypted data remains readable."
-  echo "   Set SETTINGS_ENCRYPTION_KEY in your environment to a 32-character value for production."
+if [ -z "$SESSION_SECRET" ] || [ "$SESSION_SECRET" = "changeme-generate-secure-key" ]; then
+  if [ "$IS_PRODUCTION" = "true" ]; then
+    echo "[FATAL] SESSION_SECRET is not set (or still set to the changeme placeholder)."
+    echo "        Refusing to start in production. Set SESSION_SECRET to a stable, secret"
+    echo "        value of at least 32 random bytes (e.g. \`openssl rand -base64 32\`)."
+    exit 1
+  fi
+  echo "[WARN] SESSION_SECRET not set. Generating an ephemeral key for non-production use."
+  export SESSION_SECRET=$(node -e "console.log(require('crypto').randomBytes(32).toString('base64'))")
+fi
+
+if [ -z "$SETTINGS_ENCRYPTION_KEY" ] || [ "$SETTINGS_ENCRYPTION_KEY" = "default-encryption-key-change-me" ]; then
+  if [ "$IS_PRODUCTION" = "true" ]; then
+    echo "[FATAL] SETTINGS_ENCRYPTION_KEY is not set (or still set to the default placeholder)."
+    echo "        Refusing to start in production. Using the default key would let any"
+    echo "        default-config deployment decrypt this instance's stored credentials."
+    echo "        Set SETTINGS_ENCRYPTION_KEY to a unique 32-character secret."
+    exit 1
+  fi
+  echo "[WARN] SETTINGS_ENCRYPTION_KEY not set. Using development default for non-production use."
   export SETTINGS_ENCRYPTION_KEY="default-encryption-key-change-me"
 fi
 

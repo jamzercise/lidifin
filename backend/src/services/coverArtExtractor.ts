@@ -2,7 +2,7 @@ import * as fs from "fs";
 import { logger } from "../utils/logger";
 import * as path from "path";
 import * as crypto from "crypto";
-import { parseFile } from "music-metadata";
+import { parseFile } from "../utils/musicMetadata";
 
 export class CoverArtExtractor {
     private coverCachePath: string;

@@ -80,7 +80,7 @@ export function UnavailableAlbums({
                             key={album.id}
                             className={cn(
                                 "flex items-center gap-4 px-4 py-3 hover:bg-[#1a1a1a] transition-colors group",
-                                album.attemptNumber > 0 &&
+                                (album.attemptNumber ?? 0) > 0 &&
                                     "pl-12 bg-[#1a1a1a]/30"
                             )}
                         >

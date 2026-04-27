@@ -532,7 +532,14 @@ export default function PodcastsPage() {
                                 className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 2xl:grid-cols-5 3xl:grid-cols-5 gap-4"
                                 data-tv-section={`genre-${genreId}`}
                             >
-                                {genrePodcasts.map((podcast, index) => {
+                                {(
+                                    genrePodcasts as Array<{
+                                        id: string;
+                                        title: string;
+                                        coverUrl?: string;
+                                        author?: string;
+                                    }>
+                                ).map((podcast, index) => {
                                     const imageUrl = getProxiedImageUrl(podcast.coverUrl);
                                     return (
                                         <div

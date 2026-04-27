@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import { logger } from "../utils/logger";
 import * as path from "path";
-import { parseFile } from "music-metadata";
+import { parseFile } from "../utils/musicMetadata";
 import { prisma } from "../utils/db";
 import PQueue from "p-queue";
 import { CoverArtExtractor } from "./coverArtExtractor";

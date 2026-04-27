@@ -7,7 +7,9 @@ export interface ArtistRef {
 export interface AlbumRef {
     title: string;
     id?: string;
-    coverArt?: string;
+    // API responses sometimes encode "no cover" as null rather than omitting the
+    // field. Accept both so call sites don't have to coerce null→undefined.
+    coverArt?: string | null;
 }
 
 export interface AudioFeatures {

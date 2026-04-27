@@ -447,12 +447,20 @@ export function CastProvider({ children }: { children: ReactNode }) {
         };
 
         context.addEventListener(
-            window.cast.framework.CastContextEventType.SESSION_STATE_CHANGED,
+            window.cast!.framework.CastContextEventType.SESSION_STATE_CHANGED,
             onSessionStateChanged
         );
 
+        // The Cast SDK is loaded asynchronously, so by the time this effect
+        // runs there may already be an existing session that predates the
+        // SESSION_STATE_CHANGED listener (e.g. a "resume" after a soft reload).
+        // Synchronizing that initial state with React is a legitimate
+        // external-system bridge — the React 19 compiler flags any setState
+        // in effects, but this is the explicit "subscribe + initial pull"
+        // pattern from the React 19 docs.
         const currentSession = context.getCurrentSession();
         if (currentSession) {
+            // eslint-disable-next-line react-hooks/set-state-in-effect -- syncing initial Cast SDK session state on mount
             setIsCasting(true);
             setCastState("CONNECTED");
         }

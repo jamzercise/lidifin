@@ -10,7 +10,7 @@ import ffmpegPath from "@ffmpeg-installer/ffmpeg";
 import PQueue from "p-queue";
 import { AppError, ErrorCode, ErrorCategory } from "../utils/errors";
 import { parseRangeHeader } from "../utils/rangeParser";
-import { parseFile } from "music-metadata";
+import { parseFile } from "../utils/musicMetadata";
 
 // Set FFmpeg path to bundled binary
 ffmpeg.setFfmpegPath(ffmpegPath.path);

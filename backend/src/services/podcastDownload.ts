@@ -4,6 +4,7 @@ import { config } from "../config";
 import fs from "fs/promises";
 import path from "path";
 import axios from "axios";
+import { headerToString } from "../utils/httpClient";
 
 /**
  * PodcastDownloadService - Background download and caching of podcast episodes
@@ -206,7 +207,10 @@ async function performDownload(
             decompress: false
         });
         
-        const contentLength = parseInt(response.headers["content-length"] || "0", 10);
+        const contentLength = parseInt(
+            headerToString(response.headers["content-length"]) || "0",
+            10
+        );
         let expectedBytes = Number.isFinite(contentLength) && contentLength > 0 ? contentLength : 0;
 
         // If the origin provides Content-Length, treat it as ground truth and persist it.

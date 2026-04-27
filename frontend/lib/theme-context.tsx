@@ -25,6 +25,22 @@ const VALID_THEMES: ThemeId[] = ["dark", "light", "warm", "cool", "high-contrast
 
 function getInitialTheme(): ThemeId {
     if (typeof document === "undefined") return "dark";
+    // Prefer the persisted user preference over whatever data-theme the SSR'd HTML
+    // started with. Reading localStorage during the lazy initializer avoids a
+    // mount-time setState (which the React 19 compiler flags as a cascading render).
+    try {
+        const legacy = localStorage.getItem(LEGACY_THEME_KEY);
+        if (legacy != null) {
+            if (!localStorage.getItem(STORAGE_KEY)) {
+                localStorage.setItem(STORAGE_KEY, legacy);
+            }
+            localStorage.removeItem(LEGACY_THEME_KEY);
+        }
+        const stored = localStorage.getItem(STORAGE_KEY) as ThemeId | null;
+        if (stored && VALID_THEMES.includes(stored)) return stored;
+    } catch {
+        // localStorage may be unavailable (private mode, SSR-like envs); fall through.
+    }
     const current = document.documentElement.getAttribute("data-theme");
     if (current && VALID_THEMES.includes(current as ThemeId)) return current as ThemeId;
     return "dark";
@@ -32,24 +48,6 @@ function getInitialTheme(): ThemeId {
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
     const [theme, setThemeState] = useState<ThemeId>(getInitialTheme);
-
-    useEffect(() => {
-        try {
-            const legacy = localStorage.getItem(LEGACY_THEME_KEY);
-            if (legacy != null) {
-                if (!localStorage.getItem(STORAGE_KEY)) {
-                    localStorage.setItem(STORAGE_KEY, legacy);
-                }
-                localStorage.removeItem(LEGACY_THEME_KEY);
-            }
-            const stored = localStorage.getItem(STORAGE_KEY) as ThemeId | null;
-            if (stored && VALID_THEMES.includes(stored)) {
-                setThemeState(stored);
-            }
-        } catch {
-            // Ignore localStorage errors
-        }
-    }, []);
 
     useEffect(() => {
         document.documentElement.setAttribute("data-theme", theme);

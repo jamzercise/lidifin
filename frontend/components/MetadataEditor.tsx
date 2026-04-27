@@ -11,15 +11,17 @@ interface MetadataEditorProps {
     type: "artist" | "album" | "track";
     id: string;
     currentData: {
-        name?: string;
-        title?: string;
-        bio?: string;
+        // API responses use `null` to mean "no value" while local form state
+        // uses `undefined`. Accept both so callers don't have to coerce.
+        name?: string | null;
+        title?: string | null;
+        bio?: string | null;
         genres?: string[];
-        year?: number;
-        mbid?: string;
-        rgMbid?: string;
-        coverUrl?: string;
-        heroUrl?: string;
+        year?: number | null;
+        mbid?: string | null;
+        rgMbid?: string | null;
+        coverUrl?: string | null;
+        heroUrl?: string | null;
         // Original values for comparison (when user overrides exist)
         _originalName?: string;
         _originalBio?: string | null;
@@ -92,14 +94,36 @@ export function MetadataEditor({
     const handleSave = async () => {
         setIsSaving(true);
         try {
+            // The form accepts `null` for "no value" coming from the API, but
+            // the update endpoints want `undefined` (omit) instead of `null`.
+            // Strip nulls before sending so we don't accidentally try to clear
+            // fields the user didn't touch.
+            const stripNulls = <T extends Record<string, unknown>>(obj: T) => {
+                const out: Record<string, unknown> = {};
+                for (const [k, v] of Object.entries(obj)) {
+                    if (v !== null) out[k] = v;
+                }
+                return out;
+            };
+
             // Call API to update metadata
             let response;
             if (type === "artist") {
-                response = await api.updateArtistMetadata(id, formData);
+                response = await api.updateArtistMetadata(
+                    id,
+                    stripNulls(formData) as Parameters<
+                        typeof api.updateArtistMetadata
+                    >[1],
+                );
             } else if (type === "album") {
-                response = await api.updateAlbumMetadata(id, formData);
+                response = await api.updateAlbumMetadata(
+                    id,
+                    stripNulls(formData) as Parameters<
+                        typeof api.updateAlbumMetadata
+                    >[1],
+                );
             } else {
-                response = await api.updateTrackMetadata(id, formData);
+                response = await api.updateTrackMetadata(id, stripNulls(formData));
             }
 
             toast.success(
@@ -386,7 +410,8 @@ export function MetadataEditor({
                                         <Image
                                             src={
                                                 formData.heroUrl ||
-                                                formData.coverUrl
+                                                formData.coverUrl ||
+                                                ""
                                             }
                                             alt="Preview"
                                             width={128}

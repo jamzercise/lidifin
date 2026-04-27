@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useMemo } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { SearchIcon } from "lucide-react";
 import { useSearchData } from "@/features/search/hooks/useSearchData";
@@ -26,8 +26,18 @@ export default function SearchPage() {
     const searchParams = useSearchParams();
     const router = useRouter();
     const [filterTab, setFilterTab] = useState<FilterTab>("all");
-    const [resultCategory, setResultCategory] = useState<ResultCategory>("all");
-    const [query, setQuery] = useState(() => searchParams.get("q") ?? "");
+    const urlQuery = searchParams.get("q") ?? "";
+    // `query` is local state so the user can type ahead of URL updates, but it
+    // tracks the URL when the URL is the source of truth (back/forward, deep
+    // links). Reading the URL during render and feeding it into the same state
+    // updater lets us avoid a setState-in-effect cascading render.
+    const [query, setQuery] = useState(() => urlQuery);
+    if (urlQuery && urlQuery !== query) {
+        // setState during render with the same input is allowed by React (it
+        // schedules a re-render with the new value before commit). This avoids
+        // the flicker an effect-based sync would produce.
+        setQuery(urlQuery);
+    }
 
     const {
         libraryResults,
@@ -48,17 +58,18 @@ export default function SearchPage() {
     } = useSoulseekSearch({ query, enabled: filterTab !== "library" });
     const { favoriteIds, addFavorite, removeFavorite } = useFavorites();
 
-    useEffect(() => {
-        const urlQuery = searchParams.get("q") ?? "";
-        if (urlQuery && urlQuery !== query) {
-            setQuery(urlQuery);
-        }
-    }, [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
-
-    // Reset category when source filter or query changes
-    useEffect(() => {
+    // Result category resets to "all" whenever the source filter or query
+    // changes. Track the previous values during render so we can derive the
+    // reset without an effect (avoids the wasted re-render that
+    // setState-in-effect would cause).
+    const [resultCategory, setResultCategory] = useState<ResultCategory>("all");
+    const [lastFilterTab, setLastFilterTab] = useState(filterTab);
+    const [lastQuery, setLastQuery] = useState(query);
+    if (filterTab !== lastFilterTab || query !== lastQuery) {
+        setLastFilterTab(filterTab);
+        setLastQuery(query);
         setResultCategory("all");
-    }, [filterTab, query]);
+    }
 
     const topArtist = discoverResults.find((r) => r.type === "music");
     const showLibrary = filterTab === "all" || filterTab === "library";

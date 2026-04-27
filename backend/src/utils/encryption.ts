@@ -48,8 +48,24 @@ function getEncryptionKey(): Buffer {
     return raw.subarray(0, 32);
 }
 
-// Validate encryption key on module load to fail fast
-const ENCRYPTION_KEY = getEncryptionKey();
+// Lazy, cached key resolution. Importing this module no longer throws when
+// the env var is missing — only callers of `encrypt`/`decrypt` do. The
+// production guard now lives in `docker-entrypoint.sh`, which refuses to boot
+// without a valid key, so this is purely about not crashing test harnesses
+// (or any future code path) that imports the module without ever using it.
+let cachedKey: Buffer | null = null;
+
+function resolveKey(): Buffer {
+    if (cachedKey) return cachedKey;
+    cachedKey = getEncryptionKey();
+    return cachedKey;
+}
+
+// Test-only hook: allows Jest setup files to drop a cached key when env vars
+// change between test runs. Intentionally not exported via the public types.
+export function _resetEncryptionKeyCacheForTests(): void {
+    cachedKey = null;
+}
 
 /**
  * Encrypt a string using AES-256-CBC
@@ -58,7 +74,7 @@ const ENCRYPTION_KEY = getEncryptionKey();
 export function encrypt(text: string): string {
     if (!text) return "";
     const iv = crypto.randomBytes(16);
-    const cipher = crypto.createCipheriv(ALGORITHM, ENCRYPTION_KEY, iv);
+    const cipher = crypto.createCipheriv(ALGORITHM, resolveKey(), iv);
     let encrypted = cipher.update(text);
     encrypted = Buffer.concat([encrypted, cipher.final()]);
     return iv.toString("hex") + ":" + encrypted.toString("hex");
@@ -81,7 +97,7 @@ export function decrypt(text: string): string {
         const encryptedText = Buffer.from(parts.slice(1).join(":"), "hex");
         const decipher = crypto.createDecipheriv(
             ALGORITHM,
-            ENCRYPTION_KEY,
+            resolveKey(),
             iv
         );
         let decrypted = decipher.update(encryptedText);

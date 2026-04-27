@@ -40,8 +40,22 @@ export function SleepTimerButton({
     const [open, setOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
 
+    // Tick once a minute while a timer is active so the displayed countdown
+    // updates. Reading Date.now() during render is impure (React 19 compiler
+    // flags it because two renders at different wall-clock times can disagree).
+    // Storing "now" in state keeps the render output deterministic for a given
+    // render pass.
+    const [now, setNow] = useState(() => Date.now());
+    useEffect(() => {
+        if (sleepTimerEndsAt == null) return;
+        const tick = () => setNow(Date.now());
+        tick();
+        const id = setInterval(tick, 30_000);
+        return () => clearInterval(id);
+    }, [sleepTimerEndsAt]);
+
     const minutesRemaining = sleepTimerEndsAt
-        ? Math.max(0, Math.ceil((sleepTimerEndsAt - Date.now()) / 60000))
+        ? Math.max(0, Math.ceil((sleepTimerEndsAt - now) / 60000))
         : null;
 
     useEffect(() => {

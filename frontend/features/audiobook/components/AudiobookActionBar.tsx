@@ -50,7 +50,7 @@ export function AudiobookActionBar({
         <div className="hidden sm:flex items-center gap-3">
           <div className="text-sm">
             <span className="text-white/60">
-              {formatTime(isThisBookPlaying ? currentTime : audiobook.progress.currentTime)}
+              {formatTime(isThisBookPlaying ? currentTime : (audiobook.progress?.currentTime ?? 0))}
             </span>
             <span className="text-white/40 mx-1">/</span>
             <span className="text-white/60">{formatTime(audiobook.duration)}</span>
@@ -59,7 +59,7 @@ export function AudiobookActionBar({
             <div
               className="h-full bg-[#B1D2C3] rounded-full transition-all"
               style={{
-                width: `${isThisBookPlaying ? (currentTime / audiobook.duration) * 100 : audiobook.progress.progress}%`,
+                width: `${isThisBookPlaying ? (currentTime / audiobook.duration) * 100 : (audiobook.progress?.progress ?? 0)}%`,
               }}
             />
           </div>

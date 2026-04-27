@@ -5,6 +5,7 @@ import { prisma } from "../utils/db";
 import { rssParserService } from "../services/rss-parser";
 import { podcastCacheService } from "../services/podcastCache";
 import { parseRangeHeader } from "../utils/rangeParser";
+import { headerToString } from "../utils/httpClient";
 import axios from "axios";
 import fs from "fs";
 
@@ -1197,7 +1198,8 @@ router.get("/:podcastId/episodes/:episodeId/stream", async (req, res) => {
             try {
                 const headResponse = await axios.head(episode.audioUrl);
                 fileSize = parseInt(
-                    headResponse.headers["content-length"] || "0"
+                    headerToString(headResponse.headers["content-length"]) || "0",
+                    10
                 );
                 if (Number.isFinite(fileSize) && fileSize > 0) {
                     await prisma.podcastEpisode.update({
@@ -1251,11 +1253,11 @@ router.get("/:podcastId/episodes/:episodeId/stream", async (req, res) => {
                     logger.debug(
                         `    Upstream returned 200 OK (ignored Range), streaming full response`
                     );
+                    const respLen = headerToString(response.headers["content-length"]);
                     res.writeHead(200, {
                         "Content-Type": episode.mimeType || "audio/mpeg",
                         "Accept-Ranges": "bytes",
-                        "Content-Length":
-                            response.headers["content-length"] || fileSize,
+                        "Content-Length": respLen || String(fileSize),
                         "Cache-Control": "public, max-age=3600",
                         "Access-Control-Allow-Origin":
                             req.headers.origin || "*",
@@ -1314,7 +1316,7 @@ router.get("/:podcastId/episodes/:episodeId/stream", async (req, res) => {
                     signal: controller.signal,
                 });
 
-                const contentLength = response.headers["content-length"];
+                const contentLength = headerToString(response.headers["content-length"]);
 
                 res.writeHead(200, {
                     "Content-Type": episode.mimeType || "audio/mpeg",
@@ -1362,7 +1364,7 @@ router.get("/:podcastId/episodes/:episodeId/stream", async (req, res) => {
                     signal: controller.signal,
                 });
 
-                const contentLength = response.headers["content-length"];
+                const contentLength = headerToString(response.headers["content-length"]);
 
                 res.writeHead(200, {
                     "Content-Type": episode.mimeType || "audio/mpeg",

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '@/lib/api';
 import type { DiscoverPlaylist, DiscoverConfig } from '../types';
 
-interface BatchStatus {
+export interface BatchStatus {
   active: boolean;
   status: "downloading" | "scanning" | null;
   batchId?: string;

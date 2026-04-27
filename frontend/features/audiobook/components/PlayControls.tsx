@@ -52,7 +52,7 @@ export function PlayControls({
             <div className="text-sm text-gray-400">Continue listening</div>
             <div className="text-white font-medium">
               {formatTime(
-                isThisBookPlaying ? currentTime : audiobook.progress.currentTime
+                isThisBookPlaying ? currentTime : (audiobook.progress?.currentTime ?? 0)
               )}{" "}
               / {formatTime(audiobook.duration)}
             </div>
@@ -63,7 +63,7 @@ export function PlayControls({
                   width: `${
                     isThisBookPlaying
                       ? (currentTime / audiobook.duration) * 100
-                      : audiobook.progress.progress
+                      : (audiobook.progress?.progress ?? 0)
                   }%`,
                 }}
               />

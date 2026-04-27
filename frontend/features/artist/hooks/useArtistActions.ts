@@ -42,22 +42,27 @@ export function useArtistActions() {
       if (!albumData || !albumData.tracks) return;
 
       const album = ownedAlbums[index];
-      const formattedTracks = albumData.tracks.map((track: Record<string, unknown>) => ({
-        id: track.id,
-        title: track.title,
-        trackNumber: track.trackNumber || 0,
-        artist: { name: artist.name, id: artist.id },
-        album: {
-          title: album.title,
-          coverArt: album.coverArt,
-          id: album.id,
-          year: album.year,
-        },
-        duration: track.duration,
-      }));
+      const formattedTracks: FormattedTrack[] = albumData.tracks.map(
+        (track: Record<string, unknown>): FormattedTrack => ({
+          id: String(track.id ?? ""),
+          title: String(track.title ?? ""),
+          trackNumber: Number(track.trackNumber) || 0,
+          artist: { name: artist.name, id: artist.id },
+          album: {
+            title: album.title,
+            coverArt: album.coverArt,
+            id: album.id,
+            year: album.year,
+          },
+          duration: typeof track.duration === "number" ? track.duration : 0,
+        }),
+      );
 
       // Sort tracks within album by track number
-      formattedTracks.sort((a, b) => a.trackNumber - b.trackNumber);
+      formattedTracks.sort(
+        (a: FormattedTrack, b: FormattedTrack) =>
+          a.trackNumber - b.trackNumber,
+      );
       allTracks.push(...formattedTracks);
     });
 

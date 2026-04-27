@@ -17,7 +17,7 @@ import { toast } from "sonner";
 import { useArtistData } from "@/features/artist/hooks/useArtistData";
 import { useArtistActions } from "@/features/artist/hooks/useArtistActions";
 import { useDownloadActions } from "@/features/artist/hooks/useDownloadActions";
-import type { Track, Album } from "@/features/artist/types";
+import type { Track, Album, ArtistSource } from "@/features/artist/types";
 import { useTrackPreview } from "@/hooks/useTrackPreview";
 import { useSingleTrackDownload } from "@/hooks/useSingleTrackDownload";
 
@@ -124,7 +124,7 @@ export default function ArtistPage() {
         }));
 
         const startIndex = formattedTracks.findIndex(
-            (t) => t.id === track.id,
+            (t: { id: string }) => t.id === track.id,
         );
         playTracks(formattedTracks, Math.max(0, startIndex));
     }
@@ -186,11 +186,18 @@ export default function ArtistPage() {
         );
     }
 
+    // After the loading/error/!artist guard above, `mergedArtist` is non-null in
+    // the data hook, but TS can't narrow `source` (it's a `useMemo` return). The
+    // hook only returns null when there's no artist, which we've just ruled out,
+    // so "library" is a safe default if the memo somehow resolved before the
+    // narrowing.
+    const resolvedSource: ArtistSource = source ?? "library";
+
     return (
         <div className="min-h-screen flex flex-col">
             <ArtistHero
                 artist={artist}
-                source={source}
+                source={resolvedSource}
                 albums={albums}
                 heroImage={heroImage}
                 backgroundImage={lowResImage}
@@ -201,7 +208,7 @@ export default function ArtistPage() {
                 <ArtistActionBar
                     artist={artist}
                     albums={albums}
-                    source={source}
+                    source={resolvedSource}
                     colors={colors}
                     onPlayAll={() => playAll(artist, albums)}
                     onShuffle={() => shufflePlay(artist, albums)}
@@ -291,7 +298,7 @@ export default function ArtistPage() {
                     <AvailableAlbums
                         albums={availableAlbums}
                         artistName={artist.name}
-                        source={source}
+                        source={resolvedSource}
                         colors={colors}
                         onDownloadAlbum={handleDownloadAlbum}
                         isPendingDownload={isPendingByMbid}
