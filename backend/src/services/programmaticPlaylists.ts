@@ -8,261 +8,36 @@ import {
     getEffectiveYear,
     getDecadeFromYear,
 } from "../utils/dateFilters";
+import {
+    DAILY_MIX_COUNT,
+    DAILY_TRACK_LIMIT,
+    MIN_TRACKS_DAILY,
+    MIN_TRACKS_WEEKLY,
+    TRACK_LIMIT,
+    WEEKLY_TRACK_LIMIT,
+} from "./mixes/constants";
+import { getMixColor } from "./mixes/colors";
+import {
+    findTracksByGenrePatterns,
+    getSeededRandom,
+    randomSample,
+} from "./mixes/helpers";
+import type {
+    ProgrammaticMix,
+    TrackWithAlbumCover,
+} from "./mixes/types";
+import {
+    generateJellyfinArtistDeepDiveMix,
+    generateJellyfinDeepCutsMix,
+    generateJellyfinDiscoveryMix,
+    generateJellyfinGenreMix,
+    generateJellyfinMoodMix,
+    generateJellyfinRecentlyAddedMix,
+} from "./mixes/generators/jellyfin";
 
-export interface ProgrammaticMix {
-    id: string;
-    type: string;
-    name: string;
-    description: string;
-    trackIds: string[];
-    coverUrls: string[]; // For mosaic cover art
-    trackCount: number;
-    color: string; // Tailwind gradient classes for mood-reflective hero
-}
-
-// Research-based color psychology for mix vibes
-// Using actual CSS rgba values for inline styles (Tailwind classes get purged at build time)
-const MIX_COLORS: Record<string, string> = {
-    // Night/Introspection - Deep blues and purples for calm, night sky, solitude
-    "late-night":
-        "linear-gradient(to bottom, rgba(30, 27, 75, 0.7), rgba(30, 58, 138, 0.5), rgba(15, 23, 42, 0.4))",
-    "3am-thoughts":
-        "linear-gradient(to bottom, rgba(46, 16, 101, 0.7), rgba(88, 28, 135, 0.5), rgba(15, 23, 42, 0.4))",
-    "night-drive":
-        "linear-gradient(to bottom, rgba(15, 23, 42, 0.7), rgba(49, 46, 129, 0.5), rgba(88, 28, 135, 0.4))",
-
-    // Calm/Relaxation - Teal and seafoam for spa-like tranquility
-    chill: "linear-gradient(to bottom, rgba(17, 94, 89, 0.6), rgba(22, 78, 99, 0.5), rgba(15, 23, 42, 0.4))",
-    "coffee-shop":
-        "linear-gradient(to bottom, rgba(120, 53, 15, 0.6), rgba(68, 64, 60, 0.5), rgba(38, 38, 38, 0.4))",
-    "rainy-day":
-        "linear-gradient(to bottom, rgba(51, 65, 85, 0.6), rgba(31, 41, 55, 0.5), rgba(39, 39, 42, 0.4))",
-    "sunday-morning":
-        "linear-gradient(to bottom, rgba(253, 186, 116, 0.4), rgba(252, 211, 77, 0.3), rgba(68, 64, 60, 0.4))",
-
-    // Energy/Workout - Red and orange to increase heart rate
-    workout:
-        "linear-gradient(to bottom, rgba(153, 27, 27, 0.6), rgba(124, 45, 18, 0.5), rgba(68, 64, 60, 0.4))",
-    "confidence-boost":
-        "linear-gradient(to bottom, rgba(194, 65, 12, 0.6), rgba(146, 64, 14, 0.5), rgba(68, 64, 60, 0.4))",
-
-    // Happy/Uplifting - Yellow and warm amber for optimism
-    happy: "linear-gradient(to bottom, rgba(217, 119, 6, 0.5), rgba(161, 98, 7, 0.4), rgba(68, 64, 60, 0.4))",
-    "summer-vibes":
-        "linear-gradient(to bottom, rgba(8, 145, 178, 0.5), rgba(15, 118, 110, 0.4), rgba(30, 58, 138, 0.4))",
-    "golden-hour":
-        "linear-gradient(to bottom, rgba(245, 158, 11, 0.5), rgba(234, 88, 12, 0.4), rgba(136, 19, 55, 0.4))",
-
-    // Sad/Melancholy - Cool blue-grays for "feeling blue"
-    melancholy:
-        "linear-gradient(to bottom, rgba(51, 65, 85, 0.6), rgba(30, 58, 138, 0.5), rgba(17, 24, 39, 0.4))",
-    "sad-girl-sundays":
-        "linear-gradient(to bottom, rgba(136, 19, 55, 0.5), rgba(30, 41, 59, 0.5), rgba(59, 7, 100, 0.4))",
-    "heartbreak-hotel":
-        "linear-gradient(to bottom, rgba(30, 58, 138, 0.6), rgba(88, 28, 135, 0.5), rgba(15, 23, 42, 0.4))",
-
-    // Party/Dance - Hot pink and magenta for club energy
-    "dance-floor":
-        "linear-gradient(to bottom, rgba(162, 28, 175, 0.6), rgba(131, 24, 67, 0.5), rgba(59, 7, 100, 0.4))",
-
-    // Acoustic/Organic - Warm browns like wood instruments
-    acoustic:
-        "linear-gradient(to bottom, rgba(146, 64, 14, 0.6), rgba(124, 45, 18, 0.5), rgba(68, 64, 60, 0.4))",
-    unplugged:
-        "linear-gradient(to bottom, rgba(68, 64, 60, 0.6), rgba(120, 53, 15, 0.5), rgba(38, 38, 38, 0.4))",
-
-    // Focus/Instrumental - Purple for creativity and concentration
-    instrumental:
-        "linear-gradient(to bottom, rgba(91, 33, 182, 0.6), rgba(88, 28, 135, 0.5), rgba(15, 23, 42, 0.4))",
-    "focus-flow":
-        "linear-gradient(to bottom, rgba(30, 58, 138, 0.6), rgba(30, 41, 59, 0.5), rgba(17, 24, 39, 0.4))",
-
-    // Adventure/Road Trip - Sunset oranges for freedom
-    "road-trip":
-        "linear-gradient(to bottom, rgba(194, 65, 12, 0.6), rgba(146, 64, 14, 0.5), rgba(14, 165, 233, 0.4))",
-
-    // Character/Mood Archetypes
-    "main-character":
-        "linear-gradient(to bottom, rgba(245, 158, 11, 0.5), rgba(202, 138, 4, 0.4), rgba(124, 45, 18, 0.4))",
-    "villain-era":
-        "linear-gradient(to bottom, rgba(69, 10, 10, 0.7), rgba(17, 24, 39, 0.6), rgba(0, 0, 0, 0.5))",
-
-    // Nostalgia - Sepia and vintage tones
-    throwback:
-        "linear-gradient(to bottom, rgba(146, 64, 14, 0.5), rgba(124, 45, 18, 0.4), rgba(68, 64, 60, 0.4))",
-
-    // Genre/Era based - More neutral but themed
-    era: "linear-gradient(to bottom, rgba(68, 64, 60, 0.5), rgba(38, 38, 38, 0.4), rgba(39, 39, 42, 0.4))",
-    genre: "linear-gradient(to bottom, rgba(63, 63, 70, 0.5), rgba(30, 41, 59, 0.4), rgba(17, 24, 39, 0.4))",
-    "top-tracks":
-        "linear-gradient(to bottom, rgba(6, 95, 70, 0.5), rgba(17, 94, 89, 0.4), rgba(15, 23, 42, 0.4))",
-    rediscover:
-        "linear-gradient(to bottom, rgba(55, 48, 163, 0.5), rgba(76, 29, 149, 0.4), rgba(15, 23, 42, 0.4))",
-    "artist-similar":
-        "linear-gradient(to bottom, rgba(107, 33, 168, 0.5), rgba(112, 26, 117, 0.4), rgba(15, 23, 42, 0.4))",
-    discovery:
-        "linear-gradient(to bottom, rgba(2, 132, 199, 0.5), rgba(30, 58, 138, 0.4), rgba(15, 23, 42, 0.4))",
-
-    // Mood-on-demand default
-    mood: "linear-gradient(to bottom, rgba(162, 28, 175, 0.5), rgba(107, 33, 168, 0.4), rgba(15, 23, 42, 0.4))",
-
-    // Default fallback
-    default:
-        "linear-gradient(to bottom, rgba(88, 28, 135, 0.4), rgba(26, 26, 26, 1), transparent)",
-};
-
-// Helper to get color for a mix type
-function getMixColor(type: string): string {
-    return MIX_COLORS[type] || MIX_COLORS["default"];
-}
-
-// Helper to randomly sample from array using Fisher-Yates shuffle
-function randomSample<T>(array: T[], count: number): T[] {
-    const result = [...array];
-    for (let i = result.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [result[i], result[j]] = [result[j], result[i]];
-    }
-    return result.slice(0, count);
-}
-
-// Helper to get seeded random number for daily consistency
-function getSeededRandom(seed: string): number {
-    let hash = 0;
-    for (let i = 0; i < seed.length; i++) {
-        const char = seed.charCodeAt(i);
-        hash = (hash << 5) - hash + char;
-        hash = hash & hash;
-    }
-    return Math.abs(hash);
-}
-
-// Type for track with album cover
-type TrackWithAlbumCover = {
-    id: string;
-    album: {
-        coverUrl: string | null;
-        genres?: unknown;
-        userGenres?: string[] | null;
-        artist?: {
-            userGenres?: string[] | null;
-        };
-    };
-    lastfmTags?: string[];
-    essentiaGenres?: string[];
-    [key: string]: unknown;
-};
-
-/**
- * Helper to find tracks matching genre patterns.
- * Uses lastfmTags and essentiaGenres on tracks (String[]) first,
- * then falls back to filtering album.genres (JSON array) in memory.
- */
-async function findTracksByGenrePatterns(
-    genrePatterns: string[],
-    limit: number = 100
-): Promise<TrackWithAlbumCover[]> {
-    // Strategy 1: Use track's lastfmTags and essentiaGenres (native String[] fields)
-    const tagPatterns = genrePatterns.map((g) => g.toLowerCase());
-
-    const tracks = await prisma.track.findMany({
-        where: {
-            OR: [
-                { lastfmTags: { hasSome: tagPatterns } },
-                { essentiaGenres: { hasSome: tagPatterns } },
-            ],
-        },
-        include: {
-            album: {
-                select: {
-                    coverUrl: true,
-                    genres: true,
-                    userGenres: true,
-                    artist: {
-                        select: {
-                            userGenres: true,
-                        },
-                    },
-                },
-            },
-        },
-        take: limit,
-    });
-
-    if (tracks.length >= 15) {
-        return tracks as TrackWithAlbumCover[];
-    }
-
-    // Strategy 2: Query albums with non-empty genres (canonical or user) and filter in memory
-    const albumTracks = await prisma.track.findMany({
-        where: {
-            album: {
-                OR: [
-                    { genres: { not: { equals: null } } },
-                    { userGenres: { not: { equals: null } } },
-                ],
-            },
-        },
-        include: {
-            album: {
-                select: {
-                    coverUrl: true,
-                    genres: true,
-                    userGenres: true,
-                    artist: {
-                        select: {
-                            userGenres: true,
-                        },
-                    },
-                },
-            },
-        },
-        take: limit * 3, // Get more to filter down
-    });
-
-    // Filter by genre patterns (case-insensitive partial match)
-    // Merge canonical and user genres from both album and artist
-    const genreMatched = albumTracks.filter((t) => {
-        const albumGenres = t.album.genres as string[] | null;
-        const albumUserGenres = (t.album.userGenres as string[] | null) || [];
-        const artistUserGenres = (t.album.artist?.userGenres as string[] | null) || [];
-
-        // Merge all genres
-        const allGenres = [
-            ...(albumGenres || []),
-            ...albumUserGenres,
-            ...artistUserGenres,
-        ];
-
-        if (allGenres.length === 0) return false;
-
-        return allGenres.some((ag) =>
-            genrePatterns.some((gp) =>
-                ag.toLowerCase().includes(gp.toLowerCase())
-            )
-        );
-    });
-
-    // Merge unique tracks
-    const existingIds = new Set(tracks.map((t) => t.id));
-    const merged = [
-        ...tracks,
-        ...genreMatched.filter((t) => !existingIds.has(t.id)),
-    ];
-
-    return merged.slice(0, limit) as TrackWithAlbumCover[];
-}
+export type { ProgrammaticMix } from "./mixes/types";
 
 export class ProgrammaticPlaylistService {
-    private readonly TRACK_LIMIT = 20;
-    private readonly DAILY_MIX_COUNT = 5;
-
-    // Track count thresholds for mix generation
-    private readonly MIN_TRACKS_DAILY = 8; // Minimum to generate a daily mix
-    private readonly MIN_TRACKS_WEEKLY = 15; // Minimum to generate a weekly mix
-    private readonly DAILY_TRACK_LIMIT = 10; // Daily mix size
-    private readonly WEEKLY_TRACK_LIMIT = 20; // Weekly mix size
-
     /**
      * Generate 4 daily rotating mixes
      */
@@ -319,43 +94,43 @@ export class ProgrammaticPlaylistService {
             },
             // Jellyfin-only mixes (return null when native library)
             {
-                fn: () =>
-                    this.generateJellyfinGenreMix(today + seedSuffix),
+                fn: () => generateJellyfinGenreMix(today + seedSuffix),
                 weight: 3,
                 name: "Jellyfin Genre Mix",
                 jellyfinOnly: true,
             },
             {
-                fn: () =>
-                    this.generateJellyfinDiscoveryMix(today + seedSuffix),
+                fn: () => generateJellyfinDiscoveryMix(today + seedSuffix),
                 weight: 3,
                 name: "Jellyfin Discovery Mix",
                 jellyfinOnly: true,
             },
             {
-                fn: () =>
-                    this.generateJellyfinMoodMix(today + seedSuffix),
+                fn: () => generateJellyfinMoodMix(today + seedSuffix),
                 weight: 3,
                 name: "Jellyfin Mood Mix",
                 jellyfinOnly: true,
             },
             {
                 fn: () =>
-                    this.generateJellyfinDeepCutsMix(userId, today + seedSuffix),
+                    generateJellyfinDeepCutsMix(userId, today + seedSuffix),
                 weight: 3,
                 name: "Jellyfin Deep Cuts",
                 jellyfinOnly: true,
             },
             {
                 fn: () =>
-                    this.generateJellyfinRecentlyAddedMix(today + seedSuffix),
+                    generateJellyfinRecentlyAddedMix(today + seedSuffix),
                 weight: 3,
                 name: "Jellyfin Recently Added",
                 jellyfinOnly: true,
             },
             {
                 fn: () =>
-                    this.generateJellyfinArtistDeepDiveMix(userId, today + seedSuffix),
+                    generateJellyfinArtistDeepDiveMix(
+                        userId,
+                        today + seedSuffix
+                    ),
                 weight: 3,
                 name: "Jellyfin Artist Deep Dive",
                 jellyfinOnly: true,
@@ -577,11 +352,11 @@ export class ProgrammaticPlaylistService {
         }
 
         logger.debug(
-            `[MIXES] Selecting ${this.DAILY_MIX_COUNT} mixes from ${mixGenerators.length} types (${JELLYFIN_RESERVED_SLOTS} Jellyfin reserved)...`
+            `[MIXES] Selecting ${DAILY_MIX_COUNT} mixes from ${mixGenerators.length} types (${JELLYFIN_RESERVED_SLOTS} Jellyfin reserved)...`
         );
 
         // Fill remaining slots from the full pool
-        while (selectedIndices.length < this.DAILY_MIX_COUNT) {
+        while (selectedIndices.length < DAILY_MIX_COUNT) {
             seed = (seed * 9301 + 49297) % 233280;
             const index = seed % mixGenerators.length;
             if (!selectedIndices.includes(index)) {
@@ -627,7 +402,7 @@ export class ProgrammaticPlaylistService {
         );
 
         // If we don't have 5 mixes, try to fill gaps with successful generators
-        if (finalMixes.length < this.DAILY_MIX_COUNT) {
+        if (finalMixes.length < DAILY_MIX_COUNT) {
             logger.debug(
                 `[MIXES] Only got ${finalMixes.length} mixes, trying to fill gaps...`
             );
@@ -639,7 +414,7 @@ export class ProgrammaticPlaylistService {
             for (
                 let i = 0;
                 i < mixGenerators.length &&
-                finalMixes.length < this.DAILY_MIX_COUNT;
+                finalMixes.length < DAILY_MIX_COUNT;
                 i++
             ) {
                 if (!attemptedIndices.has(i)) {
@@ -718,7 +493,7 @@ export class ProgrammaticPlaylistService {
         if (tracks.length < 15) return null;
 
         // Random sample 20 tracks
-        const selectedTracks = randomSample(tracks, this.TRACK_LIMIT);
+        const selectedTracks = randomSample(tracks, TRACK_LIMIT);
         const coverUrls = selectedTracks
             .filter((t) => t.album.coverUrl)
             .slice(0, 4)
@@ -784,7 +559,7 @@ export class ProgrammaticPlaylistService {
         if (tracks.length < 5) return null;
 
         // Random sample 20 tracks
-        const selectedTracks = randomSample(tracks, this.TRACK_LIMIT);
+        const selectedTracks = randomSample(tracks, TRACK_LIMIT);
         const coverUrls = selectedTracks
             .filter((t) => t.album.coverUrl)
             .slice(0, 4)
@@ -813,7 +588,7 @@ export class ProgrammaticPlaylistService {
             where: { userId },
             _count: { trackId: true },
             orderBy: { _count: { trackId: "desc" } },
-            take: this.TRACK_LIMIT,
+            take: TRACK_LIMIT,
         });
 
         logger.debug(
@@ -918,7 +693,7 @@ export class ProgrammaticPlaylistService {
             return random / 233280 - 0.5;
         });
 
-        const selectedTracks = shuffled.slice(0, this.TRACK_LIMIT);
+        const selectedTracks = shuffled.slice(0, TRACK_LIMIT);
         const coverUrls = selectedTracks
             .filter((t) => t.album.coverUrl)
             .slice(0, 4)
@@ -1043,7 +818,7 @@ export class ProgrammaticPlaylistService {
                 return null;
             }
 
-            const selectedTracks = randomSample(tracks, this.TRACK_LIMIT);
+            const selectedTracks = randomSample(tracks, TRACK_LIMIT);
             const coverUrls = selectedTracks
                 .filter((t) => t.album.coverUrl)
                 .slice(0, 4)
@@ -1097,7 +872,7 @@ export class ProgrammaticPlaylistService {
         const tracks = randomAlbums.flatMap((album) => album.tracks);
         if (tracks.length < 5) return null;
 
-        const selectedTracks = randomSample(tracks, this.TRACK_LIMIT);
+        const selectedTracks = randomSample(tracks, TRACK_LIMIT);
         const coverUrls = randomAlbums
             .filter((a) => a.coverUrl)
             .slice(0, 4)
@@ -1112,353 +887,6 @@ export class ProgrammaticPlaylistService {
             coverUrls,
             trackCount: selectedTracks.length,
             color: getMixColor("discovery"),
-        };
-    }
-
-    /**
-     * Jellyfin-only: Genre mix from JellyfinTrackMetadata.genres
-     */
-    async generateJellyfinGenreMix(
-        today: string
-    ): Promise<ProgrammaticMix | null> {
-        const { isJellyfinMusicSource } = await import("./jellyfin");
-        if (!(await isJellyfinMusicSource())) return null;
-
-        const genreCounts = await prisma.$queryRaw<
-            { genre: string; c: number }[]
-        >`
-            SELECT unnest("genres") as genre, COUNT(*)::int as c
-            FROM "JellyfinTrackMetadata"
-            WHERE array_length("genres", 1) > 0
-            GROUP BY genre
-            HAVING COUNT(*) >= 10
-            ORDER BY c DESC
-        `;
-        if (genreCounts.length === 0) return null;
-
-        const seed = getSeededRandom(`jf-genre-${today}`);
-        const idx = seed % genreCounts.length;
-        const genre = genreCounts[idx].genre.toLowerCase();
-
-        const rows = await prisma.jellyfinTrackMetadata.findMany({
-            where: { genres: { has: genre } },
-            select: { jellyfinId: true },
-            take: this.TRACK_LIMIT * 2,
-        });
-        const trackIds = rows.map((r) => r.jellyfinId);
-        if (trackIds.length < 5) return null;
-
-        const selected = randomSample(trackIds, this.TRACK_LIMIT);
-
-        const { resolveTrackReferences } = await import("./jellyfin");
-        const resolved = await resolveTrackReferences(selected);
-        const valid = resolved.filter((t): t is NonNullable<typeof t> => t !== null);
-        if (valid.length < 5) return null;
-
-        const coverUrls = valid
-            .filter((t) => t.album?.coverArt)
-            .slice(0, 4)
-            .map((t) => t.album!.coverArt!);
-
-        const displayGenre = genre.charAt(0).toUpperCase() + genre.slice(1);
-        return {
-            id: `jellyfin-genre-${genre}-${today}`,
-            type: "genre",
-            name: `Your ${displayGenre} Mix`,
-            description: `Random ${displayGenre} picks from your library`,
-            trackIds: valid.map((t) => t.id),
-            coverUrls,
-            trackCount: valid.length,
-            color: getMixColor("genre"),
-        };
-    }
-
-    /**
-     * Jellyfin-only: Random discovery from JellyfinTrackMetadata
-     */
-    async generateJellyfinDiscoveryMix(
-        today: string
-    ): Promise<ProgrammaticMix | null> {
-        const { isJellyfinMusicSource } = await import("./jellyfin");
-        if (!(await isJellyfinMusicSource())) return null;
-
-        const rows = await prisma.$queryRaw<{ jellyfinId: string }[]>`
-            SELECT "jellyfinId" FROM "JellyfinTrackMetadata"
-            WHERE "jellyfinId" IS NOT NULL AND "jellyfinId" != ''
-            ORDER BY RANDOM()
-            LIMIT ${this.TRACK_LIMIT * 2}
-        `;
-        const trackIds = rows.map((r) => r.jellyfinId);
-        if (trackIds.length < 5) return null;
-
-        const selected = trackIds.slice(0, this.TRACK_LIMIT);
-        const { resolveTrackReferences } = await import("./jellyfin");
-        const resolved = await resolveTrackReferences(selected);
-        const valid = resolved.filter((t): t is NonNullable<typeof t> => t !== null);
-        if (valid.length < 5) return null;
-
-        const coverUrls = valid
-            .filter((t) => t.album?.coverArt)
-            .slice(0, 4)
-            .map((t) => t.album!.coverArt!);
-
-        return {
-            id: `jellyfin-discovery-${today}`,
-            type: "discovery",
-            name: "Discovery",
-            description: "Random picks from your library",
-            trackIds: valid.map((t) => t.id),
-            coverUrls,
-            trackCount: valid.length,
-            color: getMixColor("discovery"),
-        };
-    }
-
-    /**
-     * Jellyfin-only: Mood mix from JellyfinTrackMetadata.lastfmTags
-     */
-    async generateJellyfinMoodMix(
-        today: string
-    ): Promise<ProgrammaticMix | null> {
-        const { isJellyfinMusicSource } = await import("./jellyfin");
-        if (!(await isJellyfinMusicSource())) return null;
-
-        const MOOD_TAG_MAP: Record<string, string[]> = {
-            chill: ["chill", "chillout", "relaxing", "calm", "mellow", "ambient"],
-            energetic: ["energetic", "high energy", "upbeat", "powerful"],
-            sad: ["sad", "melancholy", "depressing", "dark", "melancholic"],
-            romantic: ["romantic", "love", "love songs", "romance"],
-            focus: ["focus", "ambient", "instrumental", "background"],
-        };
-        const moods = Object.keys(MOOD_TAG_MAP);
-        const seed = getSeededRandom(`jf-mood-${today}`);
-        const moodKey = moods[seed % moods.length];
-        const tags = MOOD_TAG_MAP[moodKey];
-
-        const rows = await prisma.jellyfinTrackMetadata.findMany({
-            where: {
-                AND: [
-                    { lastfmTags: { hasSome: tags } },
-                    { NOT: { lastfmTags: { has: "_no_mood_tags" } } },
-                    { NOT: { lastfmTags: { has: "_not_found" } } },
-                ],
-            },
-            select: { jellyfinId: true },
-            take: this.TRACK_LIMIT * 2,
-        });
-        const trackIds = rows.map((r) => r.jellyfinId);
-        if (trackIds.length < 5) return null;
-
-        const selected = randomSample(trackIds, this.TRACK_LIMIT);
-
-        const { resolveTrackReferences } = await import("./jellyfin");
-        const resolved = await resolveTrackReferences(selected);
-        const valid = resolved.filter((t): t is NonNullable<typeof t> => t !== null);
-        if (valid.length < 5) return null;
-
-        const coverUrls = valid
-            .filter((t) => t.album?.coverArt)
-            .slice(0, 4)
-            .map((t) => t.album!.coverArt!);
-
-        const moodNames: Record<string, string> = {
-            chill: "Chill & Relaxed",
-            energetic: "High Energy",
-            sad: "Melancholic",
-            romantic: "Romantic",
-            focus: "Focus Mode",
-        };
-        const moodName = moodNames[moodKey] ?? moodKey;
-
-        return {
-            id: `jellyfin-mood-${moodKey}-${today}`,
-            type: "mood",
-            name: `${moodName} Mix`,
-            description: `Tracks that match the ${moodName.toLowerCase()} vibe`,
-            trackIds: valid.map((t) => t.id),
-            coverUrls,
-            trackCount: valid.length,
-            color: getMixColor("chill"),
-        };
-    }
-
-    /**
-     * Jellyfin-only: Deep Cuts — least-played tracks from the Jellyfin library
-     */
-    async generateJellyfinDeepCutsMix(
-        userId: string,
-        today: string
-    ): Promise<ProgrammaticMix | null> {
-        const { isJellyfinMusicSource } = await import("./jellyfin");
-        if (!(await isJellyfinMusicSource())) return null;
-
-        // Find tracks with the fewest plays (or no plays at all)
-        const playedTrackIds = await prisma.play.groupBy({
-            by: ["trackId"],
-            where: { userId, trackId: { startsWith: "jellyfin:" } },
-            _count: { id: true },
-            orderBy: { _count: { id: "asc" } },
-        });
-        const playedSet = new Set(playedTrackIds.map((p) => p.trackId));
-
-        // Get all Jellyfin tracks and prefer those never played
-        const allTracks = await prisma.jellyfinTrackMetadata.findMany({
-            select: { jellyfinId: true },
-            take: 500,
-        });
-
-        const neverPlayed = allTracks
-            .filter((t) => !playedSet.has(t.jellyfinId))
-            .map((t) => t.jellyfinId);
-
-        const pool =
-            neverPlayed.length >= this.TRACK_LIMIT
-                ? neverPlayed
-                : [...neverPlayed, ...playedTrackIds.slice(0, 50).map((p) => p.trackId)];
-
-        if (pool.length < 5) return null;
-
-        const selected = randomSample(pool, this.TRACK_LIMIT);
-        const { resolveTrackReferences } = await import("./jellyfin");
-        const resolved = await resolveTrackReferences(selected);
-        const valid = resolved.filter((t): t is NonNullable<typeof t> => t !== null);
-        if (valid.length < 5) return null;
-
-        const coverUrls = valid
-            .filter((t) => t.album?.coverArt)
-            .slice(0, 4)
-            .map((t) => t.album!.coverArt!);
-
-        return {
-            id: `jellyfin-deep-cuts-${today}`,
-            type: "deep-cuts",
-            name: "Deep Cuts",
-            description: "Hidden gems you haven't played much",
-            trackIds: valid.map((t) => t.id),
-            coverUrls,
-            trackCount: valid.length,
-            color: getMixColor("discovery"),
-        };
-    }
-
-    /**
-     * Jellyfin-only: Recently Added — newest tracks added to the Jellyfin library
-     */
-    async generateJellyfinRecentlyAddedMix(
-        today: string
-    ): Promise<ProgrammaticMix | null> {
-        const { isJellyfinMusicSource } = await import("./jellyfin");
-        if (!(await isJellyfinMusicSource())) return null;
-
-        const rows = await prisma.jellyfinTrackMetadata.findMany({
-            select: { jellyfinId: true },
-            orderBy: { createdAt: "desc" },
-            take: this.TRACK_LIMIT * 2,
-        });
-        const trackIds = rows.map((r) => r.jellyfinId);
-        if (trackIds.length < 5) return null;
-
-        const selected = trackIds.slice(0, this.TRACK_LIMIT);
-        const { resolveTrackReferences } = await import("./jellyfin");
-        const resolved = await resolveTrackReferences(selected);
-        const valid = resolved.filter((t): t is NonNullable<typeof t> => t !== null);
-        if (valid.length < 5) return null;
-
-        const coverUrls = valid
-            .filter((t) => t.album?.coverArt)
-            .slice(0, 4)
-            .map((t) => t.album!.coverArt!);
-
-        return {
-            id: `jellyfin-recently-added-${today}`,
-            type: "recently-added",
-            name: "Fresh Additions",
-            description: "Newest tracks in your library",
-            trackIds: valid.map((t) => t.id),
-            coverUrls,
-            trackCount: valid.length,
-            color: getMixColor("happy"),
-        };
-    }
-
-    /**
-     * Jellyfin-only: Artist Deep Dive — full catalog from one of your most-played artists
-     */
-    async generateJellyfinArtistDeepDiveMix(
-        userId: string,
-        today: string
-    ): Promise<ProgrammaticMix | null> {
-        const { isJellyfinMusicSource } = await import("./jellyfin");
-        if (!(await isJellyfinMusicSource())) return null;
-
-        // Find the user's most-played Jellyfin artists
-        const topPlayed = await prisma.play.groupBy({
-            by: ["trackId"],
-            where: { userId, trackId: { startsWith: "jellyfin:" } },
-            _count: { id: true },
-            orderBy: { _count: { id: "desc" } },
-            take: 100,
-        });
-        if (topPlayed.length === 0) return null;
-
-        const trackIds = topPlayed.map((p) => p.trackId);
-        const rawIds = trackIds.map((id) =>
-            id.startsWith("jellyfin:") ? id : `jellyfin:${id}`
-        );
-
-        const metadata = await prisma.jellyfinTrackMetadata.findMany({
-            where: { jellyfinId: { in: rawIds } },
-            select: { jellyfinId: true, artistName: true },
-        });
-
-        // Count by artist
-        const artistCounts = new Map<string, number>();
-        for (const m of metadata) {
-            const count = artistCounts.get(m.artistName) || 0;
-            artistCounts.set(m.artistName, count + 1);
-        }
-
-        const sortedArtists = Array.from(artistCounts.entries())
-            .sort((a, b) => b[1] - a[1]);
-        if (sortedArtists.length === 0) return null;
-
-        // Seeded pick from top 5 most-played artists for variety
-        const seed = getSeededRandom(`jf-deepdive-${today}`);
-        const pickFrom = sortedArtists.slice(0, Math.min(5, sortedArtists.length));
-        const [artistName] = pickFrom[seed % pickFrom.length];
-
-        // Get all tracks by this artist
-        const artistTracks = await prisma.jellyfinTrackMetadata.findMany({
-            where: { artistName },
-            select: { jellyfinId: true },
-            take: this.TRACK_LIMIT * 2,
-        });
-        if (artistTracks.length < 5) return null;
-
-        const selected = randomSample(
-            artistTracks.map((t) => t.jellyfinId),
-            this.TRACK_LIMIT
-        );
-
-        const { resolveTrackReferences } = await import("./jellyfin");
-        const resolved = await resolveTrackReferences(selected);
-        const valid = resolved.filter((t): t is NonNullable<typeof t> => t !== null);
-        if (valid.length < 5) return null;
-
-        const coverUrls = valid
-            .filter((t) => t.album?.coverArt)
-            .slice(0, 4)
-            .map((t) => t.album!.coverArt!);
-
-        return {
-            id: `jellyfin-artist-dive-${today}`,
-            type: "artist-deep-dive",
-            name: `${artistName} Deep Dive`,
-            description: `A deep dive into ${artistName}'s catalog`,
-            trackIds: valid.map((t) => t.id),
-            coverUrls,
-            trackCount: valid.length,
-            color: getMixColor("rediscover"),
         };
     }
 
@@ -1569,7 +997,7 @@ export class ProgrammaticPlaylistService {
             return random / 233280 - 0.5;
         });
 
-        const selectedTracks = shuffled.slice(0, this.TRACK_LIMIT);
+        const selectedTracks = shuffled.slice(0, TRACK_LIMIT);
         const coverUrls = selectedTracks
             .filter((t) => t.album.coverUrl)
             .slice(0, 4)
@@ -1614,7 +1042,7 @@ export class ProgrammaticPlaylistService {
         logger.debug(`[CHILL MIX] Enhanced mode: Found ${tracks.length} tracks`);
 
         // Strategy 2: Standard mode fallback
-        if (tracks.length < this.MIN_TRACKS_DAILY) {
+        if (tracks.length < MIN_TRACKS_DAILY) {
             logger.debug(`[CHILL MIX] Falling back to Standard mode`);
             tracks = await prisma.track.findMany({
                 where: {
@@ -1646,9 +1074,9 @@ export class ProgrammaticPlaylistService {
             `[CHILL MIX] Total: ${tracks.length} tracks matching criteria`
         );
 
-        if (tracks.length < this.MIN_TRACKS_DAILY) {
+        if (tracks.length < MIN_TRACKS_DAILY) {
             logger.debug(
-                `[CHILL MIX] FAILED: Only ${tracks.length} tracks (need ${this.MIN_TRACKS_DAILY})`
+                `[CHILL MIX] FAILED: Only ${tracks.length} tracks (need ${MIN_TRACKS_DAILY})`
             );
             return null;
         }
@@ -1661,10 +1089,10 @@ export class ProgrammaticPlaylistService {
         });
 
         // Determine if daily or weekly based on available tracks
-        const isWeekly = tracks.length >= this.MIN_TRACKS_WEEKLY;
+        const isWeekly = tracks.length >= MIN_TRACKS_WEEKLY;
         const trackLimit = isWeekly
-            ? this.WEEKLY_TRACK_LIMIT
-            : this.DAILY_TRACK_LIMIT;
+            ? WEEKLY_TRACK_LIMIT
+            : DAILY_TRACK_LIMIT;
         const selectedTracks = shuffled.slice(0, trackLimit);
 
         const coverUrls = selectedTracks
@@ -1836,7 +1264,7 @@ export class ProgrammaticPlaylistService {
             return random / 233280 - 0.5;
         });
 
-        const selectedTracks = shuffled.slice(0, this.TRACK_LIMIT);
+        const selectedTracks = shuffled.slice(0, TRACK_LIMIT);
         const coverUrls = selectedTracks
             .filter((t) => t.album.coverUrl)
             .slice(0, 4)
@@ -1950,7 +1378,7 @@ export class ProgrammaticPlaylistService {
             return random / 233280 - 0.5;
         });
 
-        const selectedTracks = shuffled.slice(0, this.TRACK_LIMIT);
+        const selectedTracks = shuffled.slice(0, TRACK_LIMIT);
         const coverUrls = selectedTracks
             .filter((t) => t.album.coverUrl)
             .slice(0, 4)
@@ -2036,7 +1464,7 @@ export class ProgrammaticPlaylistService {
             return random / 233280 - 0.5;
         });
 
-        const selectedTracks = shuffled.slice(0, this.TRACK_LIMIT);
+        const selectedTracks = shuffled.slice(0, TRACK_LIMIT);
         const coverUrls = selectedTracks
             .filter((t) => t.album.coverUrl)
             .slice(0, 4)
@@ -2088,7 +1516,7 @@ export class ProgrammaticPlaylistService {
         );
 
         // Fallback to Standard mode if not enough Enhanced tracks
-        if (tracks.length < this.MIN_TRACKS_DAILY) {
+        if (tracks.length < MIN_TRACKS_DAILY) {
             logger.debug(`[LATE NIGHT MIX] Falling back to Standard mode`);
             tracks = await prisma.track.findMany({
                 where: {
@@ -2121,9 +1549,9 @@ export class ProgrammaticPlaylistService {
         );
 
         // No fallback padding - if not enough truly mellow tracks, don't generate
-        if (tracks.length < this.MIN_TRACKS_DAILY) {
+        if (tracks.length < MIN_TRACKS_DAILY) {
             logger.debug(
-                `[LATE NIGHT MIX] FAILED: Only ${tracks.length} tracks (need ${this.MIN_TRACKS_DAILY})`
+                `[LATE NIGHT MIX] FAILED: Only ${tracks.length} tracks (need ${MIN_TRACKS_DAILY})`
             );
             return null;
         }
@@ -2136,10 +1564,10 @@ export class ProgrammaticPlaylistService {
         });
 
         // Determine if daily or weekly based on available tracks
-        const isWeekly = tracks.length >= this.MIN_TRACKS_WEEKLY;
+        const isWeekly = tracks.length >= MIN_TRACKS_WEEKLY;
         const trackLimit = isWeekly
-            ? this.WEEKLY_TRACK_LIMIT
-            : this.DAILY_TRACK_LIMIT;
+            ? WEEKLY_TRACK_LIMIT
+            : DAILY_TRACK_LIMIT;
         const selectedTracks = shuffled.slice(0, trackLimit);
 
         const coverUrls = selectedTracks
@@ -2244,7 +1672,7 @@ export class ProgrammaticPlaylistService {
             return random / 233280 - 0.5;
         });
 
-        const selectedTracks = shuffled.slice(0, this.TRACK_LIMIT);
+        const selectedTracks = shuffled.slice(0, TRACK_LIMIT);
         const coverUrls = selectedTracks
             .filter((t) => t.album.coverUrl)
             .slice(0, 4)
@@ -2389,7 +1817,7 @@ export class ProgrammaticPlaylistService {
             return random / 233280 - 0.5;
         });
 
-        const selectedTracks = shuffled.slice(0, this.TRACK_LIMIT);
+        const selectedTracks = shuffled.slice(0, TRACK_LIMIT);
         const coverUrls = selectedTracks
             .filter((t) => t.album.coverUrl)
             .slice(0, 4)
@@ -2472,7 +1900,7 @@ export class ProgrammaticPlaylistService {
             return random / 233280 - 0.5;
         });
 
-        const selectedTracks = shuffled.slice(0, this.TRACK_LIMIT);
+        const selectedTracks = shuffled.slice(0, TRACK_LIMIT);
         const coverUrls = selectedTracks
             .filter((t) => t.album.coverUrl)
             .slice(0, 4)
@@ -2553,7 +1981,7 @@ export class ProgrammaticPlaylistService {
             return random / 233280 - 0.5;
         });
 
-        const selectedTracks = shuffled.slice(0, this.TRACK_LIMIT);
+        const selectedTracks = shuffled.slice(0, TRACK_LIMIT);
         const coverUrls = selectedTracks
             .filter((t) => t.album.coverUrl)
             .slice(0, 4)
@@ -2635,7 +2063,7 @@ export class ProgrammaticPlaylistService {
             return random / 233280 - 0.5;
         });
 
-        const selectedTracks = shuffled.slice(0, this.TRACK_LIMIT);
+        const selectedTracks = shuffled.slice(0, TRACK_LIMIT);
         const coverUrls = selectedTracks
             .filter((t) => t.album.coverUrl)
             .slice(0, 4)
@@ -2686,7 +2114,7 @@ export class ProgrammaticPlaylistService {
             return random / 233280 - 0.5;
         });
 
-        const selectedTracks = shuffled.slice(0, this.TRACK_LIMIT);
+        const selectedTracks = shuffled.slice(0, TRACK_LIMIT);
         const coverUrls = selectedTracks
             .filter((t) => t.album.coverUrl)
             .slice(0, 4)
@@ -2794,7 +2222,7 @@ export class ProgrammaticPlaylistService {
             return random / 233280 - 0.5;
         });
 
-        const selectedTracks = shuffled.slice(0, this.TRACK_LIMIT);
+        const selectedTracks = shuffled.slice(0, TRACK_LIMIT);
         const coverUrls = selectedTracks
             .filter((t) => t.album.coverUrl)
             .slice(0, 4)
@@ -2867,7 +2295,7 @@ export class ProgrammaticPlaylistService {
 
         if (tracks.length < 15) return null;
 
-        const selectedTracks = randomSample(tracks, this.TRACK_LIMIT);
+        const selectedTracks = randomSample(tracks, TRACK_LIMIT);
         const coverUrls = selectedTracks
             .filter((t) => t.album.coverUrl)
             .slice(0, 4)
@@ -2917,7 +2345,7 @@ export class ProgrammaticPlaylistService {
 
         if (tracks.length < 15) return null;
 
-        const selectedTracks = randomSample(tracks, this.TRACK_LIMIT);
+        const selectedTracks = randomSample(tracks, TRACK_LIMIT);
         const coverUrls = selectedTracks
             .filter((t) => t.album.coverUrl)
             .slice(0, 4)
@@ -2962,7 +2390,7 @@ export class ProgrammaticPlaylistService {
 
         if (tracks.length < 15) return null;
 
-        const selectedTracks = randomSample(tracks, this.TRACK_LIMIT);
+        const selectedTracks = randomSample(tracks, TRACK_LIMIT);
         const coverUrls = selectedTracks
             .filter((t) => t.album.coverUrl)
             .slice(0, 4)
@@ -3029,7 +2457,7 @@ export class ProgrammaticPlaylistService {
 
         if (tracks.length < 8) return null;
 
-        const shuffled = randomSample(tracks, this.DAILY_TRACK_LIMIT);
+        const shuffled = randomSample(tracks, DAILY_TRACK_LIMIT);
         const coverUrls = shuffled
             .filter((t) => t.album.coverUrl)
             .slice(0, 4)
@@ -3084,7 +2512,7 @@ export class ProgrammaticPlaylistService {
 
         if (tracks.length < 8) return null;
 
-        const shuffled = randomSample(tracks, this.DAILY_TRACK_LIMIT);
+        const shuffled = randomSample(tracks, DAILY_TRACK_LIMIT);
         const coverUrls = shuffled
             .filter((t) => t.album.coverUrl)
             .slice(0, 4)
@@ -3140,7 +2568,7 @@ export class ProgrammaticPlaylistService {
 
         if (tracks.length < 8) return null;
 
-        const shuffled = randomSample(tracks, this.DAILY_TRACK_LIMIT);
+        const shuffled = randomSample(tracks, DAILY_TRACK_LIMIT);
         const coverUrls = shuffled
             .filter((t) => t.album.coverUrl)
             .slice(0, 4)
@@ -3186,9 +2614,9 @@ export class ProgrammaticPlaylistService {
             take: 50,
         });
 
-        if (tracks.length < this.MIN_TRACKS_DAILY) return null;
+        if (tracks.length < MIN_TRACKS_DAILY) return null;
 
-        const shuffled = randomSample(tracks, this.DAILY_TRACK_LIMIT);
+        const shuffled = randomSample(tracks, DAILY_TRACK_LIMIT);
         const coverUrls = shuffled
             .filter((t) => t.album.coverUrl)
             .slice(0, 4)
@@ -3239,7 +2667,7 @@ export class ProgrammaticPlaylistService {
 
         if (tracks.length < 8) return null;
 
-        const shuffled = randomSample(tracks, this.DAILY_TRACK_LIMIT);
+        const shuffled = randomSample(tracks, DAILY_TRACK_LIMIT);
         const coverUrls = shuffled
             .filter((t) => t.album.coverUrl)
             .slice(0, 4)
@@ -3293,7 +2721,7 @@ export class ProgrammaticPlaylistService {
 
         if (tracks.length < 8) return null;
 
-        const shuffled = randomSample(tracks, this.DAILY_TRACK_LIMIT);
+        const shuffled = randomSample(tracks, DAILY_TRACK_LIMIT);
         const coverUrls = shuffled
             .filter((t) => t.album.coverUrl)
             .slice(0, 4)
@@ -3343,7 +2771,7 @@ export class ProgrammaticPlaylistService {
 
         if (tracks.length < 8) return null;
 
-        const shuffled = randomSample(tracks, this.DAILY_TRACK_LIMIT);
+        const shuffled = randomSample(tracks, DAILY_TRACK_LIMIT);
         const coverUrls = shuffled
             .filter((t) => t.album.coverUrl)
             .slice(0, 4)
@@ -3384,7 +2812,7 @@ export class ProgrammaticPlaylistService {
 
         if (tracks.length < 8) return null;
 
-        const shuffled = randomSample(tracks, this.DAILY_TRACK_LIMIT);
+        const shuffled = randomSample(tracks, DAILY_TRACK_LIMIT);
         const coverUrls = shuffled
             .filter((t) => t.album.coverUrl)
             .slice(0, 4)
@@ -3439,7 +2867,7 @@ export class ProgrammaticPlaylistService {
 
         if (tracks.length < 8) return null;
 
-        const shuffled = randomSample(tracks, this.DAILY_TRACK_LIMIT);
+        const shuffled = randomSample(tracks, DAILY_TRACK_LIMIT);
         const coverUrls = shuffled
             .filter((t) => t.album.coverUrl)
             .slice(0, 4)
@@ -3487,9 +2915,9 @@ export class ProgrammaticPlaylistService {
             take: 50,
         });
 
-        if (tracks.length < this.MIN_TRACKS_DAILY) return null;
+        if (tracks.length < MIN_TRACKS_DAILY) return null;
 
-        const shuffled = randomSample(tracks, this.DAILY_TRACK_LIMIT);
+        const shuffled = randomSample(tracks, DAILY_TRACK_LIMIT);
         const coverUrls = shuffled
             .filter((t) => t.album.coverUrl)
             .slice(0, 4)
@@ -3537,9 +2965,9 @@ export class ProgrammaticPlaylistService {
             take: 50,
         });
 
-        if (tracks.length < this.MIN_TRACKS_DAILY) return null;
+        if (tracks.length < MIN_TRACKS_DAILY) return null;
 
-        const shuffled = randomSample(tracks, this.DAILY_TRACK_LIMIT);
+        const shuffled = randomSample(tracks, DAILY_TRACK_LIMIT);
         const coverUrls = shuffled
             .filter((t) => t.album.coverUrl)
             .slice(0, 4)
@@ -3594,7 +3022,7 @@ export class ProgrammaticPlaylistService {
 
         if (tracks.length < 8) return null;
 
-        const shuffled = randomSample(tracks, this.DAILY_TRACK_LIMIT);
+        const shuffled = randomSample(tracks, DAILY_TRACK_LIMIT);
         const coverUrls = shuffled
             .filter((t) => t.album.coverUrl)
             .slice(0, 4)
@@ -3635,7 +3063,7 @@ export class ProgrammaticPlaylistService {
 
         if (tracks.length < 8) return null;
 
-        const shuffled = randomSample(tracks, this.DAILY_TRACK_LIMIT);
+        const shuffled = randomSample(tracks, DAILY_TRACK_LIMIT);
         const coverUrls = shuffled
             .filter((t) => t.album.coverUrl)
             .slice(0, 4)
@@ -3681,7 +3109,7 @@ export class ProgrammaticPlaylistService {
 
         if (tracks.length < 8) return null;
 
-        const shuffled = randomSample(tracks, this.DAILY_TRACK_LIMIT);
+        const shuffled = randomSample(tracks, DAILY_TRACK_LIMIT);
         const coverUrls = shuffled
             .filter((t) => t.album.coverUrl)
             .slice(0, 4)
@@ -3752,7 +3180,7 @@ export class ProgrammaticPlaylistService {
 
             if (filtered.length < 15) return null;
 
-            const shuffled = randomSample(filtered, this.WEEKLY_TRACK_LIMIT);
+            const shuffled = randomSample(filtered, WEEKLY_TRACK_LIMIT);
             const coverUrls = shuffled
                 .filter((t) => t.album.coverUrl)
                 .slice(0, 4)
@@ -3770,7 +3198,7 @@ export class ProgrammaticPlaylistService {
             };
         }
 
-        const shuffled = randomSample(tracks, this.WEEKLY_TRACK_LIMIT);
+        const shuffled = randomSample(tracks, WEEKLY_TRACK_LIMIT);
         const coverUrls = shuffled
             .filter((t) => t.album.coverUrl)
             .slice(0, 4)
@@ -3840,13 +3268,13 @@ export class ProgrammaticPlaylistService {
             const keyTracks = byKey.get(key) || [];
             if (
                 keyTracks.length > 0 &&
-                journey.length < this.WEEKLY_TRACK_LIMIT
+                journey.length < WEEKLY_TRACK_LIMIT
             ) {
                 // Pick 1-2 tracks from each key
                 const count = Math.min(
                     2,
                     keyTracks.length,
-                    this.WEEKLY_TRACK_LIMIT - journey.length
+                    WEEKLY_TRACK_LIMIT - journey.length
                 );
                 seedVal = (seedVal * 9301 + 49297) % 233280;
                 const shuffled = keyTracks.sort(() => {
@@ -3940,9 +3368,9 @@ export class ProgrammaticPlaylistService {
             type: "tempo-flow",
             name: "Tempo Flow",
             description: "An energy journey through BPM",
-            trackIds: flow.slice(0, this.WEEKLY_TRACK_LIMIT).map((t) => t.id),
+            trackIds: flow.slice(0, WEEKLY_TRACK_LIMIT).map((t) => t.id),
             coverUrls,
-            trackCount: Math.min(flow.length, this.WEEKLY_TRACK_LIMIT),
+            trackCount: Math.min(flow.length, WEEKLY_TRACK_LIMIT),
             color: getMixColor("workout"),
         };
     }
@@ -3966,7 +3394,7 @@ export class ProgrammaticPlaylistService {
 
         if (tracks.length < 15) return null;
 
-        const shuffled = randomSample(tracks, this.WEEKLY_TRACK_LIMIT);
+        const shuffled = randomSample(tracks, WEEKLY_TRACK_LIMIT);
         const coverUrls = shuffled
             .filter((t) => t.album.coverUrl)
             .slice(0, 4)
@@ -4009,7 +3437,7 @@ export class ProgrammaticPlaylistService {
 
         if (tracks.length < 15) return null;
 
-        const shuffled = randomSample(tracks, this.WEEKLY_TRACK_LIMIT);
+        const shuffled = randomSample(tracks, WEEKLY_TRACK_LIMIT);
         const coverUrls = shuffled
             .filter((t) => t.album.coverUrl)
             .slice(0, 4)
