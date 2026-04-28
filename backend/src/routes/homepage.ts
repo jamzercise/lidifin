@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { logger } from "../utils/logger";
 import { requireAuthOrToken } from "../middleware/auth";
-import { prisma, Prisma } from "../utils/db";
+import { prisma } from "../utils/db";
 import { redisClient } from "../utils/redis";
 
 const router = Router();
@@ -38,77 +38,123 @@ router.get("/genres", async (req, res) => {
             `[HOMEPAGE] ✗ Cache MISS for genres, fetching from database...`
         );
 
-        // Cap fetch to avoid loading entire library (reduces memory and response time)
-        const MAX_ALBUMS_FOR_GENRES = 8000;
-        const albums = await prisma.album.findMany({
-            where: {
-                genres: {
-                    not: Prisma.JsonNull, // Only albums with genres (not null)
-                },
-                location: "LIBRARY", // Exclude discovery albums
-            },
-            select: {
-                id: true,
-                title: true,
-                year: true,
-                coverUrl: true,
-                genres: true,
-                artistId: true,
-                artist: {
-                    select: {
-                        id: true,
-                        name: true,
-                    },
-                },
-            },
-            orderBy: { year: "desc" }, // Prefer recent albums for genre distribution
-            take: MAX_ALBUMS_FOR_GENRES,
-        });
+        // Compute the top-N genres and their sample albums in a single SQL
+        // round-trip. The previous implementation pulled up to 8,000 album
+        // rows + artist join into Node, then ran the aggregation in JS — that
+        // shipped an entire library's worth of JSONB across the wire on every
+        // cache miss and pinned the data in the JS heap until GC.
+        //
+        // Now: PG explodes Album.genres (JSONB array) with
+        // jsonb_array_elements_text into one row per (album, genre), counts
+        // occurrences per genre, takes the top N, then ranks albums within
+        // each top genre and keeps only the first 10. Final result set is
+        // bounded at limit × 10 rows regardless of library size.
+        //
+        // The per-genre album ordering (year DESC NULLS LAST) intentionally
+        // matches the previous behavior's bias toward recent releases.
+        const SAMPLES_PER_GENRE = 10;
+        const rows = await prisma.$queryRaw<
+            {
+                genre: string;
+                total_count: bigint;
+                album_id: string;
+                title: string;
+                year: number | null;
+                cover_url: string | null;
+                artist_id: string;
+                artist_name: string;
+            }[]
+        >`
+            WITH expanded AS (
+                SELECT
+                    g.genre,
+                    a.id            AS album_id,
+                    a.title         AS title,
+                    a.year          AS year,
+                    a."coverUrl"    AS cover_url,
+                    ar.id           AS artist_id,
+                    ar.name         AS artist_name
+                FROM "Album" a
+                JOIN "Artist" ar ON a."artistId" = ar.id
+                CROSS JOIN LATERAL jsonb_array_elements_text(a.genres) AS g(genre)
+                WHERE a.location = 'LIBRARY'
+                  AND a.genres IS NOT NULL
+                  AND jsonb_typeof(a.genres) = 'array'
+            ),
+            counts AS (
+                SELECT genre, COUNT(*)::bigint AS total_count
+                FROM expanded
+                GROUP BY genre
+                ORDER BY total_count DESC
+                LIMIT ${limitNum}
+            ),
+            ranked AS (
+                SELECT
+                    e.genre,
+                    e.album_id,
+                    e.title,
+                    e.year,
+                    e.cover_url,
+                    e.artist_id,
+                    e.artist_name,
+                    c.total_count,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY e.genre
+                        ORDER BY e.year DESC NULLS LAST, e.album_id
+                    ) AS rn
+                FROM expanded e
+                JOIN counts c ON e.genre = c.genre
+            )
+            SELECT genre, total_count, album_id, title, year, cover_url, artist_id, artist_name
+            FROM ranked
+            WHERE rn <= ${SAMPLES_PER_GENRE}
+            ORDER BY total_count DESC, genre, year DESC NULLS LAST, album_id
+        `;
 
-        // Count genre occurrences
-        const genreCounts = new Map<string, number>();
-        for (const album of albums) {
-            const genres = album.genres as string[];
-            if (genres && Array.isArray(genres)) {
-                for (const genre of genres) {
-                    genreCounts.set(genre, (genreCounts.get(genre) || 0) + 1);
-                }
+        // Group the flat rows back into the response shape. We rely on
+        // counts CTE having ordered genres by total_count DESC, so the first
+        // time we see a given genre fixes its position.
+        const genreOrder: string[] = [];
+        const buckets = new Map<
+            string,
+            {
+                genre: string;
+                albums: {
+                    id: string;
+                    title: string;
+                    year: number | null;
+                    coverArt: string | null;
+                    artist: { id: string; name: string };
+                }[];
+                totalCount: number;
             }
+        >();
+
+        for (const r of rows) {
+            let bucket = buckets.get(r.genre);
+            if (!bucket) {
+                bucket = {
+                    genre: r.genre,
+                    albums: [],
+                    totalCount: Number(r.total_count),
+                };
+                buckets.set(r.genre, bucket);
+                genreOrder.push(r.genre);
+            }
+            bucket.albums.push({
+                id: r.album_id,
+                title: r.title,
+                year: r.year,
+                coverArt: r.cover_url,
+                artist: { id: r.artist_id, name: r.artist_name },
+            });
         }
 
-        // Get top genres
-        const topGenres = Array.from(genreCounts.entries())
-            .sort((a, b) => b[1] - a[1])
-            .slice(0, limitNum)
-            .map(([genre]) => genre);
+        const genresWithAlbums = genreOrder.map((g) => buckets.get(g)!);
 
-        logger.debug(`[HOMEPAGE] Top genres: ${topGenres.join(", ")}`);
-
-        // For each top genre, get sample albums (up to 10)
-        const genresWithAlbums = topGenres.map((genre) => {
-            const genreAlbums = albums
-                .filter((a) => {
-                    const genres = a.genres as string[];
-                    return genres && Array.isArray(genres) && genres.includes(genre);
-                })
-                .slice(0, 10)
-                .map((a) => ({
-                    id: a.id,
-                    title: a.title,
-                    year: a.year,
-                    coverArt: a.coverUrl,
-                    artist: {
-                        id: a.artist.id,
-                        name: a.artist.name,
-                    },
-                }));
-
-            return {
-                genre,
-                albums: genreAlbums,
-                totalCount: genreCounts.get(genre) || 0,
-            };
-        });
+        logger.debug(
+            `[HOMEPAGE] Top genres: ${genreOrder.join(", ")}`
+        );
 
         // Cache for 24 hours
         try {
