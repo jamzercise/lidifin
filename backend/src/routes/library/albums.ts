@@ -1175,15 +1175,15 @@ router.get("/albums/:id", async (req, res) => {
 // DELETE /library/albums/:id
 router.delete("/albums/:id", async (req, res) => {
     try {
+        // Only the fields actually used below: album.artist.name (folder
+        // cleanup), album.title (folder cleanup), and track.filePath (file
+        // unlink). Previous shape included `tracks.album` which duplicated
+        // the parent album row N times in the response payload.
         const album = await prisma.album.findUnique({
             where: { id: req.params.id },
             include: {
-                artist: true,
-                tracks: {
-                    include: {
-                        album: true,
-                    },
-                },
+                artist: { select: { name: true } },
+                tracks: { select: { filePath: true } },
             },
         });
 
