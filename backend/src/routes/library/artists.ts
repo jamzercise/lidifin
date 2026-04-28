@@ -1013,9 +1013,20 @@ router.get("/artists/:id", async (req, res) => {
 
         // Cross-reference Jellyfin by artist+title for cases where MBIDs are
         // missing/mismatched (e.g., release MBID vs release-group MBID).
+        // Runs for ALL albums (owned and unowned) so we can:
+        //  - swap MusicBrainz-derived album.id (MBID) → Jellyfin internal id, so
+        //    clicking from the artist page goes to /album/{jellyfin:UUID} (the
+        //    well-tested Jellyfin path) instead of /album/{MBID} (which scans
+        //    only the first 600 Jellyfin albums and 404s for large libraries).
+        //  - fetch the artist's Jellyfin tracks so Last.fm top-tracks can be
+        //    matched against the user's actual library tracks even when Prisma
+        //    has no Album/Track rows for this artist (Jellyfin-as-source mode
+        //    where syncJellyfinOwnedAlbums only writes OwnedAlbum rows).
+        let jellyfinArtistTracks: Awaited<
+            ReturnType<typeof getJellyfinTracks>
+        >["tracks"] = [];
         if (await isJellyfinMusicSource()) {
-            const unresolved = albumsWithOwnership.filter((a: any) => !a.owned);
-            if (unresolved.length > 0) {
+            if (albumsWithOwnership.length > 0) {
                 try {
                     const cfg = await getJellyfinConfig();
                     if (cfg) {
@@ -1042,10 +1053,18 @@ router.get("/artists/:id", async (req, res) => {
                         }
 
                         if (jfArtist) {
-                            const jfAlbums = await getJellyfinAlbumsAllForArtist(
-                                cfg,
-                                jfArtist.id
-                            );
+                            // Fetch albums and tracks in parallel. Tracks are
+                            // capped at 500 — enough headroom to cover the full
+                            // discography for any real-world artist while keeping
+                            // a single Jellyfin call.
+                            const [jfAlbums, jfTracksResult] = await Promise.all([
+                                getJellyfinAlbumsAllForArtist(cfg, jfArtist.id),
+                                getJellyfinTracks(cfg, {
+                                    artistId: jfArtist.id,
+                                    limit: 500,
+                                }).catch(() => ({ tracks: [], total: 0 })),
+                            ]);
+                            jellyfinArtistTracks = jfTracksResult.tracks;
                             const jfAlbumsByRg = new Map<
                                 string,
                                 (typeof jfAlbums)[number]
@@ -1065,7 +1084,6 @@ router.get("/artists/:id", async (req, res) => {
                             }
 
                             for (const album of albumsWithOwnership as any[]) {
-                                if (album.owned) continue;
                                 const matchedByRg =
                                     !!album.rgMbid
                                         ? jfAlbumsByRg.get(album.rgMbid)
@@ -1161,9 +1179,14 @@ router.get("/artists/:id", async (req, res) => {
         const allTracks = mergedNativeAlbums.flatMap((a) => a.tracks);
         let topTracks = allTracks.slice(0, 10);
 
-        // Get user play counts for all tracks
+        // Get user play counts for all tracks. Includes Jellyfin track IDs
+        // when applicable — Play.trackId stores either a native cuid or a
+        // jellyfin:itemId (no FK; resolved at read time).
         const userId = req.user!.id;
-        const trackIds = allTracks.map((t) => t.id);
+        const trackIds = [
+            ...allTracks.map((t) => t.id),
+            ...jellyfinArtistTracks.map((t) => t.id),
+        ];
         const userPlays = await prisma.play.groupBy({
             by: ["trackId"],
             where: {
@@ -1212,10 +1235,22 @@ router.get("/artists/:id", async (req, res) => {
                 );
             }
 
-            // Build lookup map for O(1) matching instead of O(n*m)
-            const tracksByTitle = new Map<string, (typeof allTracks)[0]>();
+            // Build lookup map for O(1) matching instead of O(n*m).
+            // Includes Jellyfin tracks so Last.fm top-tracks can match the
+            // user's actual library tracks even when Prisma has no Track rows
+            // (Jellyfin-as-source mode where owned content lives only in
+            // Jellyfin + the OwnedAlbum table).
+            const tracksByTitle = new Map<string, any>();
             for (const track of allTracks) {
                 const key = track.title.toLowerCase();
+                if (!tracksByTitle.has(key)) {
+                    tracksByTitle.set(key, track);
+                }
+            }
+            for (const track of jellyfinArtistTracks) {
+                const key = track.title.toLowerCase();
+                // Prefer Prisma tracks (already in the map) when both exist;
+                // they carry richer fields (analysis features, etc.).
                 if (!tracksByTitle.has(key)) {
                     tracksByTitle.set(key, track);
                 }
@@ -1230,7 +1265,9 @@ router.get("/artists/:id", async (req, res) => {
                 const matchedTrack = tracksByTitle.get(key);
 
                 if (matchedTrack) {
-                    // Track exists in library - include user play count
+                    // Track exists in library - include user play count.
+                    // coverArt fallback handles both Prisma (uses coverUrl)
+                    // and Jellyfin (uses coverArt directly) track shapes.
                     combinedTracks.push({
                         ...matchedTrack,
                         playCount: lfmTrack.playcount
@@ -1242,7 +1279,10 @@ router.get("/artists/:id", async (req, res) => {
                         userPlayCount: userPlayCounts.get(matchedTrack.id) || 0,
                         album: {
                             ...matchedTrack.album,
-                            coverArt: matchedTrack.album.coverUrl,
+                            coverArt:
+                                matchedTrack.album?.coverUrl ??
+                                matchedTrack.album?.coverArt ??
+                                null,
                         },
                     });
                 } else {
@@ -1277,13 +1317,16 @@ router.get("/artists/:id", async (req, res) => {
                 `Failed to get Last.fm top tracks for ${artist.name}:`,
                 error
             );
-            // If Last.fm fails, add user play counts to library tracks
-            topTracks = topTracks.map((t) => ({
+            // If Last.fm fails, fall back to library tracks (Prisma first, then
+            // Jellyfin) so Jellyfin-only artists still get a populated list.
+            const fallbackTracks =
+                allTracks.length > 0 ? allTracks : jellyfinArtistTracks;
+            topTracks = fallbackTracks.slice(0, 10).map((t: any) => ({
                 ...t,
                 userPlayCount: userPlayCounts.get(t.id) || 0,
                 album: {
                     ...t.album,
-                    coverArt: t.album.coverUrl,
+                    coverArt: t.album?.coverUrl ?? t.album?.coverArt ?? null,
                 },
             }));
         }
