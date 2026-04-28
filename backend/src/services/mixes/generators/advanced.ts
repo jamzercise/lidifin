@@ -1,4 +1,4 @@
-import { prisma } from "../../../utils/db";
+import { prisma } from "@/utils/db";
 import { WEEKLY_TRACK_LIMIT } from "../constants";
 import { getMixColor } from "../colors";
 import { getSeededRandom, randomSample } from "../helpers";

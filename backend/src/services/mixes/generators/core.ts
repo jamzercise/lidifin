@@ -1,13 +1,13 @@
-import { prisma } from "../../../utils/db";
-import { logger } from "../../../utils/logger";
-import { normalizeArtistName } from "../../../utils/artistNormalization";
+import { prisma } from "@/utils/db";
+import { logger } from "@/utils/logger";
+import { normalizeArtistName } from "@/utils/artistNormalization";
 import {
     getDecadeFromYear,
     getDecadeWhereClause,
     getEffectiveYear,
-} from "../../../utils/dateFilters";
-import { lastFmService } from "../../lastfm";
-import { resolveTrackReferences } from "../../jellyfin";
+} from "@/utils/dateFilters";
+import { lastFmService } from "@/services/lastfm";
+import { resolveTrackReferences } from "@/services/jellyfin";
 import { TRACK_LIMIT } from "../constants";
 import { getMixColor } from "../colors";
 import { getSeededRandom, randomSample } from "../helpers";

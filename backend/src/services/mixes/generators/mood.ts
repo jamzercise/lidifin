@@ -1,5 +1,5 @@
-import { prisma } from "../../../utils/db";
-import { logger } from "../../../utils/logger";
+import { prisma } from "@/utils/db";
+import { logger } from "@/utils/logger";
 import { TRACK_LIMIT } from "../constants";
 import { getMixColor } from "../colors";
 import { findTracksByGenrePatterns, getSeededRandom } from "../helpers";

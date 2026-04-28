@@ -1,5 +1,5 @@
-import { prisma } from "../../../utils/db";
-import { logger } from "../../../utils/logger";
+import { prisma } from "@/utils/db";
+import { logger } from "@/utils/logger";
 import { getMixColor } from "../colors";
 import { randomSample } from "../helpers";
 import type { ProgrammaticMix } from "../types";

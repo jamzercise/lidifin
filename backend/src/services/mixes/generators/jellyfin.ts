@@ -1,8 +1,8 @@
-import { prisma } from "../../../utils/db";
+import { prisma } from "@/utils/db";
 import {
     isJellyfinMusicSource,
     resolveTrackReferences,
-} from "../../jellyfin";
+} from "@/services/jellyfin";
 import { TRACK_LIMIT } from "../constants";
 import { getMixColor } from "../colors";
 import { getSeededRandom, randomSample } from "../helpers";

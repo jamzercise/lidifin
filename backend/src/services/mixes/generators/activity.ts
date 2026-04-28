@@ -1,5 +1,5 @@
-import { prisma } from "../../../utils/db";
-import { logger } from "../../../utils/logger";
+import { prisma } from "@/utils/db";
+import { logger } from "@/utils/logger";
 import {
     DAILY_TRACK_LIMIT,
     MIN_TRACKS_DAILY,

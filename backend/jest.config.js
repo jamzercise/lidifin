@@ -14,6 +14,11 @@ module.exports = {
     roots: ['<rootDir>/src'],
     testMatch: ['**/__tests__/**/*.test.ts'],
     moduleFileExtensions: ['ts', 'js', 'mjs', 'json'],
+    // Mirror the `@/*` -> src/* path alias declared in tsconfig.json so
+    // ts-jest can resolve aliased imports the same way tsc/tsx do.
+    moduleNameMapper: {
+        '^@/(.*)$': '<rootDir>/src/$1',
+    },
     clearMocks: true,
     collectCoverageFrom: ['src/**/*.ts', '!src/**/*.d.ts'],
     // Runs before any test module is required — sets dummy env vars so
