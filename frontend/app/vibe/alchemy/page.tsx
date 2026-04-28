@@ -179,7 +179,7 @@ export default function SongAlchemyPage() {
             {/* Search results */}
             {searchQuery.length >= 2 && (
                 <div className="mb-6 p-4 rounded-xl bg-white/5 border border-white/10">
-                    <h3 className="text-sm font-medium text-gray-400 mb-3">Add to mix</h3>
+                    <h2 className="text-sm font-medium text-gray-400 mb-3">Add to mix</h2>
                     <div className="space-y-2 max-h-48 overflow-y-auto">
                         {searchResults.tracks.map((t) => (
                             <div

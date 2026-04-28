@@ -1060,9 +1060,9 @@ export default function PlaylistDetailPage() {
                         <div className="w-20 h-20 bg-[#282828] rounded-full flex items-center justify-center mb-4">
                             <ListMusic className="w-10 h-10 text-gray-500" />
                         </div>
-                        <h3 className="text-lg font-medium text-white mb-1">
+                        <h2 className="text-lg font-medium text-white mb-1">
                             No tracks yet
-                        </h3>
+                        </h2>
                         <p className="text-sm text-gray-500">
                             Add some tracks to get started
                         </p>

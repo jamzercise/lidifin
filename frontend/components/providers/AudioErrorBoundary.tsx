@@ -46,6 +46,8 @@ export class AudioErrorBoundary extends Component<Props, State> {
                 <>
                     <div
                         role="alert"
+                        aria-live="assertive"
+                        aria-atomic="true"
                         className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 bg-red-900/90 text-white text-sm px-4 py-2 rounded-lg shadow-lg backdrop-blur-sm max-w-md"
                     >
                         <span className="flex-1">Audio playback encountered an error. Playback may be unavailable.</span>

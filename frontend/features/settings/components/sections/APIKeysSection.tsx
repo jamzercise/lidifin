@@ -153,6 +153,9 @@ export const APIKeysSection: React.FC = () => {
       {/* API Keys Table */}
       <div className="overflow-x-auto">
         <table className="w-full">
+          <caption className="sr-only">
+            API keys issued for this user, with device name, masked key, and timestamps
+          </caption>
           <thead>
             <tr className="border-b border-[#1c1c1c]">
               <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">

@@ -155,9 +155,9 @@ export default function GenrePage() {
                                 </div>
                             )}
                         </div>
-                        <h3 className="font-bold text-white truncate text-sm">
+                        <h2 className="font-bold text-white truncate text-sm">
                             {podcast.title}
-                        </h3>
+                        </h2>
                         <p className="text-xs text-gray-400 truncate">
                             {podcast.author}
                         </p>

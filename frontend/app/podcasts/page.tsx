@@ -265,9 +265,9 @@ export default function PodcastsPage() {
 
                                             {/* Info */}
                                             <div className="flex-1 min-w-0">
-                                                <h3 className="text-white font-semibold text-sm truncate">
+                                                <h2 className="text-white font-semibold text-sm truncate">
                                                     {result.name}
-                                                </h3>
+                                                </h2>
                                                 <p className="text-gray-400 text-xs truncate">
                                                     {result.artist}
                                                 </p>

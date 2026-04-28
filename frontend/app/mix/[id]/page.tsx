@@ -372,7 +372,7 @@ export default function MixPage() {
                         <div className="w-20 h-20 bg-[#282828] rounded-full flex items-center justify-center mb-4">
                             <Music className="w-10 h-10 text-gray-500" />
                         </div>
-                        <h3 className="text-lg font-medium text-white mb-1">No tracks</h3>
+                        <h2 className="text-lg font-medium text-white mb-1">No tracks</h2>
                         <p className="text-sm text-gray-500">This mix is empty</p>
                     </div>
                 )}

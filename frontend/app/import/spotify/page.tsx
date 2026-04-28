@@ -718,7 +718,11 @@ function SpotifyImportPageContent() {
                                                 {selectedAlbums.size} selected
                                             </span>
                                         </div>
-                                        <div className="max-h-48 overflow-y-auto">
+                                        <div
+                                            role="group"
+                                            aria-label="Albums to download"
+                                            className="max-h-48 overflow-y-auto"
+                                        >
                                             {preview.albumsToDownload.map(
                                                 (album, index) => {
                                                     const albumKey =

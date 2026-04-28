@@ -295,7 +295,11 @@ export function EnrichmentFailuresModal({
                             </p>
                         </div>
                     ) : (
-                        <div className="space-y-2">
+                        <div
+                            role="group"
+                            aria-label="Enrichment failures (selectable)"
+                            className="space-y-2"
+                        >
                             {/* Select All */}
                             <div className="flex items-center gap-3 px-3 py-2">
                                 <input
@@ -305,6 +309,7 @@ export function EnrichmentFailuresModal({
                                         failures?.failures.length
                                     }
                                     onChange={handleSelectAll}
+                                    aria-label="Select all failures"
                                     className="w-4 h-4 rounded border-white/20 bg-white/10"
                                 />
                                 <span className="text-sm text-white/50">
@@ -325,11 +330,15 @@ export function EnrichmentFailuresModal({
                                         onChange={() =>
                                             toggleFailureSelection(failure.id)
                                         }
+                                        aria-labelledby={`failure-${failure.id}-label`}
                                         className="w-4 h-4 mt-1 rounded border-white/20 bg-white/10"
                                     />
                                     <div className="flex-1 min-w-0">
                                         <div className="flex items-center gap-2">
-                                            <span className="text-sm font-medium text-white truncate">
+                                            <span
+                                                id={`failure-${failure.id}-label`}
+                                                className="text-sm font-medium text-white truncate"
+                                            >
                                                 {failure.entityName ||
                                                     failure.entityId}
                                             </span>

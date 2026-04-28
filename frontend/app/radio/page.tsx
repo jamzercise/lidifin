@@ -589,7 +589,7 @@ export default function RadioPage() {
                                     <span className="text-[10px] text-white/60 font-medium uppercase tracking-wider">AI</span>
                                 </div>
                                 <div>
-                                    <h3 className="text-sm font-bold text-white truncate leading-tight">Instant Playlist</h3>
+                                    <h2 className="text-sm font-bold text-white truncate leading-tight">Instant Playlist</h2>
                                     <p className="text-xs text-white/50 truncate">Describe a mood or vibe in words</p>
                                 </div>
                                 <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">

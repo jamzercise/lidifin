@@ -397,9 +397,9 @@ export default function BrowsePlaylistsPage() {
                         <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center mb-4">
                             <Music2 className="w-8 h-8 text-gray-500" />
                         </div>
-                        <h3 className="text-lg font-medium text-white mb-2">
+                        <h2 className="text-lg font-medium text-white mb-2">
                             Couldn&apos;t load content
-                        </h3>
+                        </h2>
                         <p className="text-sm text-gray-400 mb-6 max-w-sm">
                             {loadError}
                         </p>

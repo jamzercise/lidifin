@@ -323,9 +323,9 @@ export default function AudiobooksPage() {
                             <div className="text-4xl font-black text-purple-400/20 mb-4">
                                 01
                             </div>
-                            <h3 className="text-xl font-bold text-white mb-3">
+                            <h2 className="text-xl font-bold text-white mb-3">
                                 Install Audiobookshelf
-                            </h3>
+                            </h2>
                             <p className="text-gray-400 text-sm leading-relaxed">
                                 Set up your own Audiobookshelf instance via
                                 Docker or use an existing installation
@@ -336,9 +336,9 @@ export default function AudiobooksPage() {
                             <div className="text-4xl font-black text-purple-400/20 mb-4">
                                 02
                             </div>
-                            <h3 className="text-xl font-bold text-white mb-3">
+                            <h2 className="text-xl font-bold text-white mb-3">
                                 Get API Key
-                            </h3>
+                            </h2>
                             <p className="text-gray-400 text-sm leading-relaxed">
                                 Settings → Users → Click your user → API Tokens
                                 → Generate
@@ -349,9 +349,9 @@ export default function AudiobooksPage() {
                             <div className="text-4xl font-black text-purple-400/20 mb-4">
                                 03
                             </div>
-                            <h3 className="text-xl font-bold text-white mb-3">
+                            <h2 className="text-xl font-bold text-white mb-3">
                                 Configure
-                            </h3>
+                            </h2>
                             <p className="text-gray-400 text-sm leading-relaxed">
                                 Enter your Audiobookshelf URL and API key in
                                 Lidifin settings
