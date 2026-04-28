@@ -17,10 +17,13 @@ router.get("/genres", async (req, res) => {
     try {
         const { limit = "4" } = req.query;
         const limitNum = parseInt(limit as string, 10);
-        const userId = req.user?.id || "global";
 
-        // Check Redis cache first (cache for 24 hours, scoped per user)
-        const cacheKey = `homepage:genres:${userId}:${limitNum}`;
+        // Check Redis cache first (cache for 24 hours).
+        // The genres breakdown is computed across the *library* (Album rows), not
+        // per-user, so the cache key intentionally does NOT include userId — every
+        // user gets the same answer, and we don't want N copies of an identical
+        // payload sitting in Redis.
+        const cacheKey = `homepage:genres:${limitNum}`;
         try {
             const cached = await redisClient.get(cacheKey);
             if (cached) {
@@ -134,10 +137,11 @@ router.get("/top-podcasts", async (req, res) => {
     try {
         const { limit = "6" } = req.query;
         const limitNum = parseInt(limit as string, 10);
-        const userId = req.user?.id || "global";
 
-        // Check Redis cache first (cache for 24 hours, scoped per user)
-        const cacheKey = `homepage:top-podcasts:${userId}:${limitNum}`;
+        // Check Redis cache first (cache for 24 hours).
+        // Like /genres, this is library-wide data — orders Podcast rows by
+        // createdAt — not per-user, so we drop userId from the cache key.
+        const cacheKey = `homepage:top-podcasts:${limitNum}`;
         try {
             const cached = await redisClient.get(cacheKey);
             if (cached) {

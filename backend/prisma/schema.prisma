@@ -66,8 +66,6 @@ model PlaybackState {
   updatedAt    DateTime @updatedAt
   createdAt    DateTime @default(now())
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
 }
 
 model SystemSettings {
@@ -109,17 +107,17 @@ model SystemSettings {
   jellyfinEnabled             Boolean  @default(false)
   jellyfinUrl                 String?
   jellyfinApiKey              String?
-  jellyfinUsername            String?  // optional: use AuthenticateByName for token + User.Id
-  jellyfinPassword            String?  // encrypted
-  jellyfinUserId              String?  // optional: provide directly so API key + userId work without login
+  jellyfinUsername            String? // optional: use AuthenticateByName for token + User.Id
+  jellyfinPassword            String? // encrypted
+  jellyfinUserId              String? // optional: provide directly so API key + userId work without login
   jellyfinProxyStreams        Boolean  @default(false) // proxy Jellyfin audio through Lidifin (for remote access when client can't reach Jellyfin)
   // AudioMuse-AI: instant playlist generation from mood/vibe text
   audiomuseEnabled            Boolean  @default(false)
   audiomuseUrl                String?  @default("http://localhost:8000")
-  audiomuseAiProvider         String?  // OLLAMA, GEMINI, OPENAI, MISTRAL
-  audiomuseApiKey             String?  // optional API key for cloud providers
-  audiomuseAiModel            String?  // optional model override (e.g. gemini-1.5-flash-latest)
-  audiomuseOllamaUrl          String?  // optional Ollama URL override (e.g. http://host.docker.internal:11434/api/generate)
+  audiomuseAiProvider         String? // OLLAMA, GEMINI, OPENAI, MISTRAL
+  audiomuseApiKey             String? // optional API key for cloud providers
+  audiomuseAiModel            String? // optional model override (e.g. gemini-1.5-flash-latest)
+  audiomuseOllamaUrl          String? // optional Ollama URL override (e.g. http://host.docker.internal:11434/api/generate)
 }
 
 model Artist {
@@ -161,30 +159,30 @@ model Artist {
 }
 
 model Album {
-  id               String                   @id @default(cuid())
-  rgMbid           String                   @unique
-  artistId         String
-  title            String
-  year             Int?
-  coverUrl         String?
-  primaryType      String
-  label            String?
-  genres           Json?
-  lastSynced       DateTime                 @default(now())
-  location         AlbumLocation            @default(LIBRARY)
-  searchVector     Unsupported("tsvector")?
-  displayTitle     String?
-  displayYear      Int?
-  hasUserOverrides Boolean                  @default(false)
-  userCoverUrl     String?
-  userGenres       Json?
-  originalYear     Int?
-  isCompilation    Boolean                  @default(false)
-  artist           Artist                   @relation(fields: [artistId], references: [id], onDelete: Cascade)
-  tracks           Track[]
+  id                 String                   @id @default(cuid())
+  rgMbid             String                   @unique
+  artistId           String
+  title              String
+  year               Int?
+  coverUrl           String?
+  primaryType        String
+  label              String?
+  genres             Json?
+  lastSynced         DateTime                 @default(now())
+  location           AlbumLocation            @default(LIBRARY)
+  searchVector       Unsupported("tsvector")?
+  displayTitle       String?
+  displayYear        Int?
+  hasUserOverrides   Boolean                  @default(false)
+  userCoverUrl       String?
+  userGenres         Json?
+  originalYear       Int?
+  isCompilation      Boolean                  @default(false)
+  artist             Artist                   @relation(fields: [artistId], references: [id], onDelete: Cascade)
+  tracks             Track[]
   albumArtistCredits AlbumArtistCredit[]
-  sourceMaps       AlbumSourceMap[]
-  ownershipFacts   AlbumOwnershipFact[]
+  sourceMaps         AlbumSourceMap[]
+  ownershipFacts     AlbumOwnershipFact[]
 
   @@index([artistId])
   @@index([location])
@@ -244,16 +242,16 @@ model Track {
   displayTrackNo     Int?
   hasUserOverrides   Boolean                  @default(false)
   analysisStartedAt  DateTime?
-  
-// Vibe analysis status tracking
-   vibeAnalysisStatus        String?      // Analysis status: pending, processing, completed, failed
-   vibeAnalysisStartedAt     DateTime?
-   vibeAnalysisError         String?
-   vibeAnalysisRetryCount    Int          @default(0)
-   vibeAnalysisStatusUpdatedAt DateTime?    // When the status was last updated
-  
+
+  // Vibe analysis status tracking
+  vibeAnalysisStatus          String? // Analysis status: pending, processing, completed, failed
+  vibeAnalysisStartedAt       DateTime?
+  vibeAnalysisError           String?
+  vibeAnalysisRetryCount      Int       @default(0)
+  vibeAnalysisStatusUpdatedAt DateTime? // When the status was last updated
+
   moodBuckets        MoodBucket[]
-  album              Album                    @relation(fields: [albumId], references: [id], onDelete: Cascade)
+  album              Album               @relation(fields: [albumId], references: [id], onDelete: Cascade)
   trackArtistCredits TrackArtistCredit[]
   trackGenres        TrackGenre[]
   transcodedFiles    TranscodedFile[]
@@ -301,17 +299,17 @@ model TranscodedFile {
 
 /// Jellyfin track metadata for mood/vibe and genre radio when Jellyfin is music source.
 model JellyfinTrackMetadata {
-  jellyfinId   String   @id // jellyfin:uuid format
+  jellyfinId   String    @id // jellyfin:uuid format
   artistName   String
   trackTitle   String
   albumTitle   String?
-  artistMbid   String?  // MusicBrainz artist ID from Jellyfin ProviderIds
-  rgMbid       String?  // MusicBrainz release group ID from Jellyfin ProviderIds
-  lastfmTags   String[] @default([])
-  genres      String[] @default([])
+  artistMbid   String? // MusicBrainz artist ID from Jellyfin ProviderIds
+  rgMbid       String? // MusicBrainz release group ID from Jellyfin ProviderIds
+  lastfmTags   String[]  @default([])
+  genres       String[]  @default([])
   lastEnriched DateTime?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   @@index([lastfmTags], type: Gin)
   @@index([genres], type: Gin)
@@ -321,7 +319,7 @@ model JellyfinTrackMetadata {
 model Play {
   id       String       @id @default(cuid())
   userId   String
-  trackId  String   // native cuid or jellyfin:itemId (no FK; resolved at read time)
+  trackId  String // native cuid or jellyfin:itemId (no FK; resolved at read time)
   playedAt DateTime     @default(now())
   source   ListenSource @default(LIBRARY)
   user     User         @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -367,7 +365,7 @@ model HiddenPlaylist {
 model PlaylistItem {
   id         String   @id @default(cuid())
   playlistId String
-  trackId    String   // native cuid or jellyfin:itemId (no FK; resolved at read time)
+  trackId    String // native cuid or jellyfin:itemId (no FK; resolved at read time)
   sort       Int
   playlist   Playlist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
 
@@ -441,8 +439,10 @@ model SimilarArtist {
   fromArtist   Artist @relation("FromArtist", fields: [fromArtistId], references: [id], onDelete: Cascade)
   toArtist     Artist @relation("ToArtist", fields: [toArtistId], references: [id], onDelete: Cascade)
 
+  // The composite PK [fromArtistId, toArtistId] already serves as a left-prefix
+  // index for `WHERE fromArtistId = X` lookups, so no separate fromArtistId
+  // index is needed.
   @@id([fromArtistId, toArtistId])
-  @@index([fromArtistId])
 }
 
 model OwnedAlbum {
@@ -451,27 +451,30 @@ model OwnedAlbum {
   source   String
   artist   Artist @relation(fields: [artistId], references: [id], onDelete: Cascade)
 
+  // PK [artistId, rgMbid] already covers `WHERE artistId = X`, but it does NOT
+  // cover `WHERE rgMbid IN (...)` which the artist-page legacy ownership lookup
+  // uses — so we add an explicit index on rgMbid alone.
   @@id([artistId, rgMbid])
-  @@index([artistId])
+  @@index([rgMbid])
 }
 
 /// Normalized album-level artist credits (supports compilations and multi-artist albums).
 model AlbumArtistCredit {
-  id                    String          @id @default(cuid())
+  id                    String           @id @default(cuid())
   albumId               String
   artistId              String?
   displayName           String
-  normalizedDisplayName String          @default("")
+  normalizedDisplayName String           @default("")
   role                  ArtistCreditRole @default(PRIMARY)
-  sortOrder             Int             @default(0)
-  source                SourceSystem    @default(NATIVE)
+  sortOrder             Int              @default(0)
+  source                SourceSystem     @default(NATIVE)
   sourceArtistId        String?
-  confidence            Float           @default(1.0)
+  confidence            Float            @default(1.0)
   evidence              Json?
-  createdAt             DateTime        @default(now())
-  updatedAt             DateTime        @updatedAt
-  album                 Album           @relation(fields: [albumId], references: [id], onDelete: Cascade)
-  artist                Artist?         @relation(fields: [artistId], references: [id], onDelete: SetNull)
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
+  album                 Album            @relation(fields: [albumId], references: [id], onDelete: Cascade)
+  artist                Artist?          @relation(fields: [artistId], references: [id], onDelete: SetNull)
 
   @@index([albumId, sortOrder])
   @@index([artistId])
@@ -505,16 +508,16 @@ model TrackArtistCredit {
 
 /// Maps external source album identifiers to canonical Album rows.
 model AlbumSourceMap {
-  id            String      @id @default(cuid())
+  id            String       @id @default(cuid())
   source        SourceSystem
   sourceAlbumId String
   albumId       String
-  confidence    Float       @default(1.0)
+  confidence    Float        @default(1.0)
   matchMethod   MatchMethod
   evidence      Json?
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
-  album         Album       @relation(fields: [albumId], references: [id], onDelete: Cascade)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  album         Album        @relation(fields: [albumId], references: [id], onDelete: Cascade)
 
   @@unique([source, sourceAlbumId])
   @@index([albumId])
@@ -632,7 +635,7 @@ model DiscoveryTrack {
 
 model LikedTrack {
   userId  String
-  trackId String   // native cuid or jellyfin:itemId (no FK; resolved at read time)
+  trackId String // native cuid or jellyfin:itemId (no FK; resolved at read time)
   likedAt DateTime @default(now())
   user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -656,7 +659,7 @@ model DislikedEntity {
 model CachedTrack {
   id             String   @id @default(cuid())
   userId         String
-  trackId        String   // native cuid or jellyfin:itemId (no FK; Phase 1: native only)
+  trackId        String // native cuid or jellyfin:itemId (no FK; Phase 1: native only)
   localPath      String
   quality        String
   fileSizeMb     Float
@@ -920,7 +923,8 @@ model ApiKey {
   createdAt DateTime @default(now())
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([key])
+  // `key` is already @unique, which auto-creates a unique B-tree index — no
+  // separate @@index([key]) needed.
   @@index([userId])
   @@index([lastUsed])
 }
