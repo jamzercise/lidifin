@@ -12,7 +12,7 @@ if [ "$(id -u)" = "0" ]; then
   echo "║                                                              ║"
   echo "║  Do NOT use:                                                 ║"
   echo "║    - docker run --user root                                  ║"
-  echo "║    - user: root in docker-compose.yml                        ║"
+  echo "║    - user: root in your compose.yaml                        ║"
   echo "║                                                              ║"
   echo "║  The container is configured to run as 'nextjs' user.       ║"
   echo "╚══════════════════════════════════════════════════════════════╝"

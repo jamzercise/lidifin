@@ -52,7 +52,7 @@ export async function validateMusicConfig(): Promise<MusicConfig> {
             const isDocker =
                 fs.existsSync("/.dockerenv") || process.env.NODE_ENV === "production";
             const guidance = isDocker
-                ? `Docker users: Ensure your volume mount is correct in docker-compose.yml:
+                ? `Docker users: Ensure your volume mount is correct in your compose.yaml:
    volumes:
      - /path/to/your/music:/music
    The container expects music at /music, not your host path.`

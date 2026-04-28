@@ -1,41 +1,62 @@
-# Lidify - Premium Self-Hosted Music Server
-# All-in-One container with AI-powered vibe matching
+# Lidifin - Self-Hosted Jellyfin Music Client
+# All-in-One container: backend + frontend + PostgreSQL + Redis
 #
-# Features included:
-#   - Smart playlists with mood detection
-#   - Enhanced vibe matching (Essentia AI)
-#   - High-quality audio streaming
+# Two ways to use this file:
 #
-# Usage:
-#   1. Edit the MUSIC_PATH below
-#   2. Run: docker compose -f docker-compose.prod.yml up -d
-#   3. Open http://localhost:31013
+#   A) Pull the published image from Docker Hub (default, fastest):
+#      docker compose -f docker-compose.prod.yml up -d
+#
+#   B) Build from the GitHub repo (use when you need fixes that aren't
+#      on Docker Hub yet):
+#      docker compose -f docker-compose.prod.yml up -d --build
+#
+# Quick start:
+#   1. Copy this file to your stack directory as `compose.yaml`
+#      (Dockge expects that filename).
+#   2. Edit the volume paths under `volumes:` to point at your music
+#      library and a persistent data directory on the host.
+#   3. Create a `.env` next to compose.yaml — see README "Quick Start
+#      with Dockge" for the variables you should set
+#      (SESSION_SECRET, INTERNAL_API_SECRET, MUSIC_PATH, TZ).
+#   4. Open http://YOUR_HOST:31013
 
 services:
-  lidify:
+  lidifin:
     image: ${DOCKERHUB_USERNAME:-jamzercise}/lidifin:${VERSION:-latest}
+    # Building from GitHub is opt-in via `docker compose ... --build`.
+    # The `image:` line above also tags the build result so you can
+    # optionally push it to your own registry.
+    build:
+      context: https://github.com/jamzercise/lidifin.git
+      dockerfile: Dockerfile
     container_name: lidifin-player
     ports:
       - "${PORT:-31013}:3030"
     volumes:
-      # REQUIRED: Path to your music library
+      # Required: path to your music library on the host.
       - ${MUSIC_PATH:-/path/to/your/music}:/music
-      # Persistent data (database, cache, etc.)
-      - lidifin_data:/data
+      # Persistent data (covers, cache, etc.).
+      - ${DATA_PATH:-lidifin_data}:/data
+      # Persistent Postgres data — kept on a separate path so backups
+      # and disk-usage tracking are easier to reason about.
+      - ${POSTGRES_DATA_PATH:-lidifin_postgres}:/data/postgres
     environment:
       - TZ=${TZ:-UTC}
+      # Generate with: openssl rand -base64 32
       - SESSION_SECRET=${SESSION_SECRET:-}
-      # Internal API secret (backend ↔ CLAP vibe worker); set in production for security
-      - INTERNAL_API_SECRET=${INTERNAL_API_SECRET:-lidify-internal-secret-change-me}
-      # Jellyfin (Lidifin): optional override for API key when using Jellyfin as music source
+      # Internal API secret (backend ↔ vibe worker); set in production for security.
+      - INTERNAL_API_SECRET=${INTERNAL_API_SECRET:-}
+      # Optional: override Jellyfin API key when using Jellyfin as music source.
       - JELLYFIN_API_KEY=${JELLYFIN_API_KEY:-}
-      # Lidarr webhook callback URL - how Lidarr reaches Lidify when downloads complete
-      # Default uses host.docker.internal which works on most setups with extra_hosts below
-      # Override if using custom Docker networks: e.g., http://192.168.0.20:31013
+      # Lidarr webhook callback URL — how Lidarr reaches Lidifin when
+      # downloads complete. The default uses host.docker.internal which
+      # works on most setups via the extra_hosts entry below. Override
+      # if Lidarr is on a different host: e.g. http://192.168.0.20:31013
       - LIDIFY_CALLBACK_URL=${LIDIFY_CALLBACK_URL:-http://host.docker.internal:31013}
-      # Set LOG_LEVEL=info to see Library/Jellyfin request logs when debugging
+      # Set LOG_LEVEL=info to see Library/Jellyfin request logs.
       - LOG_LEVEL=${LOG_LEVEL:-warn}
-    # Makes host.docker.internal work on Linux (already works on Docker Desktop)
+    # Required so host.docker.internal resolves on Linux. Already
+    # works out of the box on Docker Desktop (Mac / Windows).
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
@@ -48,3 +69,4 @@ services:
 
 volumes:
   lidifin_data:
+  lidifin_postgres:

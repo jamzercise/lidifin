@@ -274,7 +274,7 @@ That's it! Open http://localhost:31013 and create your account.
 
 5. **Open Lidify** at `http://YOUR_SERVER_IP:31013` and create your account.
 
-**Tip:** If you use the full stack (Lidarr, Prowlarr, etc.), use `docker-compose.server.yml` instead and set `MUSIC_PATH`, `DOWNLOAD_PATH`, `SESSION_SECRET`, and `INTERNAL_API_SECRET` in `.env`. Ensure the stack path in Dockge points to the directory that contains your `compose.yaml` and `.env`.
+**Tip:** If you also run Lidarr / Prowlarr / qBittorrent / FlareSolverr alongside Lidifin, point them at the same `lidifin_network` (or use Docker's default bridge) and set `LIDIFY_CALLBACK_URL` so Lidarr can reach Lidifin's webhook endpoint. There's no longer a bundled "full-stack" compose file in the repo — keep your music-management stack and Lidifin as separate stacks in Dockge so they can be updated independently.
 
 **With GPU acceleration** (requires [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html)):
 
@@ -318,7 +318,7 @@ docker run -d \
 
 ### Using Docker Compose
 
-Create a `docker-compose.yml` file:
+Create a `compose.yaml` file:
 
 ```yaml
 services:
@@ -578,15 +578,19 @@ docker run -d --gpus all -p 31013:3030 -v /path/to/music:/music -v lidifin_data:
 
 **Docker Compose:**
 
-Uncomment the `devices` block under `audio-analyzer` (and optionally `audio-analyzer-clap`) in `docker-compose.yml`:
+Add the `gpus` reservation to the `lidifin` service in your `compose.yaml`:
 
 ```yaml
-reservations:
-    memory: 2G
-    devices:
-        - driver: nvidia
-          count: 1
-          capabilities: [gpu]
+services:
+    lidifin:
+        # ... your existing config ...
+        deploy:
+            resources:
+                reservations:
+                    devices:
+                        - driver: nvidia
+                          count: 1
+                          capabilities: [gpu]
 ```
 
 Then restart: `docker compose up -d`
