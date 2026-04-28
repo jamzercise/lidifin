@@ -6,8 +6,8 @@ import { Play, Mic2 } from "lucide-react";
 import { memo } from "react";
 import { api } from "@/lib/api";
 import { HorizontalCarousel, CarouselItem } from "@/components/ui/HorizontalCarousel";
-import { useAudio } from "@/lib/audio-context";
 import { useAudioState } from "@/lib/audio-state-context";
+import { useCastAwareAudioControls } from "@/lib/useCastAwareAudioControls";
 import { formatDuration } from "@/utils/formatTime";
 import { formatDate } from "@/features/podcast/utils";
 
@@ -51,7 +51,9 @@ const EpisodeCard = memo(function EpisodeCard({
     episode: EpisodeWithPodcast;
     index: number;
 }) {
-    const { playPodcast } = useAudio();
+    // State + controls only (no playback subscription) — this card grid
+    // doesn't need to re-render on every currentTime tick.
+    const { playPodcast } = useCastAwareAudioControls();
     const { setPodcastEpisodeQueue } = useAudioState();
 
     const coverUrl = episode.coverUrl ?? episode.podcast.coverUrl;

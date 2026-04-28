@@ -5,14 +5,19 @@ import { useAudioPlayback } from "./audio-playback-context";
 import { useCastAwareAudioControls } from "./useCastAwareAudioControls";
 
 /**
- * Unified hook that combines all audio contexts.
- * Use this for backward compatibility with existing code.
- * Uses cast-aware controls so player controls affect casted audio when casting.
+ * Unified hook that combines all three audio contexts.
  *
- * For optimal performance, prefer using the individual hooks:
- * - useAudioState() - for rarely changing data (currentTrack, queue, etc.)
- * - useAudioPlayback() - for frequently changing data (currentTime, isPlaying)
- * - useCastAwareAudioControls() - for actions (play, pause, next, etc.)
+ * @deprecated Prefer the granular hooks below — useAudio() forces a
+ * re-render on every currentTime tick because it subscribes to the
+ * playback context, even if your component only reads state or
+ * controls. Reserve this hook for the actual player components
+ * (MiniPlayer/OverlayPlayer/FullPlayer/etc.) that genuinely need
+ * every slice in one place.
+ *
+ * Granular alternatives (see audio-context.tsx for full guidance):
+ * - useAudioState() — rarely-changing data (currentTrack, queue, ...).
+ * - useAudioPlayback() — frequently-changing data (isPlaying, currentTime).
+ * - useCastAwareAudioControls() — actions (playTrack, pause, next, ...).
  */
 export function useAudio() {
     const state = useAudioState();

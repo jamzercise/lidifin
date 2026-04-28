@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { usePathname } from "next/navigation";
-import { useAudio } from "@/lib/audio-context";
+import { useAudioState } from "@/lib/audio-state-context";
+import { useCastAwareAudioControls } from "@/lib/useCastAwareAudioControls";
 
 /**
  * Hook that automatically switches player mode based on the current page
@@ -10,7 +11,11 @@ import { useAudio } from "@/lib/audio-context";
  */
 export function usePlayerMode() {
     const pathname = usePathname();
-    const { currentTrack, currentAudiobook, currentPodcast, playerMode, setPlayerMode } = useAudio();
+    // Subscribes only to state + controls — no playback fields, so this hook
+    // doesn't re-render on every currentTime tick.
+    const { currentTrack, currentAudiobook, currentPodcast, playerMode } =
+        useAudioState();
+    const { setPlayerMode } = useCastAwareAudioControls();
 
     useEffect(() => {
         // Don't auto-switch if in overlay mode (user manually opened it)

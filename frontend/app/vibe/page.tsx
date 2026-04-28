@@ -5,8 +5,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/utils/cn";
 import { api } from "@/lib/api";
 import { useFeatures } from "@/lib/features-context";
-import { useAudio } from "@/lib/audio-context";
 import { useAudioState } from "@/lib/audio-state-context";
+import { useCastAwareAudioControls } from "@/lib/useCastAwareAudioControls";
 import Image from "next/image";
 import Link from "next/link";
 import {
@@ -574,7 +574,9 @@ export default function VibePage() {
 }
 
 function VibePageContent() {
-    const { playTracks } = useAudio();
+    // State + controls only (no playback subscription) — vibe page
+    // shouldn't re-render on every currentTime tick.
+    const { playTracks } = useCastAwareAudioControls();
     const { setVibeMode, setVibeSourceFeatures, setVibeQueueIds, currentTrack } = useAudioState();
     const [libraryTracks, setLibraryTracks] = useState<LibraryTrack[]>([]);
     const [sourceTrack, setSourceTrack] = useState<TrackData | null>(null);
