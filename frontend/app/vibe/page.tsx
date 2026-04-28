@@ -366,10 +366,12 @@ function ComparisonPanel({
                 <div className="relative flex items-center justify-between px-4 py-3">
                     <span className="text-xs font-medium text-[#737373] uppercase tracking-wider">Vibe Match</span>
                     <button
+                        type="button"
                         onClick={onClose}
+                        aria-label="Close vibe match"
                         className="p-1 hover:bg-white/5 rounded transition-colors"
                     >
-                        <X className="w-4 h-4 text-[#737373]" />
+                        <X className="w-4 h-4 text-[#737373]" aria-hidden="true" />
                     </button>
                 </div>
             </div>
@@ -947,11 +949,16 @@ function VibePageContent() {
                                 <span className="hidden sm:inline">Random</span>
                             </button>
                             <button
+                                type="button"
                                 onClick={handleRefresh}
                                 disabled={isLoading}
+                                aria-label="Refresh vibe"
                                 className="p-1.5 text-[#737373] hover:text-white hover:bg-white/5 rounded-md transition-colors disabled:opacity-50"
                             >
-                                <RefreshCw className={cn("w-4 h-4", isLoading && "animate-spin")} />
+                                <RefreshCw
+                                    className={cn("w-4 h-4", isLoading && "animate-spin")}
+                                    aria-hidden="true"
+                                />
                             </button>
                         </div>
                     </div>

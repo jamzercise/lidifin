@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { enrichmentApi } from "@/lib/enrichmentApi";
 import {
@@ -28,6 +28,7 @@ export function EnrichmentFailuresModal({
     );
     const [currentPage, setCurrentPage] = useState(1);
     const [showClearConfirm, setShowClearConfirm] = useState(false);
+    const titleId = useId();
     const pageSize = 20;
     const queryClient = useQueryClient();
 
@@ -159,11 +160,16 @@ export function EnrichmentFailuresModal({
 
     return (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
-            <div className="bg-[#1a1a1a] rounded-lg w-full max-w-4xl max-h-[90vh] flex flex-col border border-white/10">
+            <div
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby={titleId}
+                className="bg-[#1a1a1a] rounded-lg w-full max-w-4xl max-h-[90vh] flex flex-col border border-white/10"
+            >
                 {/* Header */}
                 <div className="flex items-center justify-between p-6 border-b border-white/10">
                     <div>
-                        <h2 className="text-xl font-bold text-white">
+                        <h2 id={titleId} className="text-xl font-bold text-white">
                             Enrichment Failures
                         </h2>
                         <p className="text-sm text-white/50 mt-1">
@@ -183,10 +189,15 @@ export function EnrichmentFailuresModal({
                             </button>
                         )}
                         <button
+                            type="button"
                             onClick={onClose}
+                            aria-label="Close enrichment failures dialog"
                             className="p-2 hover:bg-white/10 rounded-lg transition-colors"
                         >
-                            <X className="w-5 h-5 text-white/70" />
+                            <X
+                                className="w-5 h-5 text-white/70"
+                                aria-hidden="true"
+                            />
                         </button>
                     </div>
                 </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useId, useState } from "react";
 import { X, Play, Loader2, Sparkles, ListPlus } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAudioControls } from "@/lib/audio-controls-context";
@@ -38,6 +38,7 @@ export function FindSimilarModal({
     const [error, setError] = useState<string | null>(null);
     const [saving, setSaving] = useState(false);
     const [showSaveDialog, setShowSaveDialog] = useState(false);
+    const titleId = useId();
     const [playlistName, setPlaylistName] = useState("");
 
     useEffect(() => {
@@ -104,16 +105,25 @@ export function FindSimilarModal({
             onClick={onClose}
         >
             <div
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby={titleId}
                 className="bg-[#1a1a1a] rounded-2xl max-w-lg w-full max-h-[85vh] overflow-hidden border border-white/10 shadow-2xl"
                 onClick={(e) => e.stopPropagation()}
             >
                 <div className="p-6 border-b border-white/10 flex items-center justify-between">
                     <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
-                            <Sparkles className="w-5 h-5 text-white" />
+                            <Sparkles
+                                className="w-5 h-5 text-white"
+                                aria-hidden="true"
+                            />
                         </div>
                         <div>
-                            <h2 className="text-lg font-bold text-white">
+                            <h2
+                                id={titleId}
+                                className="text-lg font-bold text-white"
+                            >
                                 Similar to {trackTitle || "this track"}
                             </h2>
                             {artistName && (
@@ -122,10 +132,12 @@ export function FindSimilarModal({
                         </div>
                     </div>
                     <button
+                        type="button"
                         onClick={onClose}
+                        aria-label="Close similar tracks dialog"
                         className="p-2 rounded-full hover:bg-white/10 transition-colors"
                     >
-                        <X className="w-5 h-5 text-gray-400" />
+                        <X className="w-5 h-5 text-gray-400" aria-hidden="true" />
                     </button>
                 </div>
 

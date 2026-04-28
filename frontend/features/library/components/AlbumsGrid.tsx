@@ -82,10 +82,15 @@ const AlbumCardItem = memo(
                         </div>
                         {/* Play button */}
                         <button
+                            type="button"
                             onClick={handlePlay}
+                            aria-label={`Play ${album.title}`}
                             className="absolute bottom-1 right-1 w-10 h-10 rounded-full bg-[#B1D2C3] flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 transition-opacity"
                         >
-                            <Play className="w-4 h-4 fill-current ml-0.5 text-black" />
+                            <Play
+                                className="w-4 h-4 fill-current ml-0.5 text-black"
+                                aria-hidden="true"
+                            />
                         </button>
                         {/* Delete button */}
                         <button

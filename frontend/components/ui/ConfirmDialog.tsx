@@ -1,5 +1,6 @@
 "use client";
 
+import { useId } from "react";
 import { AlertTriangle, X } from "lucide-react";
 
 interface ConfirmDialogProps {
@@ -23,6 +24,9 @@ export function ConfirmDialog({
     cancelText = "Cancel",
     variant = "danger",
 }: ConfirmDialogProps) {
+    const titleId = useId();
+    const messageId = useId();
+
     if (!isOpen) return null;
 
     const variantStyles = {
@@ -56,6 +60,10 @@ export function ConfirmDialog({
             onClick={onClose}
         >
             <div
+                role="alertdialog"
+                aria-modal="true"
+                aria-labelledby={titleId}
+                aria-describedby={messageId}
                 className="bg-[#121212] rounded-xl max-w-md w-full overflow-hidden border border-white/10 shadow-2xl animate-slideUp"
                 onClick={(e) => e.stopPropagation()}
             >
@@ -64,19 +72,29 @@ export function ConfirmDialog({
                     <div
                         className={`w-12 h-12 rounded-full ${styles.iconBg} flex items-center justify-center flex-shrink-0`}
                     >
-                        <AlertTriangle className={`w-6 h-6 ${styles.icon}`} />
+                        <AlertTriangle
+                            className={`w-6 h-6 ${styles.icon}`}
+                            aria-hidden="true"
+                        />
                     </div>
                     <div className="flex-1 min-w-0">
-                        <h2 className="text-xl font-bold text-white mb-2">
+                        <h2
+                            id={titleId}
+                            className="text-xl font-bold text-white mb-2"
+                        >
                             {title}
                         </h2>
-                        <p className="text-sm text-gray-400">{message}</p>
+                        <p id={messageId} className="text-sm text-gray-400">
+                            {message}
+                        </p>
                     </div>
                     <button
+                        type="button"
                         onClick={onClose}
+                        aria-label="Close dialog"
                         className="p-1 hover:bg-white/10 rounded-full transition-colors text-gray-400 hover:text-white flex-shrink-0"
                     >
-                        <X className="w-5 h-5" />
+                        <X className="w-5 h-5" aria-hidden="true" />
                     </button>
                 </div>
 

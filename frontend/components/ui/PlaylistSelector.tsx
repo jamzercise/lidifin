@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { api } from "@/lib/api";
 import { X, Plus, Music2 } from "lucide-react";
 import { GradientSpinner } from "./GradientSpinner";
@@ -25,6 +25,7 @@ export function PlaylistSelector({
     const [isPublic, setIsPublic] = useState(false);
     const [isCreating, setIsCreating] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
+    const titleId = useId();
 
     useEffect(() => {
         if (isOpen) {
@@ -90,18 +91,26 @@ export function PlaylistSelector({
             onClick={onClose}
         >
             <div
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby={titleId}
                 className="bg-linear-to-b from-[#121212] to-[#121212] rounded-xl max-w-md w-full max-h-[80vh] overflow-hidden flex flex-col border border-white/10 shadow-2xl"
                 onClick={(e) => e.stopPropagation()}
             >
                 <div className="flex items-center justify-between p-6 border-b border-white/10">
-                    <h2 className="text-2xl font-bold text-white">
+                    <h2 id={titleId} className="text-2xl font-bold text-white">
                         Add to Playlist
                     </h2>
                     <button
+                        type="button"
                         onClick={onClose}
+                        aria-label="Close dialog"
                         className="p-2 hover:bg-white/10 rounded-full transition-colors"
                     >
-                        <X className="w-5 h-5 text-gray-400" />
+                        <X
+                            className="w-5 h-5 text-gray-400"
+                            aria-hidden="true"
+                        />
                     </button>
                 </div>
 

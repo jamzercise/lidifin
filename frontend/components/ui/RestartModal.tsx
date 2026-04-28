@@ -1,7 +1,7 @@
 "use client";
 
 import { X, Copy, Check } from "lucide-react";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { Button } from "./Button";
 
 interface RestartModalProps {
@@ -16,6 +16,7 @@ export function RestartModal({
     changedServices,
 }: RestartModalProps) {
     const [copied, setCopied] = useState(false);
+    const titleId = useId();
     const command = "docker-compose restart";
 
     const handleCopy = async () => {
@@ -36,22 +37,35 @@ export function RestartModal({
 
             {/* Modal */}
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-                <div className="bg-[#111] border border-[#1c1c1c] rounded-lg shadow-2xl max-w-md w-full">
+                <div
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby={titleId}
+                    className="bg-[#111] border border-[#1c1c1c] rounded-lg shadow-2xl max-w-md w-full"
+                >
                     {/* Header */}
                     <div className="flex items-center justify-between p-6 border-b border-[#1c1c1c]">
                         <div className="flex items-center gap-3">
                             <div className="w-10 h-10 rounded-full bg-green-500/20 flex items-center justify-center">
-                                <Check className="w-6 h-6 text-green-500" />
+                                <Check
+                                    className="w-6 h-6 text-green-500"
+                                    aria-hidden="true"
+                                />
                             </div>
-                            <h2 className="text-xl font-semibold text-white">
+                            <h2
+                                id={titleId}
+                                className="text-xl font-semibold text-white"
+                            >
                                 Settings Saved!
                             </h2>
                         </div>
                         <button
+                            type="button"
                             onClick={onClose}
+                            aria-label="Close dialog"
                             className="text-gray-400 hover:text-white transition-colors"
                         >
-                            <X className="w-5 h-5" />
+                            <X className="w-5 h-5" aria-hidden="true" />
                         </button>
                     </div>
 

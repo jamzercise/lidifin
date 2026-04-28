@@ -183,10 +183,12 @@ export function DownloadNotifications() {
                             )}
                         </div>
                         <button
+                            type="button"
                             onClick={handleClose}
+                            aria-label="Close download notifications"
                             className="text-white/40 hover:text-white transition-colors p-1"
                         >
-                            <X className="w-4 h-4" />
+                            <X className="w-4 h-4" aria-hidden="true" />
                         </button>
                     </div>
 

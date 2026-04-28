@@ -278,10 +278,12 @@ export function PodcastPlayer({
                                     </button>
                                 )}
                                 <button
+                                    type="button"
                                     onClick={onClose}
+                                    aria-label="Close podcast player"
                                     className="text-gray-400 hover:text-white transition-colors p-2"
                                 >
-                                    <X className="w-5 h-5" />
+                                    <X className="w-5 h-5" aria-hidden="true" />
                                 </button>
                             </div>
                         </div>

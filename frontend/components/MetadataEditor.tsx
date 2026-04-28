@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import { Edit, X, Save } from "lucide-react";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
@@ -51,6 +51,7 @@ export function MetadataEditor({
     const [isResetting, setIsResetting] = useState(false);
     const [formData, setFormData] = useState(currentData);
     const hasOverrides = currentData._hasUserOverrides ?? false;
+    const titleId = useId();
 
     const handleOpen = () => {
         setFormData(currentData);
@@ -163,10 +164,18 @@ export function MetadataEditor({
             {/* Modal */}
             {isOpen && (
                 <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-                    <div className="bg-[#121212] rounded-lg max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+                    <div
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby={titleId}
+                        className="bg-[#121212] rounded-lg max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col"
+                    >
                         {/* Header */}
                         <div className="flex items-center justify-between p-6 border-b border-white/10">
-                            <h2 className="text-2xl font-bold text-white">
+                            <h2
+                                id={titleId}
+                                className="text-2xl font-bold text-white"
+                            >
                                 Edit{" "}
                                 {type === "artist"
                                     ? "Artist"
@@ -176,10 +185,15 @@ export function MetadataEditor({
                                 Metadata
                             </h2>
                             <button
+                                type="button"
                                 onClick={handleClose}
+                                aria-label="Close metadata editor"
                                 className="p-2 hover:bg-white/10 rounded-full transition-all"
                             >
-                                <X className="w-6 h-6 text-white" />
+                                <X
+                                    className="w-6 h-6 text-white"
+                                    aria-hidden="true"
+                                />
                             </button>
                         </div>
 

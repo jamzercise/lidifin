@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useId, useState } from "react";
 import { api, MoodType, MoodBucketPreset } from "@/lib/api";
 import { useAudioControls } from "@/lib/audio-controls-context";
 import { Track } from "@/lib/audio-state-context";
@@ -114,6 +114,7 @@ export function MoodMixer({ isOpen, onClose }: MoodMixerProps) {
     const [generating, setGenerating] = useState<MoodType | null>(null);
     const [isVisible, setIsVisible] = useState(false);
     const [audioMuseAvailable, setAudioMuseAvailable] = useState(false);
+    const titleId = useId();
 
     // Handle visibility animation
     useEffect(() => {
@@ -261,6 +262,9 @@ export function MoodMixer({ isOpen, onClose }: MoodMixerProps) {
             onClick={onClose}
         >
             <div
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby={titleId}
                 className={`bg-gradient-to-b from-[#1a1a1a] to-[#0a0a0a] rounded-2xl max-w-lg w-full max-h-[85vh] overflow-hidden border border-white/10 shadow-2xl transition-all duration-200 ${
                     isOpen ? "scale-100 opacity-100" : "scale-95 opacity-0"
                 }`}
@@ -270,10 +274,16 @@ export function MoodMixer({ isOpen, onClose }: MoodMixerProps) {
                 <div className="p-6 border-b border-white/10 flex items-center justify-between">
                     <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#B1D2C3] to-amber-600 flex items-center justify-center">
-                            <AudioWaveform className="w-5 h-5 text-black" />
+                            <AudioWaveform
+                                className="w-5 h-5 text-black"
+                                aria-hidden="true"
+                            />
                         </div>
                         <div>
-                            <h2 className="text-xl font-bold text-white">
+                            <h2
+                                id={titleId}
+                                className="text-xl font-bold text-white"
+                            >
                                 Mood Mixer
                             </h2>
                             <p className="text-sm text-gray-400">
@@ -282,10 +292,12 @@ export function MoodMixer({ isOpen, onClose }: MoodMixerProps) {
                         </div>
                     </div>
                     <button
+                        type="button"
                         onClick={onClose}
+                        aria-label="Close mood mixer"
                         className="p-2 rounded-full hover:bg-white/10 transition-colors"
                     >
-                        <X className="w-5 h-5 text-gray-400" />
+                        <X className="w-5 h-5 text-gray-400" aria-hidden="true" />
                     </button>
                 </div>
 
