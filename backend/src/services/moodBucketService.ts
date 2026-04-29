@@ -6,9 +6,11 @@
  * instant mood mix generation through simple database lookups.
  */
 
+import type { JellyfinTrackAnalysis } from "@prisma/client";
 import { logger } from "../utils/logger";
 import { prisma } from "../utils/db";
 import { shuffleArray } from "../utils/shuffle";
+import { isJellyfinMusicSource, resolveTrackReferences } from "./jellyfin";
 
 // Mood configuration with scoring rules
 // Primary = uses ML mood predictions (enhanced mode)
@@ -115,6 +117,31 @@ const MOOD_GRADIENTS: Record<MoodType, string> = {
     acoustic:
         "linear-gradient(to bottom, rgba(146, 64, 14, 0.6), rgba(124, 45, 18, 0.5), rgba(68, 64, 60, 0.4))",
 };
+
+function jellyfinAnalysisRowToMoodShape(
+    row: JellyfinTrackAnalysis
+): TrackWithAnalysis {
+    return {
+        id: row.jellyfinTrackId,
+        analysisMode: row.analysisMode,
+        moodHappy: row.moodHappy,
+        moodSad: row.moodSad,
+        moodRelaxed: row.moodRelaxed,
+        moodAggressive: row.moodAggressive,
+        moodParty: row.moodParty,
+        moodAcoustic: row.moodAcoustic,
+        moodElectronic: row.moodElectronic,
+        valence: row.valence,
+        energy: row.energy,
+        arousal: row.arousal,
+        danceability: row.danceability,
+        acousticness: row.acousticness,
+        instrumentalness: row.instrumentalness,
+        bpm: row.bpm,
+        keyScale: row.keyScale,
+        moodTags: row.moodTags ?? [],
+    };
+}
 
 interface TrackWithAnalysis {
     id: string;
@@ -389,6 +416,20 @@ export class MoodBucketService {
             trackCount: number;
         }[]
     > {
+        if (await isJellyfinMusicSource()) {
+            const counts = await this.getJellyfinMoodTrackCounts();
+            return VALID_MOODS.map((mood) => {
+                const config = MOOD_CONFIG[mood];
+                return {
+                    id: mood,
+                    name: config.name,
+                    color: config.color,
+                    icon: config.icon,
+                    trackCount: counts[mood] ?? 0,
+                };
+            });
+        }
+
         // Count tracks per mood in parallel
         const countPromises = VALID_MOODS.map(async (mood) => {
             const count = await prisma.moodBucket.count({
@@ -426,6 +467,10 @@ export class MoodBucketService {
     } | null> {
         if (!VALID_MOODS.includes(mood)) {
             throw new Error(`Invalid mood: ${mood}`);
+        }
+
+        if (await isJellyfinMusicSource()) {
+            return this.getJellyfinMoodMixFromAnalysis(mood, limit);
         }
 
         const config = MOOD_CONFIG[mood];
@@ -479,6 +524,96 @@ export class MoodBucketService {
             trackCount: orderedTracks.length,
             color: MOOD_GRADIENTS[mood],
         };
+    }
+
+    /**
+     * Jellyfin library: mood scores from `JellyfinTrackAnalysis` (MoodBucket is
+     * FK-bound to `Track` only, so we score in memory — same rules as buckets).
+     */
+    private async getJellyfinMoodMixFromAnalysis(
+        mood: MoodType,
+        limit: number
+    ): Promise<{
+        id: string;
+        mood: string;
+        name: string;
+        description: string;
+        trackIds: string[];
+        coverUrls: string[];
+        trackCount: number;
+        color: string;
+    } | null> {
+        const config = MOOD_CONFIG[mood];
+        const pool = await prisma.jellyfinTrackAnalysis.findMany({
+            where: { analysisStatus: "completed" },
+            take: 4000,
+            orderBy: { analyzedAt: "desc" },
+        });
+
+        const scored: { trackId: string; score: number }[] = [];
+        for (const row of pool) {
+            const scores = this.calculateMoodScores(
+                jellyfinAnalysisRowToMoodShape(row)
+            );
+            const s = scores[mood];
+            if (s >= 0.5) {
+                scored.push({ trackId: row.jellyfinTrackId, score: s });
+            }
+        }
+
+        if (scored.length < 8) {
+            logger.debug(
+                `[MoodBucket] Jellyfin: not enough tracks for mood ${mood}: ${scored.length}`
+            );
+            return null;
+        }
+
+        scored.sort((a, b) => b.score - a.score);
+        const topPool = scored.slice(0, 100);
+        const shuffled = shuffleArray(topPool);
+        const selected = shuffled.slice(0, limit);
+        const trackIds = selected.map((s) => s.trackId);
+
+        const resolved = await resolveTrackReferences(trackIds);
+        const coverUrls = resolved
+            .filter((t): t is NonNullable<typeof t> => t !== null)
+            .map((t) => t.album.coverArt)
+            .filter((u): u is string => !!u)
+            .slice(0, 4);
+
+        const timestamp = Date.now();
+        return {
+            id: `mood-${mood}-${timestamp}`,
+            mood,
+            name: `${config.name} Mix`,
+            description: `Tracks that match your ${config.name.toLowerCase()} vibe`,
+            trackIds,
+            coverUrls,
+            trackCount: trackIds.length,
+            color: MOOD_GRADIENTS[mood],
+        };
+    }
+
+    private async getJellyfinMoodTrackCounts(): Promise<Record<MoodType, number>> {
+        const counts = Object.fromEntries(
+            VALID_MOODS.map((m) => [m, 0])
+        ) as Record<MoodType, number>;
+
+        const pool = await prisma.jellyfinTrackAnalysis.findMany({
+            where: { analysisStatus: "completed" },
+            take: 4000,
+            orderBy: { analyzedAt: "desc" },
+        });
+
+        for (const row of pool) {
+            const scores = this.calculateMoodScores(
+                jellyfinAnalysisRowToMoodShape(row)
+            );
+            for (const mood of VALID_MOODS) {
+                if (scores[mood] >= 0.5) counts[mood]++;
+            }
+        }
+        return counts;
     }
 
     /**

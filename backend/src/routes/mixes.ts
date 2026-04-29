@@ -18,6 +18,7 @@ import {
 } from "../services/audioMuseService";
 import { getJellyfinConfig } from "../services/jellyfin";
 import { resolveTrackReferences } from "../services/jellyfin";
+import { loadOrderedMixTracks } from "../services/mixes/loadMixTrackDetails";
 import { prisma } from "../utils/db";
 import { redisClient } from "../utils/redis";
 import { generateMixCoverSvg } from "../services/mixCoverService";
@@ -599,30 +600,8 @@ router.post("/mood", async (req, res) => {
             });
         }
 
-        // Load full track details
-        const tracks = await prisma.track.findMany({
-            where: {
-                id: { in: mix.trackIds },
-            },
-            include: {
-                album: {
-                    include: {
-                        artist: {
-                            select: {
-                                id: true,
-                                name: true,
-                                mbid: true,
-                            },
-                        },
-                    },
-                },
-            },
-        });
-
-        // Preserve mix order
-        const orderedTracks = mix.trackIds
-            .map((id: string) => tracks.find((t) => t.id === id))
-            .filter((t: any) => t !== undefined);
+        // Load full track details (native Track rows and/or jellyfin ids)
+        const orderedTracks = await loadOrderedMixTracks(mix.trackIds);
 
         logger.debug(
             `[MIXES] Generated mood-on-demand mix with ${mix.trackCount} tracks`
@@ -879,24 +858,7 @@ router.get("/mood/buckets/:mood", async (req, res) => {
             });
         }
 
-        // Load full track details
-        const tracks = await prisma.track.findMany({
-            where: { id: { in: mix.trackIds } },
-            include: {
-                album: {
-                    include: {
-                        artist: {
-                            select: { id: true, name: true, mbid: true },
-                        },
-                    },
-                },
-            },
-        });
-
-        // Preserve mix order
-        const orderedTracks = mix.trackIds
-            .map((id: string) => tracks.find((t) => t.id === id))
-            .filter((t: any) => t !== undefined);
+        const orderedTracks = await loadOrderedMixTracks(mix.trackIds);
 
         res.json({
             ...mix,
@@ -960,24 +922,7 @@ router.post("/mood/buckets/:mood/save", async (req, res) => {
         const cacheKey = `mixes:${userId}`;
         await redisClient.del(cacheKey);
 
-        // Load full track details for immediate playback
-        const tracks = await prisma.track.findMany({
-            where: { id: { in: savedMix.trackIds } },
-            include: {
-                album: {
-                    include: {
-                        artist: {
-                            select: { id: true, name: true, mbid: true },
-                        },
-                    },
-                },
-            },
-        });
-
-        // Preserve mix order
-        const orderedTracks = savedMix.trackIds
-            .map((id: string) => tracks.find((t) => t.id === id))
-            .filter((t: any) => t !== undefined);
+        const orderedTracks = await loadOrderedMixTracks(savedMix.trackIds);
 
         logger.debug(
             `[MIXES] Saved mood bucket mix for user ${userId}: ${mood} (${savedMix.trackCount} tracks)`

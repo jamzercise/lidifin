@@ -1,8 +1,10 @@
 import { prisma } from "@/utils/db";
 import { logger } from "@/utils/logger";
+import { isJellyfinMusicSource } from "@/services/jellyfin";
 import { TRACK_LIMIT } from "../constants";
 import { getMixColor } from "../colors";
 import { findTracksByGenrePatterns, getSeededRandom } from "../helpers";
+import * as jellyfinMoodActivity from "../jellyfinMoodActivityMixes";
 import type { ProgrammaticMix } from "../types";
 
 /**
@@ -14,6 +16,9 @@ export async function generateHappyMix(
     userId: string,
     today: string
 ): Promise<ProgrammaticMix | null> {
+    if (await isJellyfinMusicSource()) {
+        return jellyfinMoodActivity.generateHappyMixJellyfin(today);
+    }
     let tracks: any[] = [];
 
     const enhancedTracks = await prisma.track.findMany({
@@ -112,6 +117,9 @@ export async function generateMelancholyMix(
     userId: string,
     today: string
 ): Promise<ProgrammaticMix | null> {
+    if (await isJellyfinMusicSource()) {
+        return jellyfinMoodActivity.generateMelancholyMixJellyfin(today);
+    }
     let tracks: any[] = [];
 
     const enhancedTracks = await prisma.track.findMany({
@@ -249,6 +257,9 @@ export async function generateDanceFloorMix(
     userId: string,
     today: string
 ): Promise<ProgrammaticMix | null> {
+    if (await isJellyfinMusicSource()) {
+        return jellyfinMoodActivity.generateDanceFloorMixJellyfin(today);
+    }
     let tracks: any[] = [];
 
     const audioTracks = await prisma.track.findMany({
@@ -330,6 +341,9 @@ export async function generateAcousticMix(
     userId: string,
     today: string
 ): Promise<ProgrammaticMix | null> {
+    if (await isJellyfinMusicSource()) {
+        return jellyfinMoodActivity.generateAcousticMixJellyfin(today);
+    }
     let tracks: any[] = [];
 
     const audioTracks = await prisma.track.findMany({
@@ -409,6 +423,9 @@ export async function generateInstrumentalMix(
     userId: string,
     today: string
 ): Promise<ProgrammaticMix | null> {
+    if (await isJellyfinMusicSource()) {
+        return jellyfinMoodActivity.generateInstrumentalMixJellyfin(today);
+    }
     let tracks: any[] = [];
 
     const audioTracks = await prisma.track.findMany({
@@ -540,6 +557,9 @@ export async function generateRoadTripMix(
     userId: string,
     today: string
 ): Promise<ProgrammaticMix | null> {
+    if (await isJellyfinMusicSource()) {
+        return jellyfinMoodActivity.generateRoadTripMixJellyfin(today);
+    }
     let tracks: any[] = [];
 
     const taggedTracks = await prisma.track.findMany({

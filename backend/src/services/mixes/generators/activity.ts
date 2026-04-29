@@ -1,5 +1,6 @@
 import { prisma } from "@/utils/db";
 import { logger } from "@/utils/logger";
+import { isJellyfinMusicSource } from "@/services/jellyfin";
 import {
     DAILY_TRACK_LIMIT,
     MIN_TRACKS_DAILY,
@@ -9,6 +10,7 @@ import {
 } from "../constants";
 import { getMixColor } from "../colors";
 import { findTracksByGenrePatterns, getSeededRandom } from "../helpers";
+import * as jellyfinMoodActivity from "../jellyfinMoodActivityMixes";
 import type { ProgrammaticMix } from "../types";
 
 /**
@@ -19,6 +21,9 @@ export async function generatePartyMix(
     userId: string,
     today: string
 ): Promise<ProgrammaticMix | null> {
+    if (await isJellyfinMusicSource()) {
+        return jellyfinMoodActivity.generatePartyMixJellyfin(today);
+    }
     const partyGenres = [
         "dance",
         "electronic",
@@ -137,6 +142,9 @@ export async function generateChillMix(
     userId: string,
     today: string
 ): Promise<ProgrammaticMix | null> {
+    if (await isJellyfinMusicSource()) {
+        return jellyfinMoodActivity.generateChillMixJellyfin(today);
+    }
     let tracks = await prisma.track.findMany({
         where: {
             analysisStatus: "completed",
@@ -226,6 +234,9 @@ export async function generateWorkoutMix(
     userId: string,
     today: string
 ): Promise<ProgrammaticMix | null> {
+    if (await isJellyfinMusicSource()) {
+        return jellyfinMoodActivity.generateWorkoutMixJellyfin(today);
+    }
     const workoutGenres = [
         "rock",
         "metal",
@@ -384,6 +395,9 @@ export async function generateFocusMix(
     userId: string,
     today: string
 ): Promise<ProgrammaticMix | null> {
+    if (await isJellyfinMusicSource()) {
+        return jellyfinMoodActivity.generateFocusMixJellyfin(today);
+    }
     const focusGenres = [
         "classical",
         "instrumental",
@@ -492,6 +506,9 @@ export async function generateHighEnergyMix(
     userId: string,
     today: string
 ): Promise<ProgrammaticMix | null> {
+    if (await isJellyfinMusicSource()) {
+        return jellyfinMoodActivity.generateHighEnergyMixJellyfin(today);
+    }
     let tracks: any[] = [];
 
     const audioTracks = await prisma.track.findMany({
@@ -574,6 +591,9 @@ export async function generateLateNightMix(
     userId: string,
     today: string
 ): Promise<ProgrammaticMix | null> {
+    if (await isJellyfinMusicSource()) {
+        return jellyfinMoodActivity.generateLateNightMixJellyfin(today);
+    }
     let tracks = await prisma.track.findMany({
         where: {
             analysisStatus: "completed",

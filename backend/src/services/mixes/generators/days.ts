@@ -1,7 +1,9 @@
 import { prisma } from "@/utils/db";
+import { isJellyfinMusicSource } from "@/services/jellyfin";
 import { TRACK_LIMIT } from "../constants";
 import { getMixColor } from "../colors";
 import { randomSample } from "../helpers";
+import * as jfVibe from "../jellyfinVibeDayAdvancedMixes";
 import type { ProgrammaticMix } from "../types";
 
 /**
@@ -31,6 +33,10 @@ export async function generateSundayMix(
     userId: string,
     today: string
 ): Promise<ProgrammaticMix | null> {
+    if (await isJellyfinMusicSource()) {
+        return jfVibe.generateSundayMixJellyfin(today);
+    }
+
     const tracks = await prisma.track.findMany({
         where: {
             OR: [
@@ -82,6 +88,10 @@ export async function generateMondayMix(
     userId: string,
     today: string
 ): Promise<ProgrammaticMix | null> {
+    if (await isJellyfinMusicSource()) {
+        return jfVibe.generateMondayMixJellyfin(today);
+    }
+
     const tracks = await prisma.track.findMany({
         where: {
             OR: [
@@ -132,6 +142,10 @@ export async function generateFridayMix(
     userId: string,
     today: string
 ): Promise<ProgrammaticMix | null> {
+    if (await isJellyfinMusicSource()) {
+        return jfVibe.generateFridayMixJellyfin(today);
+    }
+
     const tracks = await prisma.track.findMany({
         where: {
             OR: [

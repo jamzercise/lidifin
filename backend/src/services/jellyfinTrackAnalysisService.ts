@@ -10,10 +10,11 @@
  *   - Provide narrow read paths for mix generators / mood buckets so they
  *     don't construct ad-hoc Prisma queries against a wide table.
  *
- * The audio + vibe analyzers themselves still live in Python and write
- * via the backend's `/api/analysis/*` endpoints. This service is the
- * canonical place for any new endpoint or worker that needs to read or
- * write Jellyfin track analysis data — and the future migration target
+ * The Essentia worker (`services/audio-analyzer/analyzer.py`) writes
+ * directly to PostgreSQL for both `Track` and `JellyfinTrackAnalysis`
+ * (see Arch-X.b.W). CLAP / other analyzers may use HTTP endpoints. This
+ * service is the canonical place for any new endpoint or worker that needs
+ * to read or write Jellyfin track analysis data — and the future migration target
  * for the existing routes that still operate against `Track`. See
  * `prisma/schema.prisma#JellyfinTrackAnalysis` for the full schema and
  * the X.b sequence (X.b.2/X.b.3 migrate writers and readers).

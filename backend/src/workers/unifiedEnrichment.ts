@@ -901,8 +901,8 @@ async function enrichTrackTagsBatch(): Promise<number> {
  * Step 3: Queue pending tracks for audio analysis (Essentia)
  */
 async function queueAudioAnalysis(): Promise<number> {
-    // Find tracks that need audio analysis
-    // All tracks should have filePath, so no null check needed
+    let totalQueued = 0;
+
     const tracks = await prisma.track.findMany({
         where: {
             analysisStatus: "pending",
@@ -913,55 +913,67 @@ async function queueAudioAnalysis(): Promise<number> {
             title: true,
             duration: true,
         },
-        take: 10, // Match analyzer batch size to avoid stale "processing" buildup
+        take: 10,
         orderBy: { fileModified: "desc" },
     });
 
-    if (tracks.length === 0) return 0;
-
-    logger.debug(
-        `[Audio Analysis] Queueing ${tracks.length} tracks for Essentia...`,
-    );
-
-    const redis = getRedis();
-    const multi = redis.multi();
-    const now = new Date();
-    const idsToMark: string[] = [];
-
-    for (const track of tracks) {
-        multi.rPush(
-            "audio:analysis:queue",
-            JSON.stringify({
-                trackId: track.id,
-                filePath: track.filePath,
-                duration: track.duration,
-            })
+    if (tracks.length > 0) {
+        logger.debug(
+            `[Audio Analysis] Queueing ${tracks.length} Prisma mirror track(s) for Essentia...`,
         );
-        idsToMark.push(track.id);
+
+        const redis = getRedis();
+        const multi = redis.multi();
+        const now = new Date();
+        const idsToMark: string[] = [];
+
+        for (const track of tracks) {
+            multi.rPush(
+                "audio:analysis:queue",
+                JSON.stringify({
+                    trackId: track.id,
+                    filePath: track.filePath,
+                    duration: track.duration,
+                })
+            );
+            idsToMark.push(track.id);
+        }
+
+        try {
+            await multi.exec();
+            if (idsToMark.length > 0) {
+                await prisma.track.updateMany({
+                    where: { id: { in: idsToMark } },
+                    data: {
+                        analysisStatus: "processing",
+                        analysisStartedAt: now,
+                    },
+                });
+            }
+            totalQueued += idsToMark.length;
+            if (idsToMark.length > 0) {
+                logger.debug(
+                    ` Queued ${idsToMark.length} Prisma mirror track(s) for audio analysis`,
+                );
+            }
+        } catch (error) {
+            logger.error(`   Failed to queue audio analysis batch:`, error);
+        }
     }
 
     try {
-        await multi.exec();
-        if (idsToMark.length > 0) {
-            await prisma.track.updateMany({
-                where: { id: { in: idsToMark } },
-                data: {
-                    analysisStatus: "processing",
-                    analysisStartedAt: now,
-                },
-            });
+        const { isJellyfinMusicSource } = await import("../services/jellyfin");
+        if (await isJellyfinMusicSource()) {
+            const { queueJellyfinTracksForEssentia } = await import(
+                "../services/jellyfinEssentiaQueue"
+            );
+            totalQueued += await queueJellyfinTracksForEssentia(5);
         }
-    } catch (error) {
-        logger.error(`   Failed to queue audio analysis batch:`, error);
-        return 0;
-    }
-    const queued = idsToMark.length;
-
-    if (queued > 0) {
-        logger.debug(` Queued ${queued} tracks for audio analysis`);
+    } catch (err) {
+        logger.warn("[Audio Analysis] Jellyfin Essentia queue skipped:", err);
     }
 
-    return queued;
+    return totalQueued;
 }
 
 /**
@@ -1063,6 +1075,9 @@ async function executeAudioPhase(): Promise<number> {
     const audioCompletedBefore = await prisma.track.count({
         where: { analysisStatus: "completed" },
     });
+    const jellyfinCompletedBefore = await prisma.jellyfinTrackAnalysis.count({
+        where: { analysisStatus: "completed" },
+    });
 
     const cleanupResult =
         await audioAnalysisCleanupService.cleanupStaleProcessing();
@@ -1075,7 +1090,13 @@ async function executeAudioPhase(): Promise<number> {
     const audioCompletedAfter = await prisma.track.count({
         where: { analysisStatus: "completed" },
     });
-    if (audioCompletedAfter > audioCompletedBefore) {
+    const jellyfinCompletedAfter = await prisma.jellyfinTrackAnalysis.count({
+        where: { analysisStatus: "completed" },
+    });
+    if (
+        audioCompletedAfter > audioCompletedBefore ||
+        jellyfinCompletedAfter > jellyfinCompletedBefore
+    ) {
         audioAnalysisCleanupService.recordSuccess();
     }
 

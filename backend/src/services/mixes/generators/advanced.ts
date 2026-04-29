@@ -1,7 +1,9 @@
 import { prisma } from "@/utils/db";
+import { isJellyfinMusicSource } from "@/services/jellyfin";
 import { WEEKLY_TRACK_LIMIT } from "../constants";
 import { getMixColor } from "../colors";
 import { getSeededRandom, randomSample } from "../helpers";
+import * as jfVibe from "../jellyfinVibeDayAdvancedMixes";
 import type { ProgrammaticMix } from "../types";
 
 /**
@@ -12,6 +14,9 @@ export async function generateDeepCuts(
     userId: string,
     today: string
 ): Promise<ProgrammaticMix | null> {
+    if (await isJellyfinMusicSource()) {
+        return jfVibe.generateDeepCutsJellyfin(today);
+    }
     const unplayedIds = await prisma.$queryRaw<{ id: string }[]>`
         SELECT t.id FROM "Track" t
         LEFT JOIN "Play" p ON p."trackId" = t.id
@@ -98,6 +103,9 @@ export async function generateKeyJourney(
     userId: string,
     today: string
 ): Promise<ProgrammaticMix | null> {
+    if (await isJellyfinMusicSource()) {
+        return jfVibe.generateKeyJourneyJellyfin(today);
+    }
     const keyOrder = [
         "C",
         "G",
@@ -178,6 +186,9 @@ export async function generateTempoFlow(
     userId: string,
     today: string
 ): Promise<ProgrammaticMix | null> {
+    if (await isJellyfinMusicSource()) {
+        return jfVibe.generateTempoFlowJellyfin(today);
+    }
     const tracks = await prisma.track.findMany({
         where: {
             analysisStatus: "completed",
@@ -241,6 +252,9 @@ export async function generateVocalDetox(
     userId: string,
     today: string
 ): Promise<ProgrammaticMix | null> {
+    if (await isJellyfinMusicSource()) {
+        return jfVibe.generateVocalDetoxJellyfin(today);
+    }
     const tracks = await prisma.track.findMany({
         where: {
             analysisStatus: "completed",
@@ -280,6 +294,10 @@ export async function generateMinorKeyMix(
 ): Promise<ProgrammaticMix | null> {
     const dayOfWeek = new Date().getDay();
     if (dayOfWeek !== 1) return null;
+
+    if (await isJellyfinMusicSource()) {
+        return jfVibe.generateMinorKeyMixJellyfin(today);
+    }
 
     const tracks = await prisma.track.findMany({
         where: {

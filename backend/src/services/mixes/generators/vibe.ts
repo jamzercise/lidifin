@@ -1,7 +1,9 @@
 import { prisma } from "@/utils/db";
+import { isJellyfinMusicSource } from "@/services/jellyfin";
 import { DAILY_TRACK_LIMIT, MIN_TRACKS_DAILY } from "../constants";
 import { getMixColor } from "../colors";
 import { randomSample } from "../helpers";
+import * as jfVibe from "../jellyfinVibeDayAdvancedMixes";
 import type { ProgrammaticMix } from "../types";
 
 /**
@@ -14,6 +16,10 @@ export async function generateSadGirlSundays(
 ): Promise<ProgrammaticMix | null> {
     const dayOfWeek = new Date().getDay();
     if (dayOfWeek !== 0) return null;
+
+    if (await isJellyfinMusicSource()) {
+        return jfVibe.generateSadGirlSundaysJellyfin(today);
+    }
 
     const tracks = await prisma.track.findMany({
         where: {
@@ -74,6 +80,10 @@ export async function generateMainCharacterEnergy(
     userId: string,
     today: string
 ): Promise<ProgrammaticMix | null> {
+    if (await isJellyfinMusicSource()) {
+        return jfVibe.generateMainCharacterEnergyJellyfin(today);
+    }
+
     const tracks = await prisma.track.findMany({
         where: {
             analysisStatus: "completed",
@@ -128,6 +138,10 @@ export async function generateVillainEra(
     userId: string,
     today: string
 ): Promise<ProgrammaticMix | null> {
+    if (await isJellyfinMusicSource()) {
+        return jfVibe.generateVillainEraJellyfin(today);
+    }
+
     const tracks = await prisma.track.findMany({
         where: {
             analysisStatus: "completed",
@@ -183,6 +197,10 @@ export async function generate3AMThoughts(
     userId: string,
     today: string
 ): Promise<ProgrammaticMix | null> {
+    if (await isJellyfinMusicSource()) {
+        return jfVibe.generate3AMThoughtsJellyfin(today);
+    }
+
     const tracks = await prisma.track.findMany({
         where: {
             analysisStatus: "completed",
@@ -229,6 +247,10 @@ export async function generateHotGirlWalk(
     userId: string,
     today: string
 ): Promise<ProgrammaticMix | null> {
+    if (await isJellyfinMusicSource()) {
+        return jfVibe.generateHotGirlWalkJellyfin(today);
+    }
+
     const tracks = await prisma.track.findMany({
         where: {
             analysisStatus: "completed",
@@ -279,6 +301,10 @@ export async function generateRageCleaning(
     userId: string,
     today: string
 ): Promise<ProgrammaticMix | null> {
+    if (await isJellyfinMusicSource()) {
+        return jfVibe.generateRageCleaningJellyfin(today);
+    }
+
     const tracks = await prisma.track.findMany({
         where: {
             analysisStatus: "completed",
@@ -332,6 +358,10 @@ export async function generateGoldenHour(
     userId: string,
     today: string
 ): Promise<ProgrammaticMix | null> {
+    if (await isJellyfinMusicSource()) {
+        return jfVibe.generateGoldenHourJellyfin(today);
+    }
+
     const tracks = await prisma.track.findMany({
         where: {
             analysisStatus: "completed",
@@ -381,6 +411,10 @@ export async function generateShowerKaraoke(
     userId: string,
     today: string
 ): Promise<ProgrammaticMix | null> {
+    if (await isJellyfinMusicSource()) {
+        return jfVibe.generateShowerKaraokeJellyfin(today);
+    }
+
     const tracks = await prisma.track.findMany({
         where: {
             analysisStatus: "completed",
@@ -421,6 +455,10 @@ export async function generateInMyFeelings(
     userId: string,
     today: string
 ): Promise<ProgrammaticMix | null> {
+    if (await isJellyfinMusicSource()) {
+        return jfVibe.generateInMyFeelingsJellyfin(today);
+    }
+
     const tracks = await prisma.track.findMany({
         where: {
             analysisStatus: "completed",
@@ -475,6 +513,10 @@ export async function generateMidnightDrive(
     userId: string,
     today: string
 ): Promise<ProgrammaticMix | null> {
+    if (await isJellyfinMusicSource()) {
+        return jfVibe.generateMidnightDriveJellyfin(today);
+    }
+
     const tracks = await prisma.track.findMany({
         where: {
             analysisStatus: "completed",
@@ -520,6 +562,10 @@ export async function generateCoffeeShopVibes(
     userId: string,
     today: string
 ): Promise<ProgrammaticMix | null> {
+    if (await isJellyfinMusicSource()) {
+        return jfVibe.generateCoffeeShopVibesJellyfin(today);
+    }
+
     const tracks = await prisma.track.findMany({
         where: {
             analysisStatus: "completed",
@@ -565,6 +611,10 @@ export async function generateRomanticizeYourLife(
     userId: string,
     today: string
 ): Promise<ProgrammaticMix | null> {
+    if (await isJellyfinMusicSource()) {
+        return jfVibe.generateRomanticizeYourLifeJellyfin(today);
+    }
+
     const tracks = await prisma.track.findMany({
         where: {
             analysisStatus: "completed",
@@ -619,6 +669,10 @@ export async function generateThatGirlEra(
     userId: string,
     today: string
 ): Promise<ProgrammaticMix | null> {
+    if (await isJellyfinMusicSource()) {
+        return jfVibe.generateThatGirlEraJellyfin(today);
+    }
+
     const tracks = await prisma.track.findMany({
         where: {
             analysisStatus: "completed",
@@ -659,6 +713,10 @@ export async function generateUnhinged(
     userId: string,
     today: string
 ): Promise<ProgrammaticMix | null> {
+    if (await isJellyfinMusicSource()) {
+        return jfVibe.generateUnhingedJellyfin(today);
+    }
+
     const tracks = await prisma.track.findMany({
         where: {
             analysisStatus: "completed",

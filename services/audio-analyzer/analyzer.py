@@ -53,6 +53,7 @@ It connects to Redis for job queue and PostgreSQL for storing results.
 
 # NOW safe to import other dependencies
 import json
+import re
 import time
 import logging
 import gc
@@ -225,6 +226,13 @@ STALE_PROCESSING_MINUTES = int(os.getenv('STALE_PROCESSING_MINUTES', '15'))  # R
 
 # Queue names
 ANALYSIS_QUEUE = 'audio:analysis:queue'
+
+# Must match backend `jellyfinTrackAnalysisService` / Jellyfin queue (`jellyfin:` + 32 hex).
+JELLYFIN_TRACK_ID_RE = re.compile(r'^jellyfin:[a-f0-9]{32}$', re.IGNORECASE)
+
+
+def _is_jellyfin_track_id(track_id: str) -> bool:
+    return bool(track_id and JELLYFIN_TRACK_ID_RE.match(track_id))
 
 # Control channel for enrichment coordination
 CONTROL_CHANNEL = 'audio:analysis:control'
@@ -1002,7 +1010,16 @@ def _analyze_track_in_process(args: Tuple[str, str]) -> Tuple[str, str, Dict[str
         
         # Normalize path separators (Windows paths -> Unix)
         normalized_path = file_path.replace('\\', '/')
-        full_path = os.path.join(MUSIC_PATH, normalized_path)
+        # Jellyfin jobs use an absolute cached stream path from the backend; legacy Track
+        # jobs use paths relative to MUSIC_PATH.
+        if _is_jellyfin_track_id(track_id):
+            full_path = (
+                normalized_path
+                if os.path.isabs(normalized_path)
+                else os.path.join(MUSIC_PATH, normalized_path)
+            )
+        else:
+            full_path = os.path.join(MUSIC_PATH, normalized_path)
         
         # Use os.fsencode/fsdecode for filesystem-safe encoding
         try:
@@ -1270,6 +1287,51 @@ class AnalysisWorker:
             if reset_count > 0:
                 logger.info(f"Reset {reset_count} stale 'processing' tracks back to 'pending'")
 
+            # Jellyfin-sourced analysis rows (no local Track row)
+            cursor.execute("""
+                UPDATE "JellyfinTrackAnalysis" j
+                SET
+                    "analysisStatus" = 'failed',
+                    "analysisError" = 'Stale processing exceeded max retries',
+                    "analysisStartedAt" = NULL,
+                    "analysisRetryCount" = COALESCE(j."analysisRetryCount", 0) + 1
+                WHERE j."analysisStatus" = 'processing'
+                AND (
+                    (j."analysisStartedAt" IS NOT NULL AND j."analysisStartedAt" < NOW() - INTERVAL '%s minutes')
+                    OR
+                    (j."analysisStartedAt" IS NULL AND j."updatedAt" < NOW() - INTERVAL '%s minutes')
+                )
+                AND COALESCE(j."analysisRetryCount", 0) + 1 >= %s
+                RETURNING j."jellyfinTrackId"
+            """, (STALE_PROCESSING_MINUTES, STALE_PROCESSING_MINUTES, MAX_RETRIES))
+            jf_perm = cursor.fetchall()
+            if len(jf_perm) > 0:
+                logger.info(
+                    f"Marked {len(jf_perm)} stale Jellyfin analysis row(s) as permanently failed"
+                )
+
+            cursor.execute("""
+                UPDATE "JellyfinTrackAnalysis" j
+                SET
+                    "analysisStatus" = 'pending',
+                    "analysisStartedAt" = NULL,
+                    "analysisRetryCount" = COALESCE(j."analysisRetryCount", 0) + 1,
+                    "analysisError" = 'Reset after stale processing'
+                WHERE j."analysisStatus" = 'processing'
+                AND (
+                    (j."analysisStartedAt" IS NOT NULL AND j."analysisStartedAt" < NOW() - INTERVAL '%s minutes')
+                    OR
+                    (j."analysisStartedAt" IS NULL AND j."updatedAt" < NOW() - INTERVAL '%s minutes')
+                )
+                AND COALESCE(j."analysisRetryCount", 0) + 1 < %s
+                RETURNING j."jellyfinTrackId"
+            """, (STALE_PROCESSING_MINUTES, STALE_PROCESSING_MINUTES, MAX_RETRIES))
+            jf_reset = cursor.fetchall()
+            if len(jf_reset) > 0:
+                logger.info(
+                    f"Reset {len(jf_reset)} stale Jellyfin 'processing' row(s) back to 'pending'"
+                )
+
             self.db.commit()
         except Exception as e:
             logger.error(f"Failed to cleanup stale tracks: {e}")
@@ -1329,7 +1391,37 @@ class AnalysisWorker:
             perm_failed = cursor.fetchone()
             if perm_failed and perm_failed['count'] > 0:
                 logger.warning(f"{perm_failed['count']} tracks have permanently failed (exceeded {MAX_RETRIES} retries)")
-            
+
+            # Retry failed Jellyfin analysis rows (mirror Track policy)
+            cursor.execute("""
+                UPDATE "JellyfinTrackAnalysis" j
+                SET
+                    "analysisStatus" = 'pending',
+                    "analysisError" = NULL
+                WHERE j."analysisStatus" = 'failed'
+                AND COALESCE(j."analysisRetryCount", 0) < %s
+                RETURNING j."jellyfinTrackId"
+            """, (MAX_RETRIES,))
+
+            jf_retry = cursor.fetchall()
+            if len(jf_retry) > 0:
+                logger.info(
+                    f"Re-queued {len(jf_retry)} failed Jellyfin track(s) for retry (max retries: {MAX_RETRIES})"
+                )
+
+            cursor.execute("""
+                SELECT COUNT(*) as count
+                FROM "JellyfinTrackAnalysis"
+                WHERE "analysisStatus" = 'failed'
+                AND COALESCE("analysisRetryCount", 0) >= %s
+            """, (MAX_RETRIES,))
+
+            jf_perm_failed = cursor.fetchone()
+            if jf_perm_failed and jf_perm_failed['count'] > 0:
+                logger.warning(
+                    f"{jf_perm_failed['count']} Jellyfin track(s) permanently failed audio analysis"
+                )
+
             self.db.commit()
         except Exception as e:
             logger.error(f"Failed to retry failed tracks: {e}")
@@ -1537,12 +1629,22 @@ class AnalysisWorker:
         cursor = self.db.get_cursor()
         try:
             track_ids = [t[0] for t in tracks]
-            cursor.execute("""
-                UPDATE "Track"
-                SET "analysisStatus" = 'processing',
-                    "analysisStartedAt" = NOW()
-                WHERE id = ANY(%s)
-            """, (track_ids,))
+            prisma_ids = [tid for tid in track_ids if not _is_jellyfin_track_id(tid)]
+            jf_ids = [tid for tid in track_ids if _is_jellyfin_track_id(tid)]
+            if prisma_ids:
+                cursor.execute("""
+                    UPDATE "Track"
+                    SET "analysisStatus" = 'processing',
+                        "analysisStartedAt" = NOW()
+                    WHERE id = ANY(%s)
+                """, (prisma_ids,))
+            if jf_ids:
+                cursor.execute("""
+                    UPDATE "JellyfinTrackAnalysis"
+                    SET "analysisStatus" = 'processing',
+                        "analysisStartedAt" = NOW()
+                    WHERE "jellyfinTrackId" = ANY(%s)
+                """, (jf_ids,))
             self.db.commit()
         except Exception as e:
             logger.error(f"Failed to mark tracks as processing: {e}")
@@ -1581,7 +1683,14 @@ class AnalysisWorker:
         logger.info(f"Batch complete: {completed} succeeded, {failed} failed in {elapsed:.1f}s ({rate:.1f} tracks/sec)")
     
     def _save_results(self, track_id: str, file_path: str, features: Dict[str, Any]):
-        """Save analysis results to database"""
+        """Save analysis results to Track or JellyfinTrackAnalysis."""
+        if _is_jellyfin_track_id(track_id):
+            self._save_results_jellyfin_track_analysis(track_id, features)
+        else:
+            self._save_results_prisma_track(track_id, features)
+
+    def _save_results_prisma_track(self, track_id: str, features: Dict[str, Any]):
+        """Save analysis results to legacy Track row."""
         cursor = self.db.get_cursor()
         try:
             cursor.execute("""
@@ -1654,9 +1763,119 @@ class AnalysisWorker:
             self.db.rollback()
         finally:
             cursor.close()
-    
+
+    def _save_results_jellyfin_track_analysis(
+        self, jellyfin_track_id: str, features: Dict[str, Any]
+    ):
+        """Upsert Essentia results into JellyfinTrackAnalysis (Jellyfin-only library mode)."""
+        cursor = self.db.get_cursor()
+        now = datetime.utcnow()
+        try:
+            cursor.execute("""
+                INSERT INTO "JellyfinTrackAnalysis" (
+                    "jellyfinTrackId",
+                    bpm, "beatsCount", key, "keyScale", "keyStrength",
+                    energy, loudness, "dynamicRange", danceability, valence, arousal,
+                    instrumentalness, acousticness, speechiness,
+                    "moodTags", "essentiaGenres",
+                    "moodHappy", "moodSad", "moodRelaxed", "moodAggressive",
+                    "moodParty", "moodAcoustic", "moodElectronic", "danceabilityMl",
+                    "analysisMode", "analysisStatus", "analysisStartedAt",
+                    "analysisVersion", "analyzedAt", "analysisError",
+                    "analysisRetryCount",
+                    "createdAt", "updatedAt"
+                ) VALUES (
+                    %s,
+                    %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s,
+                    %s, %s,
+                    %s, %s, %s, %s,
+                    %s, %s, %s, %s,
+                    %s, 'completed', NULL,
+                    %s, %s, NULL,
+                    0,
+                    NOW(), NOW()
+                )
+                ON CONFLICT ("jellyfinTrackId") DO UPDATE SET
+                    bpm = EXCLUDED.bpm,
+                    "beatsCount" = EXCLUDED."beatsCount",
+                    key = EXCLUDED.key,
+                    "keyScale" = EXCLUDED."keyScale",
+                    "keyStrength" = EXCLUDED."keyStrength",
+                    energy = EXCLUDED.energy,
+                    loudness = EXCLUDED.loudness,
+                    "dynamicRange" = EXCLUDED."dynamicRange",
+                    danceability = EXCLUDED.danceability,
+                    valence = EXCLUDED.valence,
+                    arousal = EXCLUDED.arousal,
+                    instrumentalness = EXCLUDED.instrumentalness,
+                    acousticness = EXCLUDED.acousticness,
+                    speechiness = EXCLUDED.speechiness,
+                    "moodTags" = EXCLUDED."moodTags",
+                    "essentiaGenres" = EXCLUDED."essentiaGenres",
+                    "moodHappy" = EXCLUDED."moodHappy",
+                    "moodSad" = EXCLUDED."moodSad",
+                    "moodRelaxed" = EXCLUDED."moodRelaxed",
+                    "moodAggressive" = EXCLUDED."moodAggressive",
+                    "moodParty" = EXCLUDED."moodParty",
+                    "moodAcoustic" = EXCLUDED."moodAcoustic",
+                    "moodElectronic" = EXCLUDED."moodElectronic",
+                    "danceabilityMl" = EXCLUDED."danceabilityMl",
+                    "analysisMode" = EXCLUDED."analysisMode",
+                    "analysisStatus" = 'completed',
+                    "analysisStartedAt" = NULL,
+                    "analysisVersion" = EXCLUDED."analysisVersion",
+                    "analyzedAt" = EXCLUDED."analyzedAt",
+                    "analysisError" = NULL,
+                    "analysisRetryCount" = 0,
+                    "updatedAt" = NOW()
+            """, (
+                jellyfin_track_id,
+                features['bpm'],
+                features['beatsCount'],
+                features['key'],
+                features['keyScale'],
+                features['keyStrength'],
+                features['energy'],
+                features['loudness'],
+                features['dynamicRange'],
+                features['danceability'],
+                features['valence'],
+                features['arousal'],
+                features['instrumentalness'],
+                features['acousticness'],
+                features['speechiness'],
+                features['moodTags'],
+                features['essentiaGenres'],
+                features.get('moodHappy'),
+                features.get('moodSad'),
+                features.get('moodRelaxed'),
+                features.get('moodAggressive'),
+                features.get('moodParty'),
+                features.get('moodAcoustic'),
+                features.get('moodElectronic'),
+                features.get('danceabilityMl'),
+                features.get('analysisMode', 'standard'),
+                ESSENTIA_VERSION,
+                now,
+            ))
+            self.db.commit()
+        except Exception as e:
+            logger.error(f"Failed to save Jellyfin analysis for {jellyfin_track_id}: {e}")
+            self.db.rollback()
+        finally:
+            cursor.close()
+
     def _save_failed(self, track_id: str, error: str):
-        """Mark track as failed, increment retry count, and record in EnrichmentFailure table"""
+        """Mark Track or JellyfinTrackAnalysis as failed; record EnrichmentFailure."""
+        if _is_jellyfin_track_id(track_id):
+            self._save_failed_jellyfin_track_analysis(track_id, error)
+        else:
+            self._save_failed_prisma_track(track_id, error)
+
+    def _save_failed_prisma_track(self, track_id: str, error: str):
+        """Mark legacy Track as failed, increment retry count, EnrichmentFailure row."""
         cursor = self.db.get_cursor()
         try:
             # Get track details for failure recording
@@ -1666,7 +1885,7 @@ class AnalysisWorker:
                 WHERE id = %s
             """, (track_id,))
             track = cursor.fetchone()
-            
+
             # Update track status
             cursor.execute("""
                 UPDATE "Track"
@@ -1677,10 +1896,10 @@ class AnalysisWorker:
                 WHERE id = %s
                 RETURNING "analysisRetryCount"
             """, (error[:500], track_id))
-            
+
             result = cursor.fetchone()
             retry_count = result['analysisRetryCount'] if result else 0
-            
+
             # Record failure in EnrichmentFailure table for user visibility
             if track:
                 cursor.execute("""
@@ -1708,15 +1927,93 @@ class AnalysisWorker:
                         'maxRetries': MAX_RETRIES
                     })
                 ))
-            
+
             if retry_count >= MAX_RETRIES:
                 logger.warning(f"Track {track_id} has permanently failed after {retry_count} attempts")
             else:
                 logger.info(f"Track {track_id} failed (attempt {retry_count}/{MAX_RETRIES}, will retry)")
-            
+
             self.db.commit()
         except Exception as e:
             logger.error(f"Failed to mark track as failed: {e}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            self.db.rollback()
+        finally:
+            cursor.close()
+
+    def _save_failed_jellyfin_track_analysis(self, jellyfin_track_id: str, error: str):
+        """Mark JellyfinTrackAnalysis failed; EnrichmentFailure keyed by jellyfin id."""
+        cursor = self.db.get_cursor()
+        try:
+            cursor.execute("""
+                SELECT "trackTitle", "artistName"
+                FROM "JellyfinTrackMetadata"
+                WHERE "jellyfinId" = %s
+            """, (jellyfin_track_id,))
+            meta = cursor.fetchone()
+
+            cursor.execute("""
+                UPDATE "JellyfinTrackAnalysis"
+                SET
+                    "analysisStatus" = 'failed',
+                    "analysisError" = %s,
+                    "analysisRetryCount" = COALESCE("analysisRetryCount", 0) + 1
+                WHERE "jellyfinTrackId" = %s
+                RETURNING "analysisRetryCount"
+            """, (error[:500], jellyfin_track_id))
+
+            result = cursor.fetchone()
+            retry_count = result['analysisRetryCount'] if result else 0
+
+            entity_name = 'Unknown Track'
+            if meta:
+                title = (meta.get('trackTitle') or '').strip()
+                artist = (meta.get('artistName') or '').strip()
+                if artist and title:
+                    entity_name = f"{artist} — {title}"
+                elif title:
+                    entity_name = title
+                elif artist:
+                    entity_name = artist
+
+            cursor.execute("""
+                INSERT INTO "EnrichmentFailure" (
+                    "entityType", "entityId", "entityName", "errorMessage",
+                    "lastFailedAt", "retryCount", metadata
+                ) VALUES (%s, %s, %s, %s, NOW(), 1, %s)
+                ON CONFLICT ("entityType", "entityId")
+                DO UPDATE SET
+                    "errorMessage" = EXCLUDED."errorMessage",
+                    "lastFailedAt" = NOW(),
+                    "retryCount" = "EnrichmentFailure"."retryCount" + 1,
+                    metadata = EXCLUDED.metadata,
+                    resolved = false,
+                    skipped = false
+            """, (
+                'audio',
+                jellyfin_track_id,
+                entity_name,
+                error[:500],
+                Json({
+                    'jellyfinTrackId': jellyfin_track_id,
+                    'retryCount': retry_count,
+                    'maxRetries': MAX_RETRIES
+                })
+            ))
+
+            if retry_count >= MAX_RETRIES:
+                logger.warning(
+                    f"Jellyfin track {jellyfin_track_id} permanently failed after {retry_count} attempts"
+                )
+            else:
+                logger.info(
+                    f"Jellyfin track {jellyfin_track_id} failed "
+                    f"(attempt {retry_count}/{MAX_RETRIES}, will retry)"
+                )
+
+            self.db.commit()
+        except Exception as e:
+            logger.error(f"Failed to mark Jellyfin analysis as failed: {e}")
             logger.error(f"Traceback: {traceback.format_exc()}")
             self.db.rollback()
         finally:

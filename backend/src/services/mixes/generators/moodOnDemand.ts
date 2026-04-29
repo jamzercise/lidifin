@@ -1,5 +1,6 @@
 import { prisma } from "@/utils/db";
 import { logger } from "@/utils/logger";
+import { isJellyfinMusicSource, resolveTrackReferences } from "@/services/jellyfin";
 import { getMixColor } from "../colors";
 import { randomSample } from "../helpers";
 import type { ProgrammaticMix } from "../types";
@@ -33,7 +34,8 @@ export async function generateMoodOnDemand(
     userId: string,
     params: MoodOnDemandParams
 ): Promise<ProgrammaticMix | null> {
-    const where: any = {
+    const jellyfin = await isJellyfinMusicSource();
+    const where: Record<string, any> = {
         analysisStatus: "completed",
     };
 
@@ -51,12 +53,19 @@ export async function generateMoodOnDemand(
     );
 
     if (usesMLMoods) {
-        const enhancedCount = await prisma.track.count({
-            where: {
-                analysisStatus: "completed",
-                analysisMode: "enhanced",
-            },
-        });
+        const enhancedCount = jellyfin
+            ? await prisma.jellyfinTrackAnalysis.count({
+                  where: {
+                      analysisStatus: "completed",
+                      analysisMode: "enhanced",
+                  },
+              })
+            : await prisma.track.count({
+                  where: {
+                      analysisStatus: "completed",
+                      analysisMode: "enhanced",
+                  },
+              });
 
         if (enhancedCount >= 15) {
             where.analysisMode = "enhanced";
@@ -234,14 +243,47 @@ export async function generateMoodOnDemand(
             where.moodElectronic.lte = params.moodElectronic.max;
     }
 
-    const tracks = await prisma.track.findMany({
-        where,
-        include: { album: { select: { coverUrl: true } } },
-        take: 100,
-    });
+    const tracks = jellyfin
+        ? null
+        : await prisma.track.findMany({
+              where,
+              include: { album: { select: { coverUrl: true } } },
+              take: 100,
+          });
 
     const limit = params.limit || 15;
-    if (tracks.length < Math.min(limit, 8)) return null;
+
+    if (jellyfin) {
+        const rows = await prisma.jellyfinTrackAnalysis.findMany({
+            where,
+            select: { jellyfinTrackId: true },
+            take: 100,
+        });
+        if (rows.length < Math.min(limit, 8)) return null;
+        const shuffled = randomSample(
+            rows.map((r) => r.jellyfinTrackId),
+            limit
+        );
+        const resolved = await resolveTrackReferences(shuffled);
+        const coverUrls = resolved
+            .filter((t): t is NonNullable<typeof t> => t !== null)
+            .map((t) => t.album.coverArt)
+            .filter((u): u is string => !!u)
+            .slice(0, 4);
+        const timestamp = Date.now();
+        return {
+            id: `mood-on-demand-${timestamp}`,
+            type: "mood-on-demand",
+            name: "Custom Mood Mix",
+            description: `Generated just for you`,
+            trackIds: shuffled,
+            coverUrls,
+            trackCount: shuffled.length,
+            color: getMixColor("mood"),
+        };
+    }
+
+    if (!tracks || tracks.length < Math.min(limit, 8)) return null;
 
     const shuffled = randomSample(tracks, limit);
     const coverUrls = shuffled

@@ -11,7 +11,7 @@ import { prisma } from "../utils/db";
 import { logger } from "../utils/logger";
 import { redisClient } from "../utils/redis";
 
-const JELLYFIN_PREFIX = "jellyfin:";
+export const JELLYFIN_PREFIX = "jellyfin:";
 
 /** TTL for Jellyfin list caches (1 hour). */
 const JF_CACHE_TTL = 60 * 60;

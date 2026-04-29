@@ -8,6 +8,55 @@ const MAX_RETRIES = 3;
 const CIRCUIT_BREAKER_THRESHOLD = 30;
 const CIRCUIT_BREAKER_WINDOW_MS = 5 * 60 * 1000;
 
+async function cleanupStaleJellyfinAnalysisRows(cutoff: Date): Promise<{
+    reset: number;
+    permanent: number;
+}> {
+    const stale = await prisma.jellyfinTrackAnalysis.findMany({
+        where: {
+            analysisStatus: "processing",
+            OR: [
+                { analysisStartedAt: { lt: cutoff } },
+                { analysisStartedAt: null, updatedAt: { lt: cutoff } },
+            ],
+        },
+    });
+    let reset = 0;
+    let permanent = 0;
+    for (const row of stale) {
+        const rc = row.analysisRetryCount ?? 0;
+        if (rc + 1 >= MAX_RETRIES) {
+            await prisma.jellyfinTrackAnalysis.update({
+                where: { jellyfinTrackId: row.jellyfinTrackId },
+                data: {
+                    analysisStatus: "failed",
+                    analysisError: `Stale processing exceeded ${MAX_RETRIES} retries`,
+                    analysisRetryCount: rc + 1,
+                    analysisStartedAt: null,
+                },
+            });
+            permanent++;
+        } else {
+            await prisma.jellyfinTrackAnalysis.update({
+                where: { jellyfinTrackId: row.jellyfinTrackId },
+                data: {
+                    analysisStatus: "pending",
+                    analysisStartedAt: null,
+                    analysisRetryCount: rc + 1,
+                    analysisError: "Reset after stale processing",
+                },
+            });
+            reset++;
+        }
+    }
+    if (reset > 0 || permanent > 0) {
+        logger.debug(
+            `[AudioAnalysisCleanup] JellyfinTrackAnalysis stale: ${reset} reset, ${permanent} permanent fail`
+        );
+    }
+    return { reset, permanent };
+}
+
 type CircuitState = "closed" | "open" | "half-open";
 
 class AudioAnalysisCleanupService {
@@ -107,7 +156,12 @@ class AudioAnalysisCleanupService {
         });
 
         if (staleTracks.length === 0) {
-            return { reset: 0, permanentlyFailed: 0, recovered: 0 };
+            const jfOnly = await cleanupStaleJellyfinAnalysisRows(cutoff);
+            return {
+                reset: jfOnly.reset,
+                permanentlyFailed: jfOnly.permanent,
+                recovered: 0,
+            };
         }
 
         logger.debug(
@@ -214,11 +268,17 @@ class AudioAnalysisCleanupService {
             this.onSuccess();
         }
 
+        const jfStale = await cleanupStaleJellyfinAnalysisRows(cutoff);
+
         logger.debug(
-            `[AudioAnalysisCleanup] Cleanup complete: ${resetCount} reset, ${permanentlyFailedCount} permanently failed, ${recoveredCount} recovered`
+            `[AudioAnalysisCleanup] Cleanup complete: ${resetCount + jfStale.reset} reset, ${permanentlyFailedCount + jfStale.permanent} permanently failed, ${recoveredCount} recovered`
         );
 
-        return { reset: resetCount, permanentlyFailed: permanentlyFailedCount, recovered: recoveredCount };
+        return {
+            reset: resetCount + jfStale.reset,
+            permanentlyFailed: permanentlyFailedCount + jfStale.permanent,
+            recovered: recoveredCount,
+        };
     }
 
     async getStats(): Promise<{
