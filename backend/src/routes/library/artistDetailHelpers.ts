@@ -86,6 +86,22 @@ function toInt(value: string | number | undefined, fallback = 0): number {
 }
 
 /**
+ * Last.fm `artist.getTopTracks` documents duration in **seconds**, but some
+ * cached/pipelined payloads still carry **milliseconds** (e.g. 180000).
+ * Values ≥ 36_000 are implausible as seconds for a single charting track, so
+ * we treat them as ms. This fixes Popular showing `0:00` for normal songs
+ * (e.g. 195s misread as 195ms via `floor(n/1000)`).
+ */
+export function lastfmDurationToSeconds(
+    raw: string | number | undefined
+): number {
+    const n = toInt(raw, 0);
+    if (n <= 0) return 0;
+    if (n >= 36_000) return Math.floor(n / 1000);
+    return n;
+}
+
+/**
  * Transform Jellyfin albums (the authoritative owned set) into the wire
  * shape consumed by the frontend. Every entry is `owned: true` and uses a
  * `jellyfin:UUID` id, eliminating the MBID-leak class of bugs that the
@@ -138,6 +154,9 @@ export function matchTopTracks(
     const limit = options.limit ?? 10;
     const tracksByTitle = new Map<string, ResolvedTrack>();
     for (const t of jfTracks) {
+        // Jellyfin stubs (0s runtime) cause false Last.fm matches — e.g. artist-
+        // name “tracks” or placeholder items — and bypass the PREVIEW path.
+        if (t.duration <= 0) continue;
         const key = t.title.toLowerCase();
         if (!tracksByTitle.has(key)) tracksByTitle.set(key, t);
     }
@@ -166,7 +185,7 @@ export function matchTopTracks(
             out.push({
                 id: `lastfm-${artistKey}-${lfm.name}`,
                 title: lfm.name,
-                duration: Math.floor(toInt(lfm.duration) / 1000),
+                duration: lastfmDurationToSeconds(lfm.duration),
                 playCount: toInt(lfm.playcount),
                 listeners: toInt(lfm.listeners),
                 userPlayCount: 0,
@@ -179,6 +198,46 @@ export function matchTopTracks(
         }
     }
     return out.slice(0, limit);
+}
+
+/**
+ * Build the artist “Popular” list: Last.fm order, but only **playable** Jellyfin
+ * rows. Drops Last.fm-only PREVIEW placeholders so the UI matches real library
+ * tracks; pads with `topTracksFromJellyfin` when needed.
+ */
+export function popularTracksPreferLibrary(
+    lastfmTopTracks: LastfmTopTrack[],
+    jfTracks: ResolvedTrack[],
+    userPlayCounts: Map<string, number>,
+    artistKey: string,
+    options: { lastfmLimit?: number; outputTarget?: number } = {}
+): ArtistDetailTopTrack[] {
+    const lastfmLimit = options.lastfmLimit ?? 20;
+    const outputTarget = options.outputTarget ?? 10;
+    const matched = matchTopTracks(
+        lastfmTopTracks,
+        jfTracks,
+        userPlayCounts,
+        artistKey,
+        { limit: lastfmLimit }
+    );
+    const out: ArtistDetailTopTrack[] = [];
+    for (const t of matched) {
+        if (t.album?.id) out.push(t);
+        if (out.length >= outputTarget) return out;
+    }
+    const playableJf = jfTracks.filter((t) => t.duration > 0);
+    const seen = new Set(out.map((r) => r.id));
+    const filler = topTracksFromJellyfin(playableJf, userPlayCounts, {
+        limit: Math.max(outputTarget * 2, 20),
+    });
+    for (const t of filler) {
+        if (seen.has(t.id)) continue;
+        out.push(t);
+        seen.add(t.id);
+        if (out.length >= outputTarget) break;
+    }
+    return out.slice(0, outputTarget);
 }
 
 /**
@@ -284,7 +343,8 @@ export function topTracksFromJellyfin(
     options: { limit?: number } = {}
 ): ArtistDetailTopTrack[] {
     const limit = options.limit ?? 10;
-    return jfTracks.slice(0, limit).map((t) => ({
+    const playable = jfTracks.filter((t) => t.duration > 0);
+    return playable.slice(0, limit).map((t) => ({
         id: t.id,
         title: t.title,
         duration: t.duration,

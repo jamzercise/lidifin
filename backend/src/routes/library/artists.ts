@@ -36,7 +36,7 @@ import {
 } from "../../utils/artistNormalization";
 import {
     collectJellyfinAlbumsForArtistAliases,
-    matchTopTracks,
+    popularTracksPreferLibrary,
     topTracksFromJellyfin,
     transformJellyfinAlbums,
 } from "./artistDetailHelpers";
@@ -608,7 +608,7 @@ router.get("/artists/:id", async (req, res) => {
         // titles. Owned matches return `jellyfin:UUID` ids so the frontend
         // shows them as playable; unmatched tracks become PREVIEW shapes.
         const cacheKeyArtistId = prismaArtist?.id ?? jfArtistId;
-        const topTracksCacheKey = `top-tracks:${cacheKeyArtistId}`;
+        const topTracksCacheKey = `top-tracks:${cacheKeyArtistId}:lf20`;
         let topTracks;
         try {
             let lastfmTopTracks: any[] = [];
@@ -619,7 +619,7 @@ router.get("/artists/:id", async (req, res) => {
                 lastfmTopTracks = await lastFmService.getArtistTopTracks(
                     effectiveMbid ?? "",
                     artistName,
-                    10
+                    20
                 );
                 await redisClient.setEx(
                     topTracksCacheKey,
@@ -627,11 +627,12 @@ router.get("/artists/:id", async (req, res) => {
                     JSON.stringify(lastfmTopTracks ?? [])
                 );
             }
-            topTracks = matchTopTracks(
+            topTracks = popularTracksPreferLibrary(
                 Array.isArray(lastfmTopTracks) ? lastfmTopTracks : [],
                 jellyfinTracks,
                 userPlayCounts,
-                effectiveMbid || artistName
+                effectiveMbid || artistName,
+                { lastfmLimit: 20, outputTarget: 10 }
             );
             // If Last.fm returned nothing usable, fall back to library tracks.
             if (topTracks.length === 0) {

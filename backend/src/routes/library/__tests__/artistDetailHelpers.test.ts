@@ -1,7 +1,9 @@
 import {
     collectJellyfinAlbumsForArtistAliases,
+    lastfmDurationToSeconds,
     matchTopTracks,
     normalizeAlbumTitle,
+    popularTracksPreferLibrary,
     topTracksFromJellyfin,
     transformJellyfinAlbums,
 } from "../artistDetailHelpers";
@@ -110,6 +112,21 @@ describe("transformJellyfinAlbums", () => {
     });
 });
 
+describe("lastfmDurationToSeconds", () => {
+    it("treats typical values as seconds (Last.fm API contract)", () => {
+        expect(lastfmDurationToSeconds("195")).toBe(195);
+        expect(lastfmDurationToSeconds(240)).toBe(240);
+    });
+    it("treats large values as milliseconds (older/cached payloads)", () => {
+        expect(lastfmDurationToSeconds("180000")).toBe(180);
+        expect(lastfmDurationToSeconds(240000)).toBe(240);
+    });
+    it("returns 0 for empty or invalid input", () => {
+        expect(lastfmDurationToSeconds(undefined)).toBe(0);
+        expect(lastfmDurationToSeconds("")).toBe(0);
+    });
+});
+
 describe("matchTopTracks", () => {
     it("matches Last.fm tracks against Jellyfin library by lowercased title", () => {
         const lfm = [
@@ -131,13 +148,37 @@ describe("matchTopTracks", () => {
         expect(result[0].duration).toBe(240); // from Jellyfin, in seconds
     });
 
+    it("ignores zero-duration Jellyfin stubs so Last.fm can fall through to preview", () => {
+        const lfm = [{ name: "Chips Ahoy!" }];
+        const jf = [
+            jfTrack({
+                id: "jellyfin:stub",
+                title: "Chips Ahoy!",
+                duration: 0,
+            }),
+        ];
+        const result = matchTopTracks(lfm, jf, new Map(), "x");
+        expect(result[0].album.id).toBeUndefined();
+    });
+
+    it("uses the first playable Jellyfin track when earlier rows are 0s stubs", () => {
+        const lfm = [{ name: "Constructive Summer" }];
+        const jf = [
+            jfTrack({ id: "jellyfin:stub", title: "Constructive Summer", duration: 0 }),
+            jfTrack({ id: "jellyfin:real", title: "Constructive Summer", duration: 200 }),
+        ];
+        const result = matchTopTracks(lfm, jf, new Map(), "x");
+        expect(result[0].id).toBe("jellyfin:real");
+        expect(result[0].duration).toBe(200);
+    });
+
     it("emits a preview-shaped track when Last.fm has no Jellyfin counterpart", () => {
         const lfm = [
             {
                 name: "B-Side That Lidifin Doesn't Have",
                 playcount: "10",
                 listeners: "5",
-                duration: "180000", // ms in Last.fm payload
+                duration: "180000", // milliseconds in some cached payloads
                 album: { "#text": "Some Compilation" },
             },
         ];
@@ -147,7 +188,7 @@ describe("matchTopTracks", () => {
         expect(result[0].id).toMatch(/^lastfm-/);
         expect(result[0].album.id).toBeUndefined(); // critical: PREVIEW badge appears
         expect(result[0].album.title).toBe("Some Compilation");
-        expect(result[0].duration).toBe(180); // ms → s conversion
+        expect(result[0].duration).toBe(180);
     });
 
     it("decorates matched tracks with userPlayCount when present", () => {
@@ -178,6 +219,27 @@ describe("matchTopTracks", () => {
         expect(result[0].listeners).toBe(0);
         expect(result[0].duration).toBe(0);
         expect(result[0].album.title).toBe("Unknown Album");
+    });
+});
+
+describe("popularTracksPreferLibrary", () => {
+    it("drops Last.fm-only rows and pads from Jellyfin", () => {
+        const lfm = [
+            { name: "Not In Library" },
+            { name: "Constructive Summer" },
+        ];
+        const jf = [
+            jfTrack({ id: "jellyfin:a", title: "Constructive Summer", duration: 200 }),
+            jfTrack({ id: "jellyfin:b", title: "Other", duration: 180 }),
+            jfTrack({ id: "jellyfin:c", title: "Third", duration: 190 }),
+        ];
+        const result = popularTracksPreferLibrary(lfm, jf, new Map(), "x", {
+            lastfmLimit: 10,
+            outputTarget: 3,
+        });
+        expect(result).toHaveLength(3);
+        expect(result.every((t) => t.album?.id)).toBe(true);
+        expect(result[0].title).toBe("Constructive Summer");
     });
 });
 
@@ -442,5 +504,15 @@ describe("topTracksFromJellyfin", () => {
 
     it("handles empty input", () => {
         expect(topTracksFromJellyfin([], new Map())).toEqual([]);
+    });
+
+    it("skips zero-duration Jellyfin tracks", () => {
+        const jf = [
+            jfTrack({ id: "jellyfin:bad", title: "Stub", duration: 0 }),
+            jfTrack({ id: "jellyfin:ok", title: "Real", duration: 100 }),
+        ];
+        const result = topTracksFromJellyfin(jf, new Map());
+        expect(result).toHaveLength(1);
+        expect(result[0].id).toBe("jellyfin:ok");
     });
 });
