@@ -5,6 +5,15 @@ import { redisClient } from "../utils/redis";
 import { requireAuth, requireAdmin } from "../middleware/auth";
 import { getSystemSettings } from "../utils/systemSettings";
 import { enrichmentFailureService } from "../services/enrichmentFailureService";
+import {
+    findByJellyfinTrackId,
+    getAudioAnalysisStatusCounts as getJellyfinAudioAnalysisStatusCounts,
+} from "../services/jellyfinTrackAnalysisService";
+import {
+    combineAnalysisStatusCounts,
+    isJellyfinTrackId,
+    mapJellyfinAnalysisToApiPayload,
+} from "./analysisRouteHelpers";
 import os from "os";
 
 const router = Router();
@@ -52,27 +61,27 @@ function clampLimit(value: unknown, defaultVal: number, max: number): number {
  */
 router.get("/status", requireAuth, async (req, res) => {
     try {
-        // Get counts by status
-        const statusCounts = await prisma.track.groupBy({
-            by: ["analysisStatus"],
-            _count: true,
-        });
+        // Aggregate counts from BOTH analysis tables — the legacy
+        // `Track`-backed pipeline (local files) AND the Jellyfin-keyed
+        // `JellyfinTrackAnalysis` table from X.b.1. Until X.d removes the
+        // legacy columns, both can hold rows in mixed deployments and the
+        // status dashboard should reflect the full picture.
+        const [trackCounts, jellyfinCounts, queueLength, embeddingCount] =
+            await Promise.all([
+                prisma.track.groupBy({
+                    by: ["analysisStatus"],
+                    _count: true,
+                }),
+                getJellyfinAudioAnalysisStatusCounts(),
+                redisClient.lLen(ANALYSIS_QUEUE),
+                prisma.$queryRaw<{ count: bigint }[]>`
+                    SELECT COUNT(*) as count FROM track_embeddings
+                `,
+            ]);
 
-        const total = statusCounts.reduce((sum, s) => sum + s._count, 0);
-        const completed = statusCounts.find(s => s.analysisStatus === "completed")?._count || 0;
-        const failed = statusCounts.find(s => s.analysisStatus === "failed")?._count || 0;
-        const processing = statusCounts.find(s => s.analysisStatus === "processing")?._count || 0;
-        const pending = statusCounts.find(s => s.analysisStatus === "pending")?._count || 0;
-
-        // Get queue length from Redis
-        const queueLength = await redisClient.lLen(ANALYSIS_QUEUE);
-
-        // Get CLAP embedding count
-        const embeddingCount = await prisma.$queryRaw<{ count: bigint }[]>`
-            SELECT COUNT(*) as count FROM track_embeddings
-        `;
+        const { total, completed, failed, processing, pending } =
+            combineAnalysisStatusCounts(trackCounts, jellyfinCounts);
         const withEmbeddings = Number(embeddingCount[0]?.count || 0);
-
         const progress = total > 0 ? Math.round((completed / total) * 100) : 0;
 
         res.json({
@@ -86,7 +95,10 @@ router.get("/status", requireAuth, async (req, res) => {
             isComplete: pending === 0 && processing === 0 && queueLength === 0,
             clap: {
                 withEmbeddings,
-                embeddingProgress: total > 0 ? Math.round((withEmbeddings / total) * 100) : 0,
+                embeddingProgress:
+                    total > 0
+                        ? Math.round((withEmbeddings / total) * 100)
+                        : 0,
             },
         });
     } catch (error: any) {
@@ -233,6 +245,29 @@ router.post("/analyze/:trackId", requireAuth, async (req, res) => {
 router.get("/track/:trackId", requireAuth, async (req, res) => {
     try {
         const { trackId } = req.params;
+
+        // Dispatch on id namespace. Jellyfin tracks live on
+        // `JellyfinTrackAnalysis` (X.b.1); legacy local-files tracks
+        // remain on `Track` until X.d removes those columns.
+        if (isJellyfinTrackId(trackId)) {
+            const analysis = await findByJellyfinTrackId(trackId).catch(
+                (err) => {
+                    if (
+                        err instanceof Error &&
+                        err.message.startsWith(
+                            "jellyfinTrackId must be in"
+                        )
+                    ) {
+                        return null;
+                    }
+                    throw err;
+                }
+            );
+            if (!analysis) {
+                return res.status(404).json({ error: "Track not found" });
+            }
+            return res.json(mapJellyfinAnalysisToApiPayload(analysis));
+        }
 
         const track = await prisma.track.findUnique({
             where: { id: trackId },
