@@ -1,10 +1,16 @@
 import {
+    collectJellyfinAlbumsForArtistAliases,
     matchTopTracks,
     normalizeAlbumTitle,
     topTracksFromJellyfin,
     transformJellyfinAlbums,
 } from "../artistDetailHelpers";
-import type { ResolvedAlbum, ResolvedTrack } from "../../../services/jellyfin";
+import type {
+    JellyfinConfig,
+    ResolvedAlbum,
+    ResolvedArtist,
+    ResolvedTrack,
+} from "../../../services/jellyfin";
 
 const ARTIST = { id: "jellyfin:artist-1", name: "The Hold Steady" };
 
@@ -172,6 +178,243 @@ describe("matchTopTracks", () => {
         expect(result[0].listeners).toBe(0);
         expect(result[0].duration).toBe(0);
         expect(result[0].album.title).toBe("Unknown Album");
+    });
+});
+
+describe("collectJellyfinAlbumsForArtistAliases", () => {
+    const cfg = {} as JellyfinConfig;
+
+    function albumOf(id: string, title: string): ResolvedAlbum {
+        return {
+            id,
+            title,
+            coverArt: null,
+            artist: { id: "jellyfin:any", name: "any" },
+        };
+    }
+
+    function artistOf(id: string, name: string): ResolvedArtist {
+        return { id, name, coverArt: undefined, mbid: undefined };
+    }
+
+    it("returns just the primary artist's albums when no aliases produce siblings", async () => {
+        const getAlbumsForArtist = jest
+            .fn<Promise<ResolvedAlbum[]>, [JellyfinConfig, string]>()
+            .mockResolvedValue([albumOf("jellyfin:alb-1", "Stay Positive")]);
+        const searchArtists = jest
+            .fn<
+                Promise<{ artists: ResolvedArtist[]; total: number }>,
+                [JellyfinConfig, { search: string; limit: number; offset: number }]
+            >()
+            .mockResolvedValue({ artists: [], total: 0 });
+
+        const result = await collectJellyfinAlbumsForArtistAliases(
+            cfg,
+            "jellyfin:primary",
+            ["The Hold Steady"],
+            { getAlbumsForArtist, searchArtists }
+        );
+
+        expect(result).toHaveLength(1);
+        expect(getAlbumsForArtist).toHaveBeenCalledTimes(1);
+        expect(getAlbumsForArtist).toHaveBeenCalledWith(cfg, "jellyfin:primary");
+    });
+
+    it("unions albums from sibling artist records whose normalized name matches an alias", async () => {
+        const getAlbumsForArtist = jest
+            .fn<Promise<ResolvedAlbum[]>, [JellyfinConfig, string]>()
+            .mockImplementation(async (_cfg, id) => {
+                if (id === "jellyfin:primary") {
+                    return [albumOf("jellyfin:alb-1", "Heaven Is Whenever")];
+                }
+                if (id === "jellyfin:sibling") {
+                    return [
+                        albumOf("jellyfin:alb-2", "Stay Positive"),
+                        albumOf("jellyfin:alb-3", "Boys and Girls in America"),
+                    ];
+                }
+                return [];
+            });
+        const searchArtists = jest
+            .fn<
+                Promise<{ artists: ResolvedArtist[]; total: number }>,
+                [JellyfinConfig, { search: string; limit: number; offset: number }]
+            >()
+            .mockResolvedValue({
+                artists: [
+                    artistOf("jellyfin:sibling", "Hold Steady"), // sibling for "The Hold Steady"
+                    artistOf("jellyfin:other", "Some Other Band"), // ignored
+                ],
+                total: 2,
+            });
+
+        const result = await collectJellyfinAlbumsForArtistAliases(
+            cfg,
+            "jellyfin:primary",
+            ["The Hold Steady", "Hold Steady"],
+            { getAlbumsForArtist, searchArtists }
+        );
+
+        const ids = result.map((a) => a.id);
+        expect(ids).toEqual([
+            "jellyfin:alb-1",
+            "jellyfin:alb-2",
+            "jellyfin:alb-3",
+        ]);
+    });
+
+    it("dedupes when the same album appears under both primary and sibling records", async () => {
+        const getAlbumsForArtist = jest
+            .fn<Promise<ResolvedAlbum[]>, [JellyfinConfig, string]>()
+            .mockImplementation(async (_cfg, id) => {
+                if (id === "jellyfin:primary") {
+                    return [albumOf("jellyfin:alb-1", "Stay Positive")];
+                }
+                return [
+                    albumOf("jellyfin:alb-1", "Stay Positive"), // duplicate
+                    albumOf("jellyfin:alb-2", "Teeth Dreams"),
+                ];
+            });
+        const searchArtists = jest
+            .fn<
+                Promise<{ artists: ResolvedArtist[]; total: number }>,
+                [JellyfinConfig, { search: string; limit: number; offset: number }]
+            >()
+            .mockResolvedValue({
+                artists: [artistOf("jellyfin:sibling", "Hold Steady")],
+                total: 1,
+            });
+
+        const result = await collectJellyfinAlbumsForArtistAliases(
+            cfg,
+            "jellyfin:primary",
+            ["The Hold Steady", "Hold Steady"],
+            { getAlbumsForArtist, searchArtists }
+        );
+
+        expect(result.map((a) => a.id)).toEqual([
+            "jellyfin:alb-1",
+            "jellyfin:alb-2",
+        ]);
+    });
+
+    it("doesn't re-fetch the same sibling artist across multiple alias searches", async () => {
+        const getAlbumsForArtist = jest
+            .fn<Promise<ResolvedAlbum[]>, [JellyfinConfig, string]>()
+            .mockResolvedValue([]);
+        const searchArtists = jest
+            .fn<
+                Promise<{ artists: ResolvedArtist[]; total: number }>,
+                [JellyfinConfig, { search: string; limit: number; offset: number }]
+            >()
+            .mockResolvedValue({
+                artists: [artistOf("jellyfin:sibling", "Hold Steady")],
+                total: 1,
+            });
+
+        await collectJellyfinAlbumsForArtistAliases(
+            cfg,
+            "jellyfin:primary",
+            ["The Hold Steady", "Hold Steady", "Hold Steady, The"],
+            { getAlbumsForArtist, searchArtists }
+        );
+
+        // Primary + sibling = 2 album fetches total, even though 3 alias
+        // searches all surface the same sibling.
+        expect(getAlbumsForArtist).toHaveBeenCalledTimes(2);
+    });
+
+    it("ignores sibling artists whose normalized name doesn't match any alias", async () => {
+        const getAlbumsForArtist = jest
+            .fn<Promise<ResolvedAlbum[]>, [JellyfinConfig, string]>()
+            .mockImplementation(async (_cfg, id) => {
+                if (id === "jellyfin:primary") {
+                    return [albumOf("jellyfin:alb-1", "Stay Positive")];
+                }
+                throw new Error(
+                    `unexpected fetch for ${id} — alias filter let through a non-match`
+                );
+            });
+        const searchArtists = jest
+            .fn<
+                Promise<{ artists: ResolvedArtist[]; total: number }>,
+                [JellyfinConfig, { search: string; limit: number; offset: number }]
+            >()
+            .mockResolvedValue({
+                artists: [
+                    artistOf("jellyfin:wrong-1", "The Holdsteadies"),
+                    artistOf("jellyfin:wrong-2", "Steady Hold"),
+                ],
+                total: 2,
+            });
+
+        const result = await collectJellyfinAlbumsForArtistAliases(
+            cfg,
+            "jellyfin:primary",
+            ["The Hold Steady"],
+            { getAlbumsForArtist, searchArtists }
+        );
+        expect(result).toHaveLength(1);
+    });
+
+    it("survives a single sibling fetch failure and continues with the rest", async () => {
+        const getAlbumsForArtist = jest
+            .fn<Promise<ResolvedAlbum[]>, [JellyfinConfig, string]>()
+            .mockImplementation(async (_cfg, id) => {
+                if (id === "jellyfin:primary") {
+                    return [albumOf("jellyfin:alb-1", "Heaven Is Whenever")];
+                }
+                if (id === "jellyfin:bad") throw new Error("Jellyfin 500");
+                if (id === "jellyfin:good") {
+                    return [albumOf("jellyfin:alb-2", "Stay Positive")];
+                }
+                return [];
+            });
+        const searchArtists = jest
+            .fn<
+                Promise<{ artists: ResolvedArtist[]; total: number }>,
+                [JellyfinConfig, { search: string; limit: number; offset: number }]
+            >()
+            .mockResolvedValue({
+                artists: [
+                    artistOf("jellyfin:bad", "Hold Steady"),
+                    artistOf("jellyfin:good", "The Hold Steady"),
+                ],
+                total: 2,
+            });
+
+        const result = await collectJellyfinAlbumsForArtistAliases(
+            cfg,
+            "jellyfin:primary",
+            ["The Hold Steady", "Hold Steady"],
+            { getAlbumsForArtist, searchArtists }
+        );
+
+        expect(result.map((a) => a.id)).toEqual([
+            "jellyfin:alb-1",
+            "jellyfin:alb-2",
+        ]);
+    });
+
+    it("returns the primary set unchanged when aliases is empty", async () => {
+        const getAlbumsForArtist = jest
+            .fn<Promise<ResolvedAlbum[]>, [JellyfinConfig, string]>()
+            .mockResolvedValue([albumOf("jellyfin:alb-1", "Stay Positive")]);
+        const searchArtists = jest
+            .fn<
+                Promise<{ artists: ResolvedArtist[]; total: number }>,
+                [JellyfinConfig, { search: string; limit: number; offset: number }]
+            >()
+            .mockResolvedValue({ artists: [], total: 0 });
+
+        const result = await collectJellyfinAlbumsForArtistAliases(
+            cfg,
+            "jellyfin:primary",
+            [],
+            { getAlbumsForArtist, searchArtists }
+        );
+        expect(result).toHaveLength(1);
+        expect(searchArtists).not.toHaveBeenCalled();
     });
 });
 

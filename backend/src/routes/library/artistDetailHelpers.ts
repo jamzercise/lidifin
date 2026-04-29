@@ -7,7 +7,13 @@
  * stable surface; the route is just glue.
  */
 
-import type { ResolvedAlbum, ResolvedTrack } from "../../services/jellyfin";
+import type {
+    JellyfinConfig,
+    ResolvedAlbum,
+    ResolvedArtist,
+    ResolvedTrack,
+} from "../../services/jellyfin";
+import { normalizeArtistName } from "../../utils/artistNormalization";
 
 /**
  * Album shape returned to the frontend by the artist-detail endpoint.
@@ -173,6 +179,98 @@ export function matchTopTracks(
         }
     }
     return out.slice(0, limit);
+}
+
+/**
+ * Collect a Jellyfin artist's full owned album set, defending against
+ * Jellyfin metadata splits.
+ *
+ * Real-world Jellyfin libraries can store the same artist as two separate
+ * `MusicArtist` records (e.g., "Hold Steady" and "The Hold Steady" both
+ * exist), or have individual album files tagged with an alias variant of
+ * the artist name. In either case `getJellyfinAlbumsAllForArtist` against
+ * a single primary artist id misses albums the user actually owns; the
+ * frontend then renders them as available-to-download discovery, which is
+ * exactly the bug X.a.1.1 fixes.
+ *
+ * Strategy:
+ *   1. Fetch albums under the primary artist record (the authoritative
+ *      relation when metadata is clean).
+ *   2. Search Jellyfin for artist records by each name alias.
+ *   3. For every sibling whose normalized name is in the alias set, union
+ *      its albums into the result. Dedupe by Jellyfin album id.
+ *
+ * Dependencies are passed in so this function stays unit-testable without
+ * spinning up Jellyfin or mocking module imports.
+ */
+export async function collectJellyfinAlbumsForArtistAliases(
+    cfg: JellyfinConfig,
+    primaryArtistId: string,
+    aliases: string[],
+    deps: {
+        getAlbumsForArtist: (
+            cfg: JellyfinConfig,
+            artistId: string
+        ) => Promise<ResolvedAlbum[]>;
+        searchArtists: (
+            cfg: JellyfinConfig,
+            opts: { search: string; limit: number; offset: number }
+        ) => Promise<{ artists: ResolvedArtist[]; total: number }>;
+    }
+): Promise<ResolvedAlbum[]> {
+    const primary = await deps.getAlbumsForArtist(cfg, primaryArtistId);
+    const seenAlbumIds = new Set<string>(primary.map((a) => a.id));
+    const out: ResolvedAlbum[] = [...primary];
+
+    if (aliases.length === 0) return out;
+
+    const normalizedAliases = new Set(
+        aliases.map((a) => normalizeArtistName(a)).filter(Boolean)
+    );
+    if (normalizedAliases.size === 0) return out;
+
+    // Track which Jellyfin artist ids we've already pulled albums for so
+    // duplicate alias searches don't re-fetch.
+    const visitedArtistIds = new Set<string>([primaryArtistId]);
+
+    for (const alias of aliases) {
+        let searchResult: { artists: ResolvedArtist[]; total: number };
+        try {
+            searchResult = await deps.searchArtists(cfg, {
+                search: alias,
+                limit: 25,
+                offset: 0,
+            });
+        } catch {
+            continue;
+        }
+
+        for (const candidate of searchResult.artists) {
+            if (visitedArtistIds.has(candidate.id)) continue;
+            if (!normalizedAliases.has(normalizeArtistName(candidate.name))) {
+                continue;
+            }
+            visitedArtistIds.add(candidate.id);
+
+            try {
+                const siblingAlbums = await deps.getAlbumsForArtist(
+                    cfg,
+                    candidate.id
+                );
+                for (const album of siblingAlbums) {
+                    if (!seenAlbumIds.has(album.id)) {
+                        seenAlbumIds.add(album.id);
+                        out.push(album);
+                    }
+                }
+            } catch {
+                // Best-effort: a single sibling lookup failure shouldn't
+                // collapse the rest of the recovery.
+            }
+        }
+    }
+
+    return out;
 }
 
 /**

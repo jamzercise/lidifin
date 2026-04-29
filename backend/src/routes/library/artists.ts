@@ -41,6 +41,7 @@ import {
     normalizeArtistName,
 } from "../../utils/artistNormalization";
 import {
+    collectJellyfinAlbumsForArtistAliases,
     matchTopTracks,
     topTracksFromJellyfin,
     transformJellyfinAlbums,
@@ -416,12 +417,29 @@ router.get("/artists/:id/enrichment", async (req, res) => {
         }
 
         const resolvedId = `jellyfin:${artistItem.Id}`;
-        const albums = await getJellyfinAlbumsAllForArtist(cfg, resolvedId);
         const rawName = (artistItem as any).Name ?? (artistItem as any).name;
-        const artistName =
+        const tentativeName: string =
             rawName && rawName !== artistItem.Id && !rawName.startsWith("jellyfin:")
                 ? rawName
-                : albums[0]?.artist?.name ?? "Unknown Artist";
+                : decodeURIComponent(idParam);
+        // Use the alias-sibling recovery here too, so the rgMbid set we use
+        // to filter discovery candidates reflects ALL of the user's owned
+        // copies — not just the primary artist record's relation. Otherwise
+        // an album owned under "Hold Steady" gets re-suggested as discovery
+        // when the user is viewing "The Hold Steady".
+        const albums = await collectJellyfinAlbumsForArtistAliases(
+            cfg,
+            resolvedId,
+            getArtistNameAliases(tentativeName),
+            {
+                getAlbumsForArtist: getJellyfinAlbumsAllForArtist,
+                searchArtists: (config, opts) => getJellyfinArtists(config, opts),
+            }
+        );
+        const artistName =
+            tentativeName !== decodeURIComponent(idParam)
+                ? tentativeName
+                : albums[0]?.artist?.name ?? tentativeName;
         const coverArt = artistItem.ImageTags?.Primary
             ? getJellyfinImageUrl(
                   cfg.url,
@@ -449,12 +467,31 @@ router.get("/artists/:id/enrichment", async (req, res) => {
             });
         }
 
-        const ownedRgMbids = new Set(albums.map((a) => a.rgMbid).filter(Boolean));
+        // Filter out anything the user already owns. Title fallback handles
+        // the (common) case where Jellyfin albums lack rgMbid tags entirely
+        // — without it we'd happily list "Stay Positive" as a discovery
+        // suggestion despite the user owning it.
+        const ownedRgMbids = new Set(
+            albums.map((a) => a.rgMbid).filter(Boolean) as string[]
+        );
+        const ownedTitleKeys = new Set(
+            albums
+                .map((a) => a.title?.toLowerCase().trim())
+                .filter(Boolean) as string[]
+        );
         const discoveryAlbums = enrichment.discoveryAlbums
-            .filter((d) => !ownedRgMbids.has(d.rgMbid))
+            .filter((d) => {
+                if (ownedRgMbids.has(d.rgMbid)) return false;
+                const titleKey = d.title?.toLowerCase().trim();
+                if (titleKey && ownedTitleKeys.has(titleKey)) return false;
+                return true;
+            })
             .map((d) => ({
                 id: d.id,
                 title: d.title,
+                // Preserve MB primary-type ("Album" / "EP" / etc.) so the
+                // frontend can split studio albums from EPs/singles correctly.
+                type: d.type ?? null,
                 coverArt: d.coverUrl,
                 coverUrl: d.coverUrl,
                 artist: { name: artistName },
@@ -557,13 +594,18 @@ router.get("/artists/:id", async (req, res) => {
               ) ?? null
             : null;
 
-        // Parallel: Jellyfin albums + tracks (authoritative content) and the
-        // Prisma metadata-cache row (best-effort; absent rows are fine).
+        // Parallel: Jellyfin albums (with alias-sibling recovery for
+        // metadata splits — see X.a.1.1), Jellyfin tracks, and the Prisma
+        // metadata-cache row (best-effort; absent rows are fine).
         const normalizedAliases = Array.from(
             new Set(aliases.map((a) => normalizeArtistName(a)).filter(Boolean))
         );
         const [jfAlbums, jfTracksResult, prismaArtist] = await Promise.all([
-            getJellyfinAlbumsAllForArtist(cfg, jfArtistId),
+            collectJellyfinAlbumsForArtistAliases(cfg, jfArtistId, aliases, {
+                getAlbumsForArtist: getJellyfinAlbumsAllForArtist,
+                searchArtists: (config, opts) =>
+                    getJellyfinArtists(config, opts),
+            }),
             getJellyfinTracks(cfg, { artistId: jfArtistId, limit: 500 }).catch(
                 () => ({ tracks: [], total: 0 })
             ),
