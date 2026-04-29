@@ -146,7 +146,7 @@ pidfile=/var/run/supervisord.pid
 user=root
 
 [program:postgres]
-command=/usr/lib/postgresql/16/bin/postgres -D /data/postgres
+command=/usr/lib/postgresql/16/bin/postgres -D /data/postgres -c log_min_duration_statement=500
 user=postgres
 autostart=true
 autorestart=true

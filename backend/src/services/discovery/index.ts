@@ -6,3 +6,7 @@ export {
     LidarrSettings,
 } from './discoveryAlbumLifecycle';
 export { DiscoverySeeding, discoverySeeding, SeedArtist } from './discoverySeeding';
+export {
+    clearDiscoveryLibraryForUser,
+    type ClearDiscoveryLibraryResult,
+} from './clearDiscoveryLibrary';

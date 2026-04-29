@@ -19,6 +19,11 @@ services:
             POSTGRES_DB: lidify
         volumes:
             - postgres_dev_data:/var/lib/postgresql/data
+        # Log statements ≥ 500 ms (helps catch slow Prisma / raw SQL during dev).
+        command:
+            - postgres
+            - -c
+            - log_min_duration_statement=500
         ports:
             - "5433:5432"
         restart: unless-stopped
