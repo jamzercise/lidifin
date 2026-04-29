@@ -498,59 +498,6 @@ export async function generateInstrumentalMix(
 }
 
 /**
- * Generate mix based on a Last.fm mood tag.
- * Generic helper: caller supplies the tag, name and description.
- *
- * NOTE: Currently unreferenced. Kept for backward-compat in case
- * external callers exist; safe to delete in a follow-up.
- */
-export async function generateMoodTagMix(
-    userId: string,
-    today: string,
-    moodTag: string,
-    mixName: string,
-    mixDescription: string
-): Promise<ProgrammaticMix | null> {
-    const tracks = await prisma.track.findMany({
-        where: {
-            lastfmTags: {
-                has: moodTag,
-            },
-        },
-        include: {
-            album: { select: { coverUrl: true } },
-        },
-        take: 100,
-    });
-
-    if (tracks.length < 15) return null;
-
-    const seed = getSeededRandom(`mood-${moodTag}-${today}`);
-    let random = seed;
-    const shuffled = tracks.sort(() => {
-        random = (random * 9301 + 49297) % 233280;
-        return random / 233280 - 0.5;
-    });
-
-    const selectedTracks = shuffled.slice(0, TRACK_LIMIT);
-    const coverUrls = selectedTracks
-        .filter((t) => t.album.coverUrl)
-        .slice(0, 4)
-        .map((t) => t.album.coverUrl!);
-
-    return {
-        id: `mood-${moodTag}-${today}`,
-        type: `mood-${moodTag}`,
-        name: mixName,
-        description: mixDescription,
-        trackIds: selectedTracks.map((t) => t.id),
-        coverUrls,
-        trackCount: selectedTracks.length,
-        color: getMixColor("mood"),
-    };
-}
-
-/**
  * Generate "Road Trip" mix - using tags + audio analysis fallbacks
  */
 export async function generateRoadTripMix(
