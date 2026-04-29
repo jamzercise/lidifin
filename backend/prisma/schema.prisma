@@ -39,6 +39,7 @@ model User {
   podcastProgress        PodcastProgress[]
   podcastSubscriptions   PodcastSubscription[]
   spotifyImportJobs      SpotifyImportJob[]
+  savedDiscoveryAlbums   SavedDiscoveryAlbum[]
   unavailableAlbums      UnavailableAlbum[]
   discoverConfig         UserDiscoverConfig?
   userMoodMix            UserMoodMix?
@@ -169,6 +170,13 @@ model Album {
   label              String?
   genres             Json?
   lastSynced         DateTime                 @default(now())
+  /// @deprecated Arch-X.c: column is no longer authoritative. Active code
+  /// paths treat all `Album` rows as owned/library after the X.a
+  /// Jellyfin-first cutover removed every enrichment-time DISCOVER write.
+  /// The only remaining writer (`musicScanner.ts`) is dormant in
+  /// Jellyfin-only mode and gets removed in X.e. Column itself drops in
+  /// X.d alongside the rest of the Track-as-Prisma-mirror schema.
+  /// Saved/bookmarked discovery items now live on `SavedDiscoveryAlbum`.
   location           AlbumLocation            @default(LIBRARY)
   searchVector       Unsupported("tsvector")?
   displayTitle       String?
@@ -295,6 +303,47 @@ model TranscodedFile {
   @@unique([trackId, quality])
   @@index([trackId, quality])
   @@index([lastAccessed])
+}
+
+/// User-saved discovery albums (Arch-X.c).
+///
+/// Replaces the historical pattern of writing `Album.location = DISCOVER`
+/// rows during artist enrichment, which conflated "owned content" with
+/// "transient discovery suggestion the user is browsing" in a single
+/// table. With the Arch-X.a Jellyfin-first cutover, the artist + album
+/// detail handlers no longer persist anything during enrichment — they
+/// pass MusicBrainz discography through inline. This model carries the
+/// remaining concept: an album the user explicitly bookmarks ("save for
+/// later") so it survives across sessions without being mistaken for an
+/// owned/library album.
+///
+/// Identity: `(userId, rgMbid)` is unique. Snapshot fields (`artistName`,
+/// `albumTitle`, `coverUrl`) are intentionally denormalized so the saved
+/// list renders without round-tripping to MusicBrainz/Last.fm at read
+/// time; they're refreshed when the user re-saves the album.
+///
+/// Lifecycle: rows are inserted by an explicit user action (save button)
+/// and deleted by an explicit unsave or by the album being acquired into
+/// the user's Jellyfin library (the X.c follow-up that wires the UI will
+/// dedupe against owned content). No automatic expiration.
+model SavedDiscoveryAlbum {
+  id          String   @id @default(cuid())
+  userId      String
+  rgMbid      String
+  artistName  String
+  artistMbid  String?
+  albumTitle  String
+  coverUrl    String?
+  /// Where the user saved from ("artist-page", "search", "discover", etc.).
+  /// Stringly-typed because we want to track new entry points without
+  /// requiring a schema migration each time.
+  source      String?
+  savedAt     DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, rgMbid])
+  @@index([userId, savedAt])
+  @@index([rgMbid])
 }
 
 /// Audio + vibe analysis for Jellyfin-sourced tracks, keyed by jellyfin:uuid.
