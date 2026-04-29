@@ -9,12 +9,6 @@ import { lastFmService } from "../../services/lastfm";
 import { deezerService } from "../../services/deezer";
 import { dataCacheService } from "../../services/dataCache";
 import {
-    backfillAllArtistCounts,
-    isBackfillNeeded,
-    getBackfillProgress,
-    isBackfillInProgress,
-} from "../../services/artistCountsService";
-import {
     isImageBackfillNeeded,
     getImageBackfillProgress,
     backfillAllImages,
@@ -115,51 +109,33 @@ router.get("/artists", async (req, res) => {
             }
         }
 
+        // Local-files (non-Jellyfin) fallback. After Arch-X.d the
+        // denormalized count columns + OwnedAlbum + AlbumOwnershipFact
+        // are gone, so ownership is approximated by "artist has any
+        // album with tracks". The `?filter=discovery` URL is preserved
+        // for backward-compat but always returns empty (discovery is
+        // pass-through MusicBrainz, not an Album row, post X.a/X.c).
         const orderBy = ARTIST_SORT_MAP[sortBy as string] ?? { name: "asc" as const };
 
-        // Build WHERE clause using denormalized counts (fast indexed lookup)
-        // This replaces the expensive OR with nested some conditions
-        let where: any = {};
-
-        if (filter === "owned") {
-            // Artists with library albums OR liked discovery albums (via ownedAlbums)
-            where.OR = [
-                { libraryAlbumCount: { gt: 0 } },
-                { ownedAlbums: { some: {} } },
-                {
-                    albums: {
-                        some: {
-                            ownershipFacts: {
-                                some: {
-                                    status: "OWNED",
-                                    source: "JELLYFIN",
-                                },
-                            },
-                        },
-                    },
-                },
-            ];
-        } else if (filter === "discovery") {
-            // Artists with ONLY discovery albums (no library albums)
-            where.discoveryAlbumCount = { gt: 0 };
-            where.libraryAlbumCount = 0;
-        } else {
-            // "all" - any artists with albums that have tracks
-            where.OR = [
-                { libraryAlbumCount: { gt: 0 } },
-                { discoveryAlbumCount: { gt: 0 } },
-            ];
+        if (filter === "discovery") {
+            return res.json({
+                artists: [],
+                total: 0,
+                offset,
+                limit,
+                nextCursor: null,
+            });
         }
 
-        // Add search query if provided
+        const where: any = {
+            albums: { some: { tracks: { some: {} } } },
+        };
         if (query) {
             where.name = { contains: query as string, mode: "insensitive" };
         }
 
-        // Execute queries with timeout to prevent cascade failures
         const [artists, total] = await prisma.$transaction(
             async (tx) => {
-                // Build findMany args - cursor or offset pagination
                 const findManyArgs: Parameters<typeof tx.artist.findMany>[0] = {
                     where,
                     take: limit,
@@ -170,13 +146,14 @@ router.get("/artists", async (req, res) => {
                         name: true,
                         heroUrl: true,
                         userHeroUrl: true,
-                        libraryAlbumCount: true,
-                        discoveryAlbumCount: true,
-                        totalTrackCount: true,
+                        _count: {
+                            select: {
+                                albums: { where: { tracks: { some: {} } } },
+                            },
+                        },
                     },
                 };
 
-                // Use cursor-based pagination if cursor provided, otherwise offset
                 if (cursor) {
                     findManyArgs.cursor = { id: cursor as string };
                     findManyArgs.skip = 1;
@@ -189,51 +166,48 @@ router.get("/artists", async (req, res) => {
                     tx.artist.count({ where }),
                 ]);
             },
-            { timeout: 30000 } // 30 second timeout as safety net
+            { timeout: 30000 }
         );
 
-        // Use DataCacheService for batch image lookup (DB + Redis, no API calls for lists)
+        type ArtistRowWithCount = (typeof artists)[number] & {
+            _count: { albums: number };
+        };
+        const artistsWithCount = artists as ArtistRowWithCount[];
+
         const imageMap = await dataCacheService.getArtistImagesBatch(
-            artists.map((a) => ({
+            artistsWithCount.map((a) => ({
                 id: a.id,
                 heroUrl: a.heroUrl,
                 userHeroUrl: a.userHeroUrl,
             }))
         );
 
-        const artistsWithImages = artists.map((artist) => {
+        const artistsWithImages = artistsWithCount.map((artist) => {
             const coverArt =
                 imageMap.get(artist.id) || artist.heroUrl || null;
-
-            // Use denormalized counts based on filter
-            const albumCount =
-                filter === "discovery"
-                    ? artist.discoveryAlbumCount
-                    : filter === "all"
-                    ? artist.libraryAlbumCount + artist.discoveryAlbumCount
-                    : artist.libraryAlbumCount;
 
             return {
                 id: artist.id,
                 mbid: artist.mbid,
                 name: artist.name,
                 heroUrl: coverArt,
-                coverArt, // Alias for frontend consistency
-                albumCount,
-                trackCount: artist.totalTrackCount,
+                coverArt,
+                albumCount: artist._count.albums,
+                trackCount: 0,
             };
         });
 
-        // Include cursor for next page (last artist ID)
         const nextCursor =
-            artists.length === limit ? artists[artists.length - 1].id : null;
+            artistsWithCount.length === limit
+                ? artistsWithCount[artistsWithCount.length - 1].id
+                : null;
 
         res.json({
             artists: artistsWithImages,
             total,
             offset,
             limit,
-            nextCursor, // For cursor-based pagination
+            nextCursor,
         });
     } catch (error: any) {
         logger.error("[Library] Get artists error:", error?.message || error);
@@ -245,49 +219,28 @@ router.get("/artists", async (req, res) => {
     }
 });
 
-// GET /library/artist-counts/status - Check artist counts backfill status
-router.get("/artist-counts/status", async (req, res) => {
-    try {
-        const [needsBackfill, progress] = await Promise.all([
-            isBackfillNeeded(),
-            getBackfillProgress(),
-        ]);
-
-        res.json({
-            needsBackfill,
-            ...progress,
-        });
-    } catch (error: any) {
-        logger.error("[ArtistCounts] Status check error:", error?.message);
-        res.status(500).json({ error: "Failed to check status" });
-    }
+// Arch-X.d removed the denormalized artist-count columns
+// (`libraryAlbumCount`, `discoveryAlbumCount`, `totalTrackCount`,
+// `countsLastUpdated`) and the artistCountsService that backfilled
+// them. The /artist-counts/status and /artist-counts/backfill admin
+// endpoints are retained as no-op stubs so any UI/curl bookmarks don't
+// 404; they always report "no backfill needed".
+router.get("/artist-counts/status", async (_req, res) => {
+    res.json({
+        needsBackfill: false,
+        processed: 0,
+        total: 0,
+        percent: 100,
+        isRunning: false,
+        errors: 0,
+    });
 });
 
-// POST /library/artist-counts/backfill - Trigger artist counts backfill
-router.post("/artist-counts/backfill", async (req, res) => {
-    try {
-        if (isBackfillInProgress()) {
-            return res.json({
-                message: "Backfill already in progress",
-                status: "processing",
-            });
-        }
-
-        // Return immediately, run backfill in background
-        res.json({ message: "Backfill started", status: "processing" });
-
-        // Run backfill (non-blocking)
-        backfillAllArtistCounts((processed, total) => {
-            if (processed % 100 === 0) {
-                logger.debug(`[ArtistCounts] Progress: ${processed}/${total}`);
-            }
-        }).catch((error) => {
-            logger.error("[ArtistCounts] Backfill failed:", error);
-        });
-    } catch (error: any) {
-        logger.error("[ArtistCounts] Backfill trigger error:", error?.message);
-        res.status(500).json({ error: "Failed to start backfill" });
-    }
+router.post("/artist-counts/backfill", async (_req, res) => {
+    res.json({
+        message: "Artist counts removed in Arch-X.d; nothing to backfill",
+        status: "idle",
+    });
 });
 
 // GET /library/image-backfill/status - Check image backfill status
@@ -803,12 +756,7 @@ async function loadSimilarArtists(opts: {
                 heroUrl: true,
                 _count: {
                     select: {
-                        albums: {
-                            where: {
-                                location: "LIBRARY",
-                                tracks: { some: {} },
-                            },
-                        },
+                        albums: { where: { tracks: { some: {} } } },
                     },
                 },
             },
@@ -1083,15 +1031,6 @@ router.delete("/artists/:id", async (req, res) => {
                 );
                 lidarrError = err?.message || "Unknown error";
             }
-        }
-
-        // Explicitly delete OwnedAlbum records first (should cascade, but being safe)
-        try {
-            await prisma.ownedAlbum.deleteMany({
-                where: { artistId: artist.id },
-            });
-        } catch (err) {
-            logger.warn("[DELETE] Could not delete OwnedAlbum records:", err);
         }
 
         // Delete from database (cascade will delete albums and tracks)

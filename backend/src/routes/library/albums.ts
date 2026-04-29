@@ -186,20 +186,13 @@ router.get("/albums", async (req, res) => {
                       ? Prisma.raw('a."year" DESC NULLS LAST')
                       : Prisma.raw('a."title" ASC');
 
+            // After Arch-X.d, all `Album` rows are owned/library content.
+            // The "has tracks" predicate keeps cache identical to legacy
+            // behavior — tracks-less rows shouldn't be served as owned.
             const idsResult = await prisma.$queryRaw<{ id: string }[]>`
                 SELECT a.id
                 FROM "Album" a
                 WHERE EXISTS (SELECT 1 FROM "Track" t WHERE t."albumId" = a.id)
-                AND (
-                    a.location = 'LIBRARY'
-                    OR a."rgMbid" IN (SELECT "rgMbid" FROM "OwnedAlbum")
-                    OR EXISTS (
-                        SELECT 1
-                        FROM "AlbumOwnershipFact" aof
-                        WHERE aof."albumId" = a.id
-                          AND aof."status" = 'OWNED'
-                    )
-                )
                 ${artistId ? Prisma.sql`AND a."artistId" = ${artistId as string}` : Prisma.empty}
                 ORDER BY ${orderClause}
                 LIMIT ${limit}
@@ -226,16 +219,6 @@ router.get("/albums", async (req, res) => {
                     SELECT COUNT(*)::bigint as count
                     FROM "Album" a
                     WHERE EXISTS (SELECT 1 FROM "Track" t WHERE t."albumId" = a.id)
-                    AND (
-                        a.location = 'LIBRARY'
-                        OR a."rgMbid" IN (SELECT "rgMbid" FROM "OwnedAlbum")
-                        OR EXISTS (
-                            SELECT 1
-                            FROM "AlbumOwnershipFact" aof
-                            WHERE aof."albumId" = a.id
-                              AND aof."status" = 'OWNED'
-                        )
-                    )
                     ${artistId ? Prisma.sql`AND a."artistId" = ${artistId as string}` : Prisma.empty}
                 `,
             ]);
@@ -256,8 +239,13 @@ router.get("/albums", async (req, res) => {
         let where: any = {
             tracks: { some: {} }, // Only albums with tracks
         };
+        // Post Arch-X.d, `Album.location = DISCOVER` rows no longer
+        // exist (transient discovery lives on `SavedDiscoveryAlbum`).
+        // The `?filter=discovery` query param is preserved for URL
+        // backward-compat but always returns an empty list since no
+        // Album row is discovery-only anymore.
         if (filter === "discovery") {
-            where.location = "DISCOVER";
+            return res.json({ albums: [], total: 0, offset, limit });
         }
         if (artistId) {
             where.artistId = artistId as string;
@@ -463,37 +451,18 @@ router.get("/albums/:id", async (req, res) => {
 
         // Branch 3: legacy Prisma cuid path. Defensive read for any
         // bookmarked URLs still carrying raw Album.id values. We do NOT
-        // reconcile against Jellyfin here.
+        // reconcile against Jellyfin here. Post Arch-X.d the per-track
+        // artist credit table (`TrackArtistCredit`) and album-level
+        // credit table (`AlbumArtistCredit`) are gone — the legacy
+        // path falls back to the Album.artist relation for both.
         const album = await prisma.album.findFirst({
             where: { id: idParam },
             include: {
                 artist: {
                     select: { id: true, mbid: true, name: true },
                 },
-                albumArtistCredits: {
-                    orderBy: { sortOrder: Prisma.SortOrder.asc },
-                    include: {
-                        artist: {
-                            select: { id: true, name: true, mbid: true },
-                        },
-                    },
-                },
                 tracks: {
                     orderBy: { trackNo: Prisma.SortOrder.asc },
-                    include: {
-                        trackArtistCredits: {
-                            orderBy: { sortOrder: Prisma.SortOrder.asc },
-                            include: {
-                                artist: {
-                                    select: {
-                                        id: true,
-                                        name: true,
-                                        mbid: true,
-                                    },
-                                },
-                            },
-                        },
-                    },
                 },
             },
         });
@@ -501,48 +470,18 @@ router.get("/albums/:id", async (req, res) => {
             return res.status(404).json({ error: "Album not found" });
         }
 
-        const albumArtists =
-            album.albumArtistCredits.length > 0
-                ? album.albumArtistCredits.map((credit) => ({
-                      id: credit.artist?.id ?? credit.artistId ?? "",
-                      name: credit.artist?.name ?? credit.displayName,
-                      mbid: credit.artist?.mbid ?? null,
-                  }))
-                : album.artist
-                  ? [
-                        {
-                            id: album.artist.id,
-                            name: album.artist.name,
-                            mbid: album.artist.mbid ?? null,
-                        },
-                    ]
-                  : [];
-        const primaryArtist = albumArtists[0] ?? album.artist;
-        const tracks = album.tracks.map((track) => {
-            const primaryTrackCredit = track.trackArtistCredits[0];
-            const trackArtist = primaryTrackCredit
-                ? {
-                      id:
-                          primaryTrackCredit.artist?.id ??
-                          primaryTrackCredit.artistId ??
-                          "",
-                      name:
-                          primaryTrackCredit.artist?.name ??
-                          primaryTrackCredit.displayName,
-                      mbid: primaryTrackCredit.artist?.mbid ?? null,
-                  }
-                : primaryArtist
-                  ? {
-                        id: primaryArtist.id,
-                        name: primaryArtist.name,
-                        mbid: primaryArtist.mbid ?? null,
-                    }
-                  : undefined;
-            return {
-                ...track,
-                artist: trackArtist,
-            };
-        });
+        const primaryArtist = album.artist
+            ? {
+                  id: album.artist.id,
+                  name: album.artist.name,
+                  mbid: album.artist.mbid ?? null,
+              }
+            : undefined;
+        const albumArtists = primaryArtist ? [primaryArtist] : [];
+        const tracks = album.tracks.map((track) => ({
+            ...track,
+            artist: primaryArtist,
+        }));
 
         return res.json({
             ...album,

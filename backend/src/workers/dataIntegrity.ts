@@ -4,7 +4,7 @@
  * Periodic cleanup to maintain database health:
  * 1. Remove expired DiscoverExclusion records
  * 2. Clean up orphaned DiscoveryTrack records
- * 3. Clean up orphaned Album records (DISCOVER location with no DiscoveryAlbum)
+ * 3. Clean up orphaned discovery-path albums (no active DiscoveryAlbum link)
  * 4. Consolidate duplicate artists (temp MBID vs real MBID)
  * 5. Clean up orphaned artists (no albums)
  * 6. Clean up old completed/failed DownloadJob records
@@ -37,9 +37,6 @@ type ConsolidationArtist = {
     similarArtistsJson: unknown;
     _count: {
         albums: number;
-        ownedAlbums: number;
-        albumArtistCredits: number;
-        trackArtistCredits: number;
     };
 };
 
@@ -65,9 +62,6 @@ function scoreArtistForCanonical(artist: ConsolidationArtist): number {
         score += 10;
     }
     score += artist._count.albums * 10;
-    score += artist._count.ownedAlbums * 14;
-    score += artist._count.albumArtistCredits * 4;
-    score += artist._count.trackArtistCredits * 2;
 
     // Prefer canonical leading-article names ("The Books")
     if (
@@ -126,14 +120,24 @@ export async function runDataIntegrityCheck(): Promise<IntegrityReport> {
         );
     }
 
-    // 3. Clean up orphaned DISCOVER albums (no active DiscoveryAlbum record AND no OwnedAlbum)
+    // 3. Orphaned discovery-only albums (Arch-X.d: no Album.location; use file paths)
+    const discoveryPathSegment = "/music/discovery";
     const discoverAlbums = await prisma.album.findMany({
-        where: { location: "DISCOVER" },
+        where: {
+            tracks: {
+                some: {},
+                every: {
+                    filePath: {
+                        contains: discoveryPathSegment,
+                        mode: "insensitive",
+                    },
+                },
+            },
+        },
         include: { artist: true },
     });
 
     for (const album of discoverAlbums) {
-        // Check if there's an ACTIVE, LIKED, or MOVED DiscoveryAlbum record
         const hasActiveRecord = await prisma.discoveryAlbum.findFirst({
             where: {
                 OR: [
@@ -147,20 +151,10 @@ export async function runDataIntegrityCheck(): Promise<IntegrityReport> {
             },
         });
 
-        // Also check if there's an OwnedAlbum record (user liked it)
-        const hasOwnedRecord = await prisma.ownedAlbum.findFirst({
-            where: {
-                artistId: album.artistId,
-                rgMbid: album.rgMbid,
-            },
-        });
-
-        if (!hasActiveRecord && !hasOwnedRecord) {
-            // Delete tracks first
+        if (!hasActiveRecord) {
             await prisma.track.deleteMany({
                 where: { albumId: album.id },
             });
-            // Delete album
             await prisma.album.delete({
                 where: { id: album.id },
             });
@@ -171,126 +165,7 @@ export async function runDataIntegrityCheck(): Promise<IntegrityReport> {
         }
     }
 
-    // 4. Fix mislocated LIBRARY albums that should be DISCOVER
-    // This happens when:
-    // - Discovery tracks have featured artists that don't match the download job
-    // - Lidarr downloads a different album than requested (e.g., "Broods" album vs "Evergreen" album)
-    // - Album title metadata differs from the requested album
-    // - Scanner ran before DiscoveryAlbum records were created
-    
-    const discoveryJobs = await prisma.downloadJob.findMany({
-        where: {
-            discoveryBatchId: { not: null },
-            status: { in: ["pending", "processing", "completed"] },
-        },
-    });
-    
-    // Build sets of discovery album titles AND artist names (normalized)
-    const discoveryAlbumTitles = new Set<string>();
-    const discoveryArtistNames = new Set<string>();
-    const discoveryArtistMbids = new Set<string>();
-    
-    for (const job of discoveryJobs) {
-        const metadata = job.metadata as any;
-        const albumTitle = (metadata?.albumTitle || "").toLowerCase().trim();
-        const artistName = (metadata?.artistName || "").toLowerCase().trim();
-        const artistMbid = metadata?.artistMbid;
-        if (albumTitle) discoveryAlbumTitles.add(albumTitle);
-        if (artistName) discoveryArtistNames.add(artistName);
-        if (artistMbid) discoveryArtistMbids.add(artistMbid);
-    }
-    
-    // Also check DiscoveryAlbum table for ALL discoveries (not just active)
-    // This catches albums where Lidarr downloaded a different album than requested
-    const allDiscoveryAlbums = await prisma.discoveryAlbum.findMany();
-    for (const da of allDiscoveryAlbums) {
-        discoveryAlbumTitles.add(da.albumTitle.toLowerCase().trim());
-        discoveryArtistNames.add(da.artistName.toLowerCase().trim());
-        if (da.artistMbid) discoveryArtistMbids.add(da.artistMbid);
-    }
-    
-    // Find LIBRARY albums that might be discovery
-    const libraryAlbums = await prisma.album.findMany({
-        where: { location: "LIBRARY" },
-        include: { artist: true },
-    });
-    
-    let mislocatedAlbumsFixed = 0;
-    for (const album of libraryAlbums) {
-        const normalizedTitle = album.title.toLowerCase().trim();
-        const normalizedArtist = album.artist.name.toLowerCase().trim();
-        
-        // Match criteria:
-        // 1. Album title matches a discovery download, OR
-        // 2. Artist name matches a discovery download (catches Lidarr downloading wrong album), OR
-        // 3. Artist MBID matches a discovery download
-        const albumMatches = discoveryAlbumTitles.has(normalizedTitle);
-        const artistNameMatches = discoveryArtistNames.has(normalizedArtist);
-        const artistMbidMatches = album.artist.mbid ? discoveryArtistMbids.has(album.artist.mbid) : false;
-        
-        if (!albumMatches && !artistNameMatches && !artistMbidMatches) continue;
-        
-        // KEY FIX: Check if artist has ANY protected OwnedAlbum records:
-        // - native_scan = real user library from before discovery
-        // - discovery_liked = user liked a discovery album (should be kept!)
-        const hasProtectedOwnedAlbum = await prisma.ownedAlbum.findFirst({
-            where: {
-                artistId: album.artistId,
-                source: { in: ["native_scan", "discovery_liked"] },
-            },
-        });
-        
-        if (hasProtectedOwnedAlbum) {
-            // Artist has protected content - this album should stay as LIBRARY
-            continue;
-        }
-        
-        // Also check if artist has any LIKED discovery albums (double-check)
-        const hasLikedDiscovery = await prisma.discoveryAlbum.findFirst({
-            where: {
-                artistMbid: album.artist.mbid || undefined,
-                status: { in: ["LIKED", "MOVED"] },
-            },
-        });
-        
-        if (hasLikedDiscovery) {
-            // User liked albums from this artist - don't touch
-            continue;
-        }
-        
-        const reason = albumMatches 
-            ? `album title "${album.title}" matches discovery` 
-            : artistNameMatches
-                ? `artist "${album.artist.name}" matches discovery`
-                : `artist MBID matches discovery`;
-        logger.debug(
-            `     Fixing mislocated album: ${album.artist.name} - ${album.title} (LIBRARY -> DISCOVER, ${reason})`
-        );
-        
-        // Update album location
-        await prisma.album.update({
-            where: { id: album.id },
-            data: { location: "DISCOVER" },
-        });
-        
-        // Remove OwnedAlbum record (but only non-native ones)
-        await prisma.ownedAlbum.deleteMany({
-            where: { 
-                rgMbid: album.rgMbid,
-                source: { not: "native_scan" },
-            },
-        });
-        
-        mislocatedAlbumsFixed++;
-    }
-    
-    report.mislocatedAlbums = mislocatedAlbumsFixed;
-    if (mislocatedAlbumsFixed > 0) {
-        logger.debug(`     Fixed ${mislocatedAlbumsFixed} mislocated albums`);
-    }
-
-    // 5. Clean up albums with NO tracks (files were deleted from filesystem)
-    // These are "ghost" albums that still appear in the database but have no actual content
+    // 4. Clean up albums with NO tracks
     const emptyAlbums = await prisma.album.findMany({
         where: {
             tracks: { none: {} },
@@ -299,14 +174,8 @@ export async function runDataIntegrityCheck(): Promise<IntegrityReport> {
     });
 
     for (const album of emptyAlbums) {
-        // Delete the album record
         await prisma.album.delete({
             where: { id: album.id },
-        });
-
-        // Also delete any associated OwnedAlbum records
-        await prisma.ownedAlbum.deleteMany({
-            where: { rgMbid: album.rgMbid },
         });
 
         report.orphanedAlbums++;
@@ -315,21 +184,7 @@ export async function runDataIntegrityCheck(): Promise<IntegrityReport> {
         );
     }
 
-    // 6. Clean up orphaned OwnedAlbum records (no matching Album record)
-    // This happens when files are deleted but Lidarr records remain
-    const orphanedOwnedAlbums = await prisma.$executeRaw`
-        DELETE FROM "OwnedAlbum" oa
-        WHERE NOT EXISTS (
-            SELECT 1 FROM "Album" a WHERE a."rgMbid" = oa."rgMbid"
-        )
-    `;
-    if (orphanedOwnedAlbums > 0) {
-        logger.debug(
-            `     Removed ${orphanedOwnedAlbums} orphaned OwnedAlbum records`
-        );
-    }
-
-    // 7. Consolidate duplicate artists:
+    // 5. Consolidate duplicate artists:
     // - temp MBID <-> real MBID duplicates
     // - alias form duplicates ("Books, The" <-> "The Books")
     const allArtists = (await prisma.artist.findMany({
@@ -343,9 +198,6 @@ export async function runDataIntegrityCheck(): Promise<IntegrityReport> {
             _count: {
                 select: {
                     albums: true,
-                    ownedAlbums: true,
-                    albumArtistCredits: true,
-                    trackArtistCredits: true,
                 },
             },
         },
@@ -469,51 +321,6 @@ export async function runDataIntegrityCheck(): Promise<IntegrityReport> {
                     data: { artistId: canonical.id },
                 });
 
-                // Repoint normalized credits so "Appears On" and track-level attribution stay intact.
-                await prisma.albumArtistCredit.updateMany({
-                    where: { artistId: duplicate.id },
-                    data: { artistId: canonical.id },
-                });
-                await prisma.trackArtistCredit.updateMany({
-                    where: { artistId: duplicate.id },
-                    data: { artistId: canonical.id },
-                });
-
-                // Move OwnedAlbum rows with conflict-safe merge on composite key.
-                const duplicateOwned = await prisma.ownedAlbum.findMany({
-                    where: { artistId: duplicate.id },
-                });
-                for (const owned of duplicateOwned) {
-                    const canonicalOwned = await prisma.ownedAlbum.findUnique({
-                        where: {
-                            artistId_rgMbid: {
-                                artistId: canonical.id,
-                                rgMbid: owned.rgMbid,
-                            },
-                        },
-                    });
-                    if (canonicalOwned) {
-                        await prisma.ownedAlbum.delete({
-                            where: {
-                                artistId_rgMbid: {
-                                    artistId: duplicate.id,
-                                    rgMbid: owned.rgMbid,
-                                },
-                            },
-                        });
-                    } else {
-                        await prisma.ownedAlbum.update({
-                            where: {
-                                artistId_rgMbid: {
-                                    artistId: duplicate.id,
-                                    rgMbid: owned.rgMbid,
-                                },
-                            },
-                            data: { artistId: canonical.id },
-                        });
-                    }
-                }
-
                 // Merge SimilarArtist edges while preserving strongest weight.
                 const oldEdges = await prisma.similarArtist.findMany({
                     where: {
@@ -584,7 +391,7 @@ export async function runDataIntegrityCheck(): Promise<IntegrityReport> {
         }
     }
 
-    // 8. Clean up orphaned artists (no albums)
+    // 6. Clean up orphaned artists (no albums)
     const orphanedArtists = await prisma.artist.findMany({
         where: {
             albums: { none: {} },
@@ -614,7 +421,7 @@ export async function runDataIntegrityCheck(): Promise<IntegrityReport> {
         report.orphanedArtists = orphanedArtists.length;
     }
 
-    // 9. Clean up old DownloadJob records (older than 30 days, completed/failed)
+    // 7. Clean up old DownloadJob records (older than 30 days, completed/failed)
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
@@ -635,7 +442,7 @@ export async function runDataIntegrityCheck(): Promise<IntegrityReport> {
     logger.debug(
         `   - Orphaned discovery tracks: ${report.orphanedDiscoveryTracks}`
     );
-    logger.debug(`   - Mislocated albums (LIBRARY->DISCOVER): ${report.mislocatedAlbums}`);
+    logger.debug(`   - Mislocated albums (deprecated; always 0 post Arch-X.d): ${report.mislocatedAlbums}`);
     logger.debug(`   - Orphaned albums: ${report.orphanedAlbums}`);
     logger.debug(`   - Consolidated artists: ${report.consolidatedArtists}`);
     logger.debug(`   - Orphaned artists: ${report.orphanedArtists}`);

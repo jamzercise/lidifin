@@ -201,12 +201,13 @@ router.get("/for-you", async (req, res) => {
         );
 
         // Filter out artists user already owns (from native library)
-        const ownedArtists = await prisma.ownedAlbum.findMany({
+        const ownedRows = await prisma.album.findMany({
+            where: { tracks: { some: {} } },
             select: { artistId: true },
             distinct: ["artistId"],
-            take: 50_000, // Cap to avoid unbounded load on huge libraries
+            take: 50_000,
         });
-        const ownedArtistIds = new Set(ownedArtists.map((a) => a.artistId));
+        const ownedArtistIds = new Set(ownedRows.map((r) => r.artistId));
 
         logger.debug(
             `Filtering recommendations: ${ownedArtistIds.size} owned artists to exclude`
@@ -321,7 +322,7 @@ router.get("/", async (req, res) => {
         // Batch fetch all data instead of N+1 queries per similar artist
         const similarArtistIds = similarArtists.map((s) => s.toArtistId);
 
-        const [artists, albums, ownedAlbums] = await Promise.all([
+        const [artists, albums, ownedAlbumRows] = await Promise.all([
             prisma.artist.findMany({
                 where: { id: { in: similarArtistIds } },
                 select: { id: true, mbid: true, name: true, heroUrl: true },
@@ -331,13 +332,24 @@ router.get("/", async (req, res) => {
                 include: { artist: true },
                 orderBy: { year: "desc" },
             }),
-            prisma.ownedAlbum.findMany({
-                where: { artistId: { in: similarArtistIds } },
+            prisma.album.findMany({
+                where: {
+                    artistId: { in: similarArtistIds },
+                    tracks: { some: {} },
+                },
                 select: { artistId: true, rgMbid: true },
             }),
         ]);
 
-        const artistMap = new Map(artists.map((a) => [a.id, a]));
+        type ArtistBrief = {
+            id: string;
+            mbid: string | null;
+            name: string;
+            heroUrl: string | null;
+        };
+        const artistMap = new Map<string, ArtistBrief>(
+            artists.map((a) => [a.id, a])
+        );
         const albumsByArtist = new Map<string, typeof albums>();
         for (const album of albums) {
             const list = albumsByArtist.get(album.artistId) || [];
@@ -345,7 +357,7 @@ router.get("/", async (req, res) => {
             albumsByArtist.set(album.artistId, list);
         }
         const ownedByArtist = new Map<string, Set<string>>();
-        for (const o of ownedAlbums) {
+        for (const o of ownedAlbumRows) {
             const set = ownedByArtist.get(o.artistId) || new Set();
             set.add(o.rgMbid);
             ownedByArtist.set(o.artistId, set);
@@ -476,8 +488,11 @@ router.get("/albums", async (req, res) => {
         // Batch check ownership instead of N+1
         const slicedAlbums = uniqueAlbums.slice(0, 20);
         const artistIdsForOwnership = [...new Set(slicedAlbums.map((a) => a.artistId))];
-        const ownedAlbumsForRec = await prisma.ownedAlbum.findMany({
-            where: { artistId: { in: artistIdsForOwnership } },
+        const ownedAlbumsForRec = await prisma.album.findMany({
+            where: {
+                artistId: { in: artistIdsForOwnership },
+                tracks: { some: {} },
+            },
             select: { rgMbid: true },
         });
         const ownedRgMbidSet = new Set(ownedAlbumsForRec.map((o) => o.rgMbid));

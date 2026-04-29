@@ -168,17 +168,21 @@ export async function processScan(
         spotifyImportJobId,
     } = job.data;
 
-    // When Jellyfin is the music source, sync OwnedAlbum records instead of running a native scan.
-    // This ensures albums downloaded via Lidarr appear as owned in the UI.
+    // When Jellyfin is the music source, refresh the rgMbid -> Jellyfin
+    // id Redis cache so newly added albums resolve via point lookup
+    // instead of bounded scan. Ownership is read from Jellyfin at
+    // request time (Arch-X.a / X.d), so no Prisma sync is needed.
     const { isJellyfinMusicSource } = await import("../../services/jellyfin");
     if (await isJellyfinMusicSource()) {
-        logger.debug(`[ScanJob ${job.id}] Jellyfin is music source; syncing OwnedAlbum records`);
+        logger.debug(`[ScanJob ${job.id}] Jellyfin is music source; refreshing rgMbid cache`);
         try {
-            const { syncJellyfinOwnedAlbums } = await import("../../services/jellyfinMetadataSync");
-            const result = await syncJellyfinOwnedAlbums();
-            logger.debug(`[ScanJob ${job.id}] OwnedAlbum sync: ${result.created} created, ${result.skipped} skipped`);
+            const { refreshJellyfinRgMbidCache } = await import("../../services/jellyfinMetadataSync");
+            const result = await refreshJellyfinRgMbidCache();
+            logger.debug(
+                `[ScanJob ${job.id}] rgMbid cache: ${result.cached} cached, ${result.skipped} skipped`
+            );
         } catch (err: any) {
-            logger.warn(`[ScanJob ${job.id}] OwnedAlbum sync failed (non-fatal):`, err?.message);
+            logger.warn(`[ScanJob ${job.id}] rgMbid cache refresh failed (non-fatal):`, err?.message);
         }
         return {
             tracksAdded: 0,

@@ -30,7 +30,6 @@ import {
     discoverySeeding,
 } from "./discovery";
 import { shuffleArray } from "../utils/shuffle";
-import { updateArtistCounts } from "./artistCountsService";
 import { config as appConfig } from "../config";
 
 interface SeedArtist {
@@ -1032,7 +1031,6 @@ export class DiscoverWeeklyService {
                                     : []),
                             ],
                         },
-                        location: "LIBRARY",
                         id: { notIn: Array.from(usedAlbumIds) }, // Exclude albums already in discovery
                     },
                     id: { notIn: Array.from(existingTrackIds) },
@@ -1092,7 +1090,6 @@ export class DiscoverWeeklyService {
             const popularLibraryTracks = await prisma.track.findMany({
                 where: {
                     album: {
-                        location: "LIBRARY",
                         id: { notIn: Array.from(usedAlbumIds) }, // 1 per album
                     },
                     id: { notIn: Array.from(usedTrackIds) },
@@ -1905,11 +1902,12 @@ export class DiscoverWeeklyService {
                 const albums = await lidarrService.getArtistAlbums(artistMbid);
 
                 // Check if artist has native library content (real user library)
-                const hasNativeOwnedAlbums = await prisma.ownedAlbum.findFirst({
+                const hasNativeOwnedAlbums = await prisma.album.findFirst({
                     where: {
                         artist: { mbid: artistMbid },
-                        source: "native_scan",
+                        tracks: { some: {} },
                     },
+                    select: { id: true },
                 });
 
                 if (!albums || (albums.length === 0 && !hasNativeOwnedAlbums)) {
@@ -2006,43 +2004,6 @@ export class DiscoverWeeklyService {
                 `     [OWNED-NAME] Found "${albumTitle}" by "${artistName}" in Album table`
             );
             return true;
-        }
-
-        // Check OwnedAlbum by looking up associated Album records through rgMbid
-        const ownedAlbumRefs = await prisma.ownedAlbum.findMany({
-            where: {
-                artist: {
-                    name: { contains: normalizedArtist, mode: "insensitive" },
-                },
-            },
-            select: { rgMbid: true },
-        });
-
-        // Look up the actual album titles for these owned albums
-        if (ownedAlbumRefs.length > 0) {
-            const rgMbids = ownedAlbumRefs.map((o) => o.rgMbid);
-            const ownedAlbumRecords = await prisma.album.findMany({
-                where: { rgMbid: { in: rgMbids } },
-                select: { title: true },
-            });
-
-            for (const owned of ownedAlbumRecords) {
-                const ownedNormalized = owned.title
-                    ?.toLowerCase()
-                    .replace(/\(.*?\)/g, "")
-                    .replace(/\[.*?\]/g, "")
-                    .trim();
-                if (
-                    ownedNormalized &&
-                    (ownedNormalized.includes(normalizedAlbum) ||
-                        normalizedAlbum.includes(ownedNormalized))
-                ) {
-                    logger.debug(
-                        `     [OWNED-NAME] Found "${albumTitle}" by "${artistName}" in OwnedAlbum table`
-                    );
-                    return true;
-                }
-            }
         }
 
         return false;

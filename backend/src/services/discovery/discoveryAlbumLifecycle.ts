@@ -10,7 +10,6 @@
 import axios from 'axios';
 import { prisma } from '../../utils/db';
 import { logger } from '../../utils/logger';
-import { updateArtistCounts } from '../artistCountsService';
 
 export interface DiscoveryAlbumInfo {
     id: string;
@@ -28,47 +27,25 @@ export interface LidarrSettings {
 
 export class DiscoveryAlbumLifecycle {
     /**
-     * Moves a LIKED discovery album to the permanent LIBRARY.
-     * Updates album location, creates OwnedAlbum record, updates artist counts.
+     * Marks a LIKED discovery album as moved.
+     *
+     * Pre Arch-X.d this also flipped `Album.location` from DISCOVER to
+     * LIBRARY and inserted an `OwnedAlbum` row so the album would show
+     * up under "owned" in the library UI. After X.d, both of those
+     * tables are gone — ownership is read from Jellyfin at request
+     * time, and there is no separate "discovery" Album state. The DB
+     * Album row (if any) is left as-is; we only flip the
+     * `DiscoveryAlbum.status` so the discover-weekly UI knows the user
+     * kept it.
      */
     async moveLikedAlbumToLibrary(album: DiscoveryAlbumInfo): Promise<void> {
-        const dbAlbum = await prisma.album.findFirst({
-            where: { rgMbid: album.rgMbid },
-            include: { artist: true },
-        });
-
-        if (dbAlbum) {
-            await prisma.album.update({
-                where: { id: dbAlbum.id },
-                data: { location: 'LIBRARY' },
-            });
-
-            await prisma.ownedAlbum.upsert({
-                where: {
-                    artistId_rgMbid: {
-                        artistId: dbAlbum.artistId,
-                        rgMbid: dbAlbum.rgMbid,
-                    },
-                },
-                create: {
-                    artistId: dbAlbum.artistId,
-                    rgMbid: dbAlbum.rgMbid,
-                    source: 'discover_liked',
-                },
-                update: {},
-            });
-
-            await updateArtistCounts(dbAlbum.artistId);
-
-            logger.debug(
-                `[DiscoveryLifecycle] Moved to library: ${album.artistName} - ${album.albumTitle}`
-            );
-        }
-
         await prisma.discoveryAlbum.update({
             where: { id: album.id },
             data: { status: 'MOVED' },
         });
+        logger.debug(
+            `[DiscoveryLifecycle] Marked liked: ${album.artistName} - ${album.albumTitle}`
+        );
     }
 
     /**

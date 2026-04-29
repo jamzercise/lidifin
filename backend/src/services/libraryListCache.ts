@@ -33,20 +33,14 @@ export async function refreshOwnedAlbumsCache(sortBy: string): Promise<number> {
               ? Prisma.raw('a."year" DESC NULLS LAST')
               : Prisma.raw('a."title" ASC');
 
+    // After Arch-X.d, all `Album` rows are owned/library content
+    // (DISCOVER rows + OwnedAlbum + AlbumOwnershipFact were removed).
+    // The "has tracks" predicate keeps cache identical to legacy
+    // behavior — tracks-less rows shouldn't be served as owned.
     const rows = await prisma.$queryRaw<{ id: string }[]>`
         SELECT a.id
         FROM "Album" a
         WHERE EXISTS (SELECT 1 FROM "Track" t WHERE t."albumId" = a.id)
-        AND (
-            a.location = 'LIBRARY'
-            OR a."rgMbid" IN (SELECT "rgMbid" FROM "OwnedAlbum")
-            OR EXISTS (
-                SELECT 1
-                FROM "AlbumOwnershipFact" aof
-                WHERE aof."albumId" = a.id
-                  AND aof."status" = 'OWNED'
-            )
-        )
         ORDER BY ${orderClause}
         LIMIT ${MAX_CACHED_IDS}
     `;

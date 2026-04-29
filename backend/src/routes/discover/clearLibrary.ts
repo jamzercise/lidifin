@@ -71,27 +71,10 @@ export function registerClearLibraryRoute(router: Router): void {
                         });
 
                         if (dbAlbum) {
-                            // Update album location to LIBRARY
-                            await prisma.album.update({
-                                where: { id: dbAlbum.id },
-                                data: { location: "LIBRARY" },
-                            });
-
-                            // Create OwnedAlbum record if doesn't exist
-                            await prisma.ownedAlbum.upsert({
-                                where: {
-                                    artistId_rgMbid: {
-                                        artistId: dbAlbum.artistId,
-                                        rgMbid: dbAlbum.rgMbid,
-                                    },
-                                },
-                                create: {
-                                    artistId: dbAlbum.artistId,
-                                    rgMbid: dbAlbum.rgMbid,
-                                    source: "discover_liked",
-                                },
-                                update: {}, // No update needed if exists
-                            });
+                            // Arch-X.d removed Album.location and
+                            // OwnedAlbum; ownership is read from
+                            // Jellyfin at request time. The DB album row
+                            // is left untouched here.
 
                             // If Lidarr is enabled, move the album files to main library
                             if (
@@ -244,14 +227,17 @@ export function registerClearLibraryRoute(router: Router): void {
                                         const artist = artistResponse.data;
                                         const artistMbid = artist.foreignArtistId;
 
-                                        // Check if artist has any NATIVE library content (real user library)
-                                        // This is more reliable than checking Album.location which can be wrong
+                                        // Arch-X.d removed OwnedAlbum;
+                                        // approximate "has native library
+                                        // content" by checking for any
+                                        // Album row tied to this MBID.
                                         const hasNativeOwnedAlbums =
-                                            await prisma.ownedAlbum.findFirst({
+                                            await prisma.album.findFirst({
                                                 where: {
                                                     artist: { mbid: artistMbid },
-                                                    source: "native_scan",
+                                                    tracks: { some: {} },
                                                 },
+                                                select: { id: true },
                                             });
 
                                         // Check if artist has any LIKED/MOVED discovery albums
@@ -349,7 +335,6 @@ export function registerClearLibraryRoute(router: Router): void {
                             where: {
                                 title: album.albumTitle,
                                 artist: { name: album.artistName },
-                                location: "DISCOVER",
                             },
                             include: { tracks: true },
                         });
@@ -535,11 +520,12 @@ export function registerClearLibraryRoute(router: Router): void {
                                     ) {
                                         // Check if artist has native library content
                                         const hasNativeLibrary =
-                                            await prisma.ownedAlbum.findFirst({
+                                            await prisma.album.findFirst({
                                                 where: {
                                                     artist: { mbid: artistMbid },
-                                                    source: "native_scan",
+                                                    tracks: { some: {} },
                                                 },
+                                                select: { id: true },
                                             });
 
                                         if (!hasNativeLibrary) {
@@ -623,11 +609,12 @@ export function registerClearLibraryRoute(router: Router): void {
                     try {
                         // Check if artist has any NATIVE library content (real user library)
                         const hasNativeOwnedAlbums =
-                            await prisma.ownedAlbum.findFirst({
+                            await prisma.album.findFirst({
                                 where: {
                                     artist: { mbid: artistMbid },
-                                    source: "native_scan",
+                                    tracks: { some: {} },
                                 },
+                                select: { id: true },
                             });
 
                         if (hasNativeOwnedAlbums) {
@@ -702,23 +689,29 @@ export function registerClearLibraryRoute(router: Router): void {
                 });
             }
 
-            // === PHASE 2: Clean up orphaned discovery records ===
-            // These are Album/Track records with location="DISCOVER" that weren't linked to a DiscoveryAlbum
-            // This can happen if downloads failed or playlist build failed
+            // === PHASE 2: Clean up orphaned discovery-only albums (Arch-X.d: no Album.location) ===
+            // Only consider albums whose tracks all live under the typical Lidarr discovery path.
             logger.debug(`\n Cleaning up orphaned discovery records...`);
 
-            // Find all DISCOVER albums that don't have a corresponding DiscoveryAlbum record
+            const discoveryPathSegment = "/music/discovery";
+
             const orphanedAlbums = await prisma.album.findMany({
                 where: {
-                    location: "DISCOVER",
+                    tracks: {
+                        some: {},
+                        every: {
+                            filePath: {
+                                contains: discoveryPathSegment,
+                                mode: "insensitive",
+                            },
+                        },
+                    },
                 },
                 include: { artist: true, tracks: true },
             });
 
             let orphanedAlbumsDeleted = 0;
             for (const orphanAlbum of orphanedAlbums) {
-                // Check if there's a DiscoveryAlbum record for this
-                // Include MOVED status because liked albums are marked MOVED during clear
                 const hasDiscoveryRecord = await prisma.discoveryAlbum.findFirst({
                     where: {
                         OR: [
@@ -728,23 +721,14 @@ export function registerClearLibraryRoute(router: Router): void {
                                 artistName: orphanAlbum.artist.name,
                             },
                         ],
-                        status: { in: ["ACTIVE", "LIKED", "MOVED"] }, // Keep if active, liked, or moved to library
+                        status: { in: ["ACTIVE", "LIKED", "MOVED"] },
                     },
                 });
 
-                // Also check if there's an OwnedAlbum record (user liked it)
-                const hasOwnedRecord = await prisma.ownedAlbum.findFirst({
-                    where: {
-                        rgMbid: orphanAlbum.rgMbid,
-                    },
-                });
-
-                if (!hasDiscoveryRecord && !hasOwnedRecord) {
-                    // Delete tracks first
+                if (!hasDiscoveryRecord) {
                     await prisma.track.deleteMany({
                         where: { albumId: orphanAlbum.id },
                     });
-                    // Delete album
                     await prisma.album.delete({
                         where: { id: orphanAlbum.id },
                     });

@@ -18,9 +18,6 @@ jest.mock('../../../utils/db', () => ({
         track: {
             findMany: jest.fn(),
         },
-        ownedAlbum: {
-            findFirst: jest.fn(),
-        },
         discoveryAlbum: {
             findFirst: jest.fn(),
         },
@@ -247,7 +244,7 @@ describe('DiscoverySeeding', () => {
             expect(result[0]).toEqual({ name: 'Library Artist One', mbid: 'lib-mbid-1' });
             expect(mockPrisma.album.groupBy).toHaveBeenCalledWith(
                 expect.objectContaining({
-                    where: { location: 'LIBRARY' },
+                    where: { tracks: { some: {} } },
                 })
             );
         });
@@ -404,18 +401,7 @@ describe('DiscoverySeeding', () => {
     describe('isAlbumOwned', () => {
         const userId = 'user-123';
 
-        it('should return true when album found in OwnedAlbum table', async () => {
-            (mockPrisma.ownedAlbum.findFirst as jest.Mock).mockResolvedValue({
-                rgMbid: 'album-mbid',
-            });
-
-            const result = await seeding.isAlbumOwned('album-mbid', userId);
-
-            expect(result).toBe(true);
-        });
-
-        it('should return true when album found in Album table', async () => {
-            (mockPrisma.ownedAlbum.findFirst as jest.Mock).mockResolvedValue(null);
+        it('should return true when album with tracks exists in Album table', async () => {
             (mockPrisma.album.findFirst as jest.Mock).mockResolvedValue({
                 rgMbid: 'album-mbid',
             });
@@ -426,7 +412,6 @@ describe('DiscoverySeeding', () => {
         });
 
         it('should return true when album found in previous discovery', async () => {
-            (mockPrisma.ownedAlbum.findFirst as jest.Mock).mockResolvedValue(null);
             (mockPrisma.album.findFirst as jest.Mock).mockResolvedValue(null);
             (mockPrisma.discoveryAlbum.findFirst as jest.Mock).mockResolvedValue({
                 rgMbid: 'album-mbid',
@@ -438,7 +423,6 @@ describe('DiscoverySeeding', () => {
         });
 
         it('should return true when album has pending download', async () => {
-            (mockPrisma.ownedAlbum.findFirst as jest.Mock).mockResolvedValue(null);
             (mockPrisma.album.findFirst as jest.Mock).mockResolvedValue(null);
             (mockPrisma.discoveryAlbum.findFirst as jest.Mock).mockResolvedValue(null);
             (mockPrisma.downloadJob.findFirst as jest.Mock).mockResolvedValue({
@@ -452,7 +436,6 @@ describe('DiscoverySeeding', () => {
         });
 
         it('should return true when album available in Lidarr', async () => {
-            (mockPrisma.ownedAlbum.findFirst as jest.Mock).mockResolvedValue(null);
             (mockPrisma.album.findFirst as jest.Mock).mockResolvedValue(null);
             (mockPrisma.discoveryAlbum.findFirst as jest.Mock).mockResolvedValue(null);
             (mockPrisma.downloadJob.findFirst as jest.Mock).mockResolvedValue(null);
@@ -465,7 +448,6 @@ describe('DiscoverySeeding', () => {
         });
 
         it('should return false when album not found anywhere', async () => {
-            (mockPrisma.ownedAlbum.findFirst as jest.Mock).mockResolvedValue(null);
             (mockPrisma.album.findFirst as jest.Mock).mockResolvedValue(null);
             (mockPrisma.discoveryAlbum.findFirst as jest.Mock).mockResolvedValue(null);
             (mockPrisma.downloadJob.findFirst as jest.Mock).mockResolvedValue(null);

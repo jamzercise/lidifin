@@ -4,7 +4,7 @@
  * Handles seed artist selection for discovering new music based on:
  * - User's listening history (recent plays)
  * - Library contents (fallback when insufficient history)
- * - Album ownership checking across multiple sources
+ * - Album ownership checks use Album + tracks (OwnedAlbum removed in Arch-X.d)
  */
 
 import { prisma } from '../../utils/db';
@@ -66,7 +66,7 @@ export class DiscoverySeeding {
             const tracks = await prisma.track.findMany({
                 where: {
                     id: { in: nativeTrackIds },
-                    album: { location: 'LIBRARY' },
+                    album: { tracks: { some: {} } },
                 },
                 include: { album: { include: { artist: true } } },
             });
@@ -122,7 +122,7 @@ export class DiscoverySeeding {
 
         const albums = await prisma.album.groupBy({
             by: ['artistId'],
-            where: { location: 'LIBRARY' },
+            where: { tracks: { some: {} } },
             _count: { id: true },
             orderBy: { _count: { id: 'desc' } },
             take: limit,
@@ -160,21 +160,15 @@ export class DiscoverySeeding {
     }
 
     /**
-     * Checks if an album is already owned through any source:
-     * - OwnedAlbum table
-     * - Album table
+     * Checks if an album is already in the user's library or pipeline:
+     * - Album with tracks
      * - Previous discovery
      * - Pending downloads
      * - Lidarr
      */
     async isAlbumOwned(albumMbid: string, userId: string): Promise<boolean> {
-        const ownedAlbum = await prisma.ownedAlbum.findFirst({
-            where: { rgMbid: albumMbid },
-        });
-        if (ownedAlbum) return true;
-
         const existingAlbum = await prisma.album.findFirst({
-            where: { rgMbid: albumMbid },
+            where: { rgMbid: albumMbid, tracks: { some: {} } },
         });
         if (existingAlbum) return true;
 

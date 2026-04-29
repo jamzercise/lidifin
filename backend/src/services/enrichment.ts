@@ -512,30 +512,7 @@ export class EnrichmentService {
             );
         }
 
-        // Update OwnedAlbum table if MBID changed
-        if (data.rgMbid) {
-            const album = await prisma.album.findUnique({
-                where: { id: albumId },
-                select: { artistId: true },
-            });
-
-            if (album) {
-                await prisma.ownedAlbum.upsert({
-                    where: {
-                        artistId_rgMbid: {
-                            artistId: album.artistId,
-                            rgMbid: data.rgMbid,
-                        },
-                    },
-                    create: {
-                        artistId: album.artistId,
-                        rgMbid: data.rgMbid,
-                        source: "enrichment",
-                    },
-                    update: {},
-                });
-            }
-        }
+        // Arch-X.d removed OwnedAlbum; ownership lives in Jellyfin.
     }
 
 }

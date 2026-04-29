@@ -118,31 +118,13 @@ export function registerFeedbackRoutes(router: Router): void {
             });
 
             if (dbAlbum) {
-                // Update album location to LIBRARY so it appears in owned view
-                await prisma.album.update({
-                    where: { id: dbAlbum.id },
-                    data: { location: "LIBRARY" },
-                });
-
-                // Create OwnedAlbum record if doesn't exist (makes it appear in "Owned" filter)
-                await prisma.ownedAlbum.upsert({
-                    where: {
-                        artistId_rgMbid: {
-                            artistId: dbAlbum.artistId,
-                            rgMbid: dbAlbum.rgMbid,
-                        },
-                    },
-                    create: {
-                        artistId: dbAlbum.artistId,
-                        rgMbid: dbAlbum.rgMbid,
-                        source: "discovery_liked",
-                    },
-                    update: {
-                        source: "discovery_liked",
-                    },
-                });
+                // Arch-X.d removed Album.location and OwnedAlbum;
+                // ownership is read from Jellyfin at request time.
+                // The album row simply remains in the DB; flipping the
+                // DiscoveryAlbum status is handled below (or was
+                // already handled by `discoveryAlbumLifecycle`).
                 logger.debug(
-                    ` Added liked album to library: ${dbAlbum.artist.name} - ${dbAlbum.title} (matched from discovery)`
+                    ` Liked album: ${dbAlbum.artist.name} - ${dbAlbum.title} (matched from discovery)`
                 );
             } else {
                 logger.debug(
@@ -212,13 +194,7 @@ export function registerFeedbackRoutes(router: Router): void {
                 },
             });
 
-            // Remove OwnedAlbum record if it was from discovery_liked
-            await prisma.ownedAlbum.deleteMany({
-                where: {
-                    rgMbid: albumId,
-                    source: "discovery_liked",
-                },
-            });
+            // Arch-X.d removed OwnedAlbum; ownership lives in Jellyfin.
 
             // Revert plays back to DISCOVERY source
             const tracks = await prisma.discoveryTrack.findMany({

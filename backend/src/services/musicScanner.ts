@@ -13,9 +13,6 @@ import {
     extractPrimaryArtist,
     parseArtistFromPath,
 } from "../utils/artistNormalization";
-import {
-    updateMultipleArtistCounts,
-} from "./artistCountsService";
 
 // Supported audio formats
 const AUDIO_EXTENSIONS = new Set([
@@ -261,14 +258,8 @@ export class MusicScannerService {
             `Scan complete: +${result.tracksAdded} ~${result.tracksUpdated} -${result.tracksRemoved} (${result.duration}ms)`
         );
 
-        // Update counts only for affected artists (faster than full backfill, same result)
-        if (this.scanAffectedArtistIds.size > 0) {
-            updateMultipleArtistCounts([...this.scanAffectedArtistIds]).catch(
-                (err) => {
-                    logger.error("[Scan] Artist counts update failed:", err);
-                }
-            );
-        }
+        // Arch-X.d removed `Artist.libraryAlbumCount` /
+        // `discoveryAlbumCount` / `totalTrackCount`; nothing to update.
 
         this.scanArtistCache.clear();
         this.scanAlbumCache.clear();
@@ -456,12 +447,15 @@ export class MusicScannerService {
             if (discoveryAlbumByArtist) {
                 // Double-check: only match if this artist has NO library albums yet
                 // This prevents marking albums from artists that exist in both library and discovery
+                // Arch-X.d removed Album.location. Treat the legacy
+                // "is this a library album?" check as "any album with
+                // tracks", since DISCOVER rows no longer exist.
                 const existingLibraryAlbum = await prisma.album.findFirst({
                     where: {
                         artist: {
                             name: { equals: artistName, mode: "insensitive" },
                         },
-                        location: "LIBRARY",
+                        tracks: { some: {} },
                     },
                 });
 
@@ -740,45 +734,13 @@ export class MusicScannerService {
             }
 
             if (!album) {
-                // Create new album (use a temporary MBID for now)
+                // Create new album (use a temporary MBID for now). Arch-X.d
+                // removed Album.location and OwnedAlbum; every Album row
+                // is owned content. The legacy "is this a discovery
+                // album?" branching is gone — discovery items live on
+                // SavedDiscoveryAlbum / DiscoveryAlbum, not on Album.
                 const rgMbid =
                     albumMbid || `temp-${Date.now()}-${Math.random()}`;
-
-                // Determine if this is a discovery album:
-                // 1. Check file path (legacy: /music/discovery/ folder)
-                // 2. Check if artist+album matches a discovery download job
-                // 3. Check if artist is a discovery-only artist (has DISCOVER albums but no LIBRARY albums)
-                const isDiscoveryByPath = this.isDiscoveryPath(relativePath);
-                const isDiscoveryByJob = await this.isDiscoveryDownload(
-                    artistName,
-                    albumTitle
-                );
-
-                // Check if this artist is discovery-only (has no LIBRARY albums)
-                // If so, any new albums from them should also be DISCOVER
-                let isDiscoveryArtist = false;
-                if (!isDiscoveryByPath && !isDiscoveryByJob) {
-                    const artistAlbums = await prisma.album.findMany({
-                        where: { artistId: artist.id },
-                        select: { location: true },
-                    });
-
-                    // Artist is discovery-only if they have albums but NONE are LIBRARY
-                    if (artistAlbums.length > 0) {
-                        const hasLibraryAlbums = artistAlbums.some(
-                            (a: { location: string }) => a.location === "LIBRARY"
-                        );
-                        isDiscoveryArtist = !hasLibraryAlbums;
-                        if (isDiscoveryArtist) {
-                            logger.debug(
-                                `[Scanner] Discovery-only artist detected: ${artistName}`
-                            );
-                        }
-                    }
-                }
-
-                const isDiscoveryAlbum =
-                    isDiscoveryByPath || isDiscoveryByJob || isDiscoveryArtist;
 
                 album = await prisma.album.create({
                     data: {
@@ -787,21 +749,8 @@ export class MusicScannerService {
                         rgMbid,
                         year,
                         primaryType: "Album",
-                        location: isDiscoveryAlbum ? "DISCOVER" : "LIBRARY",
                     },
                 });
-
-                // Only create OwnedAlbum record for library albums (not discovery)
-                // Discovery albums are temporary and should not appear in the user's library
-                if (!isDiscoveryAlbum) {
-                    await prisma.ownedAlbum.create({
-                        data: {
-                            rgMbid,
-                            artistId: artist.id,
-                            source: "native_scan",
-                        },
-                    });
-                }
             }
 
             // Extract cover art if we have an extractor

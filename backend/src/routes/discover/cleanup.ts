@@ -58,11 +58,12 @@ export function registerCleanupRoutes(router: Router): void {
                 try {
                     // Check if this artist has any NATIVE library content (real user library)
                     // This is more reliable than checking Album.location which can be wrong
-                    const hasNativeOwnedAlbums = await prisma.ownedAlbum.findFirst({
+                    const hasNativeOwnedAlbums = await prisma.album.findFirst({
                         where: {
                             artist: { mbid: artistMbid },
-                            source: "native_scan",
+                            tracks: { some: {} },
                         },
+                        select: { id: true },
                     });
 
                     // Check if artist has any LIKED/MOVED discovery albums
@@ -149,117 +150,17 @@ export function registerCleanupRoutes(router: Router): void {
         }
     });
 
-    // POST /discover/fix-tagging - Fix albums incorrectly tagged as LIBRARY that should be DISCOVER
-    // This repairs existing bad data caused by scanner timing issues
-    // IMPORTANT: Does NOT touch albums that user has LIKED (discovery_liked) or native library
-    router.post("/fix-tagging", async (req, res) => {
-        try {
-            logger.debug("\n[FIX-TAGGING] Starting album tagging repair...");
-
-            // Get all discovery artists (from DiscoveryAlbum records)
-            const discoveryArtists = await prisma.discoveryAlbum.findMany({
-                distinct: ["artistMbid"],
-                select: { artistMbid: true, artistName: true },
-            });
-
-            logger.debug(
-                `[FIX-TAGGING] Found ${discoveryArtists.length} artists with discovery records`
-            );
-
-            let albumsFixed = 0;
-            let ownedRecordsRemoved = 0;
-            const fixedArtists: string[] = [];
-
-            for (const da of discoveryArtists) {
-                if (!da.artistMbid) continue;
-
-                // Check if artist has ANY protected content:
-                // 1. native_scan = real user library from before discovery
-                // 2. discovery_liked = user liked a discovery album (should be kept!)
-                const hasProtectedContent = await prisma.ownedAlbum.findFirst({
-                    where: {
-                        artist: { mbid: da.artistMbid },
-                        source: { in: ["native_scan", "discovery_liked"] },
-                    },
-                });
-
-                if (hasProtectedContent) {
-                    // Artist has protected content - don't touch their albums
-                    logger.debug(
-                        `[FIX-TAGGING] Skipping ${da.artistName} - has protected content (${hasProtectedContent.source})`
-                    );
-                    continue;
-                }
-
-                // Also check if artist has any LIKED discovery albums (double-check)
-                const hasLikedDiscovery = await prisma.discoveryAlbum.findFirst({
-                    where: {
-                        artistMbid: da.artistMbid,
-                        status: { in: ["LIKED", "MOVED"] },
-                    },
-                });
-
-                if (hasLikedDiscovery) {
-                    // User liked albums from this artist - don't touch
-                    logger.debug(
-                        `[FIX-TAGGING] Skipping ${da.artistName} - has LIKED discovery albums`
-                    );
-                    continue;
-                }
-
-                // This artist has NO protected content - they're purely an ACTIVE discovery artist
-                // Fix any of their albums that are incorrectly tagged as LIBRARY
-                const mistaggedAlbums = await prisma.album.findMany({
-                    where: {
-                        artist: { mbid: da.artistMbid },
-                        location: "LIBRARY",
-                    },
-                });
-
-                if (mistaggedAlbums.length > 0) {
-                    // Update all these albums to DISCOVER
-                    const updated = await prisma.album.updateMany({
-                        where: {
-                            artist: { mbid: da.artistMbid },
-                            location: "LIBRARY",
-                        },
-                        data: { location: "DISCOVER" },
-                    });
-
-                    // Remove incorrect OwnedAlbum records (but not protected ones)
-                    const removed = await prisma.ownedAlbum.deleteMany({
-                        where: {
-                            artist: { mbid: da.artistMbid },
-                            source: { notIn: ["native_scan", "discovery_liked"] },
-                        },
-                    });
-
-                    albumsFixed += updated.count;
-                    ownedRecordsRemoved += removed.count;
-                    fixedArtists.push(da.artistName);
-
-                    logger.debug(
-                        `[FIX-TAGGING] Fixed ${updated.count} albums for ${da.artistName}`
-                    );
-                }
-            }
-
-            logger.debug(
-                `[FIX-TAGGING] Complete: ${albumsFixed} albums fixed, ${ownedRecordsRemoved} OwnedAlbum records removed`
-            );
-
-            res.json({
-                success: true,
-                albumsFixed,
-                ownedRecordsRemoved,
-                fixedArtists,
-            });
-        } catch (error: any) {
-            logger.error("[FIX-TAGGING] Error:", error?.message || error);
-            res.status(500).json({
-                error: "Failed to fix album tagging",
-                details: error?.message || "Unknown error",
-            });
-        }
+    // POST /discover/fix-tagging — legacy repair for Album.location / OwnedAlbum (Arch-X.d removed both).
+    router.post("/fix-tagging", async (_req, res) => {
+        logger.debug(
+            "\n[FIX-TAGGING] Skipped: Album.location and OwnedAlbum were removed in Arch-X.d."
+        );
+        res.json({
+            success: true,
+            albumsFixed: 0,
+            ownedRecordsRemoved: 0,
+            fixedArtists: [] as string[],
+            message: "No longer applicable after schema slim (Album.location / OwnedAlbum removed).",
+        });
     });
 }

@@ -139,14 +139,7 @@ model Artist {
   userGenres          Json?
   userHeroUrl         String?
   userSummary         String?
-  countsLastUpdated   DateTime?
-  discoveryAlbumCount Int                      @default(0)
-  libraryAlbumCount   Int                      @default(0)
-  totalTrackCount     Int                      @default(0)
   albums              Album[]
-  ownedAlbums         OwnedAlbum[]
-  albumArtistCredits  AlbumArtistCredit[]
-  trackArtistCredits  TrackArtistCredit[]
   similarFrom         SimilarArtist[]          @relation("FromArtist")
   similarTo           SimilarArtist[]          @relation("ToArtist")
 
@@ -154,47 +147,31 @@ model Artist {
   @@index([normalizedName])
   @@index([searchVector], type: Gin)
   @@index([hasUserOverrides])
-  @@index([libraryAlbumCount])
-  @@index([discoveryAlbumCount])
-  @@index([totalTrackCount])
 }
 
 model Album {
-  id                 String                   @id @default(cuid())
-  rgMbid             String                   @unique
-  artistId           String
-  title              String
-  year               Int?
-  coverUrl           String?
-  primaryType        String
-  label              String?
-  genres             Json?
-  lastSynced         DateTime                 @default(now())
-  /// @deprecated Arch-X.c: column is no longer authoritative. Active code
-  /// paths treat all `Album` rows as owned/library after the X.a
-  /// Jellyfin-first cutover removed every enrichment-time DISCOVER write.
-  /// The only remaining writer (`musicScanner.ts`) is dormant in
-  /// Jellyfin-only mode and gets removed in X.e. Column itself drops in
-  /// X.d alongside the rest of the Track-as-Prisma-mirror schema.
-  /// Saved/bookmarked discovery items now live on `SavedDiscoveryAlbum`.
-  location           AlbumLocation            @default(LIBRARY)
-  searchVector       Unsupported("tsvector")?
-  displayTitle       String?
-  displayYear        Int?
-  hasUserOverrides   Boolean                  @default(false)
-  userCoverUrl       String?
-  userGenres         Json?
-  originalYear       Int?
-  isCompilation      Boolean                  @default(false)
-  artist             Artist                   @relation(fields: [artistId], references: [id], onDelete: Cascade)
-  tracks             Track[]
-  albumArtistCredits AlbumArtistCredit[]
-  sourceMaps         AlbumSourceMap[]
-  ownershipFacts     AlbumOwnershipFact[]
+  id               String                   @id @default(cuid())
+  rgMbid           String                   @unique
+  artistId         String
+  title            String
+  year             Int?
+  coverUrl         String?
+  primaryType      String
+  label            String?
+  genres           Json?
+  lastSynced       DateTime                 @default(now())
+  searchVector     Unsupported("tsvector")?
+  displayTitle     String?
+  displayYear      Int?
+  hasUserOverrides Boolean                  @default(false)
+  userCoverUrl     String?
+  userGenres       Json?
+  originalYear     Int?
+  isCompilation    Boolean                  @default(false)
+  artist           Artist                   @relation(fields: [artistId], references: [id], onDelete: Cascade)
+  tracks           Track[]
 
   @@index([artistId])
-  @@index([location])
-  @@index([artistId, location])
   @@index([title])
   @@index([searchVector], type: Gin)
   @@index([hasUserOverrides])
@@ -258,12 +235,11 @@ model Track {
   vibeAnalysisRetryCount      Int       @default(0)
   vibeAnalysisStatusUpdatedAt DateTime? // When the status was last updated
 
-  moodBuckets        MoodBucket[]
-  album              Album               @relation(fields: [albumId], references: [id], onDelete: Cascade)
-  trackArtistCredits TrackArtistCredit[]
-  trackGenres        TrackGenre[]
-  transcodedFiles    TranscodedFile[]
-  embedding          TrackEmbedding?
+  moodBuckets     MoodBucket[]
+  album           Album            @relation(fields: [albumId], references: [id], onDelete: Cascade)
+  trackGenres     TrackGenre[]
+  transcodedFiles TranscodedFile[]
+  embedding       TrackEmbedding?
 
   @@index([albumId])
   @@index([fileModified])
@@ -575,104 +551,6 @@ model SimilarArtist {
   // index for `WHERE fromArtistId = X` lookups, so no separate fromArtistId
   // index is needed.
   @@id([fromArtistId, toArtistId])
-}
-
-model OwnedAlbum {
-  artistId String
-  rgMbid   String
-  source   String
-  artist   Artist @relation(fields: [artistId], references: [id], onDelete: Cascade)
-
-  // PK [artistId, rgMbid] already covers `WHERE artistId = X`, but it does NOT
-  // cover `WHERE rgMbid IN (...)` which the artist-page legacy ownership lookup
-  // uses — so we add an explicit index on rgMbid alone.
-  @@id([artistId, rgMbid])
-  @@index([rgMbid])
-}
-
-/// Normalized album-level artist credits (supports compilations and multi-artist albums).
-model AlbumArtistCredit {
-  id                    String           @id @default(cuid())
-  albumId               String
-  artistId              String?
-  displayName           String
-  normalizedDisplayName String           @default("")
-  role                  ArtistCreditRole @default(PRIMARY)
-  sortOrder             Int              @default(0)
-  source                SourceSystem     @default(NATIVE)
-  sourceArtistId        String?
-  confidence            Float            @default(1.0)
-  evidence              Json?
-  createdAt             DateTime         @default(now())
-  updatedAt             DateTime         @updatedAt
-  album                 Album            @relation(fields: [albumId], references: [id], onDelete: Cascade)
-  artist                Artist?          @relation(fields: [artistId], references: [id], onDelete: SetNull)
-
-  @@index([albumId, sortOrder])
-  @@index([artistId])
-  @@index([normalizedDisplayName])
-  @@index([source, sourceArtistId])
-}
-
-/// Normalized track-level artist credits (supports per-track attribution on compilations).
-model TrackArtistCredit {
-  id                    String           @id @default(cuid())
-  trackId               String
-  artistId              String?
-  displayName           String
-  normalizedDisplayName String           @default("")
-  role                  ArtistCreditRole @default(PRIMARY)
-  sortOrder             Int              @default(0)
-  source                SourceSystem     @default(NATIVE)
-  sourceArtistId        String?
-  confidence            Float            @default(1.0)
-  evidence              Json?
-  createdAt             DateTime         @default(now())
-  updatedAt             DateTime         @updatedAt
-  track                 Track            @relation(fields: [trackId], references: [id], onDelete: Cascade)
-  artist                Artist?          @relation(fields: [artistId], references: [id], onDelete: SetNull)
-
-  @@index([trackId, sortOrder])
-  @@index([artistId])
-  @@index([normalizedDisplayName])
-  @@index([source, sourceArtistId])
-}
-
-/// Maps external source album identifiers to canonical Album rows.
-model AlbumSourceMap {
-  id            String       @id @default(cuid())
-  source        SourceSystem
-  sourceAlbumId String
-  albumId       String
-  confidence    Float        @default(1.0)
-  matchMethod   MatchMethod
-  evidence      Json?
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
-  album         Album        @relation(fields: [albumId], references: [id], onDelete: Cascade)
-
-  @@unique([source, sourceAlbumId])
-  @@index([albumId])
-}
-
-/// Canonical ownership fact used by read paths (album/artist pages).
-model AlbumOwnershipFact {
-  id            String          @id @default(cuid())
-  albumId       String
-  source        SourceSystem
-  sourceAlbumId String?
-  status        OwnershipStatus @default(UNKNOWN)
-  matchMethod   MatchMethod
-  confidence    Float           @default(1.0)
-  evidence      Json?
-  observedAt    DateTime        @default(now())
-  updatedAt     DateTime        @updatedAt
-  album         Album           @relation(fields: [albumId], references: [id], onDelete: Cascade)
-
-  @@unique([albumId, source])
-  @@index([status])
-  @@index([albumId, status])
-  @@index([source, sourceAlbumId])
 }
 
 model DownloadJob {
@@ -1155,43 +1033,6 @@ enum ListenSource {
   LIBRARY
   DISCOVERY
   DISCOVERY_KEPT
-}
-
-enum AlbumLocation {
-  LIBRARY
-  DISCOVER
-}
-
-enum SourceSystem {
-  NATIVE
-  JELLYFIN
-  MUSICBRAINZ
-  LASTFM
-  DEEZER
-  SPOTIFY
-}
-
-enum OwnershipStatus {
-  OWNED
-  UNOWNED
-  UNKNOWN
-  CONFLICT
-}
-
-enum MatchMethod {
-  EXACT_SOURCE_ID
-  RGMBID
-  ARTIST_RGMBID
-  TITLE_ARTIST_NORMALIZED
-  TITLE_ARTIST_FUZZY
-  MANUAL
-}
-
-enum ArtistCreditRole {
-  PRIMARY
-  COMPILATION
-  FEATURED
-  CONTRIBUTOR
 }
 
 model TrackEmbedding {

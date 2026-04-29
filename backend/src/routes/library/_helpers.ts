@@ -18,7 +18,10 @@ export function resolveIdForJellyfin(idParam: string): string {
 export const ARTIST_SORT_MAP: Record<string, any> = {
     "name": { name: "asc" as const },
     "name-desc": { name: "desc" as const },
-    "tracks": { totalTrackCount: "desc" as const },
+    // Arch-X.d removed `Artist.totalTrackCount`. The "tracks" sort
+    // option falls back to alphabetical until a Jellyfin-derived count
+    // sort lands in a follow-up.
+    "tracks": { name: "asc" as const },
 };
 
 export const ALBUM_SORT_MAP: Record<string, any> = {

@@ -42,7 +42,8 @@ export async function runPostStartupTasks(app: Express): Promise<void> {
     schedulePodcastCacheCleanup();
     autoSyncAudiobooksIfEmpty();
     await reconcileDownloadQueue();
-    autoBackfillArtistCounts();
+    // autoBackfillArtistCounts removed in Arch-X.d (denormalized
+    // Artist counts dropped; counts are computed at read time).
     scheduleImageBackfill();
 }
 
@@ -164,35 +165,6 @@ async function reconcileDownloadQueue(): Promise<void> {
     } catch (err) {
         logger.error("Download queue reconciliation failed:", err);
     }
-}
-
-/**
- * Run artist-count backfill in the background if needed (used by the
- * library filtering UI). No delay — accuracy-on-startup matters more
- * than startup contention.
- */
-function autoBackfillArtistCounts(): void {
-    (async () => {
-        try {
-            const { isBackfillNeeded, backfillAllArtistCounts } = await import(
-                "../services/artistCountsService"
-            );
-            const needsBackfill = await isBackfillNeeded();
-            if (needsBackfill) {
-                logger.info(
-                    "[STARTUP] Artist counts need backfilling, starting in background..."
-                );
-                const result = await backfillAllArtistCounts();
-                logger.info(
-                    `[STARTUP] Artist counts backfill complete: ${result.processed} processed, ${result.errors} errors`
-                );
-            } else {
-                logger.debug("[STARTUP] Artist counts already populated");
-            }
-        } catch (err) {
-            logger.error("[STARTUP] Artist counts backfill failed:", err);
-        }
-    })();
 }
 
 /**

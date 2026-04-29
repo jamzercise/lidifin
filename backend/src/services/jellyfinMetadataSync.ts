@@ -1,9 +1,23 @@
 /**
  * Jellyfin Track Metadata Sync
  *
- * Syncs Jellyfin library into JellyfinTrackMetadata for mood/vibe radio.
- * Also syncs OwnedAlbum records so that Jellyfin albums appear as owned.
- * Run periodically or on-demand. Enrichment (Last.fm tags) is done separately.
+ * Maintains two read-side caches that the Jellyfin-first route handlers
+ * (Arch-X.a) rely on:
+ *   1. `JellyfinTrackMetadata` — per-track artist / title / mbid
+ *      snapshot used by mood/vibe/genre radio. Without this table, every
+ *      mood/vibe lookup would hit Jellyfin's REST API.
+ *   2. `jf:rgmbid:<MB release-group MBID> -> <jellyfin item id>` Redis
+ *      keys — used by `GET /library/albums/:id` to translate a
+ *      MusicBrainz id into a Jellyfin id with a single point lookup
+ *      instead of a bounded scan over the whole library.
+ *
+ * Historical context: prior to Arch-X.d, this module also wrote
+ * `OwnedAlbum`, `AlbumOwnershipFact`, `AlbumSourceMap`, and
+ * `AlbumArtistCredit` so legacy /library route handlers could read
+ * ownership without hitting Jellyfin. Those tables (and the writers
+ * that populated them) were removed once X.a's Jellyfin-first cutover
+ * made them redundant; ownership is now read from Jellyfin at request
+ * time.
  */
 
 import { logger } from "../utils/logger";
@@ -14,47 +28,10 @@ import {
     getJellyfinAlbums,
     isJellyfinMusicSource,
 } from "./jellyfin";
-import { resolveJellyfinArtistToNative } from "./jellyfinArtistBridge";
 import { redisClient } from "../utils/redis";
 
 const BATCH_SIZE = 200;
-const VARIOUS_ARTISTS_MBID = "89ad4ac3-39f7-470e-963a-56509c546377";
-
-function normalizeTitle(value: string | null | undefined): string {
-    return (value ?? "")
-        .toLowerCase()
-        .replace(/[^\w\s]/g, " ")
-        .replace(/\s+/g, " ")
-        .trim();
-}
-
-function isVariousArtistsName(value: string | null | undefined): boolean {
-    const normalized = normalizeTitle(value);
-    return (
-        normalized === "various artists" ||
-        normalized === "various artist" ||
-        normalized === "various" ||
-        normalized === "va"
-    );
-}
-
-async function ensureCanonicalVariousArtistId(): Promise<string> {
-    const existing = await prisma.artist.findUnique({
-        where: { mbid: VARIOUS_ARTISTS_MBID },
-        select: { id: true },
-    });
-    if (existing) return existing.id;
-    const created = await prisma.artist.create({
-        data: {
-            mbid: VARIOUS_ARTISTS_MBID,
-            name: "Various Artists",
-            normalizedName: normalizeTitle("Various Artists"),
-            enrichmentStatus: "pending",
-        },
-        select: { id: true },
-    });
-    return created.id;
-}
+const RGMBID_CACHE_TTL_SECONDS = 30 * 24 * 3600;
 
 export interface SyncResult {
     synced: number;
@@ -123,7 +100,6 @@ export async function syncJellyfinTrackMetadata(): Promise<SyncResult | null> {
             if (items.length < BATCH_SIZE) break;
         }
 
-        // Remove metadata for tracks no longer in Jellyfin
         const toRemove = await prisma.jellyfinTrackMetadata.findMany({
             where: { jellyfinId: { notIn: Array.from(seenIds) } },
             select: { jellyfinId: true },
@@ -146,144 +122,33 @@ export async function syncJellyfinTrackMetadata(): Promise<SyncResult | null> {
     }
 }
 
-async function syncCanonicalAlbumArtistCredits(
-    canonicalAlbumId: string,
-    jellyfinAlbum: {
-        title: string;
-        artist?: { id: string; name: string };
-        albumArtists?: { id: string; name: string }[];
-    },
-    fallbackPrimaryArtistId?: string | null
-): Promise<void> {
-    const rawArtists =
-        jellyfinAlbum.albumArtists && jellyfinAlbum.albumArtists.length > 0
-            ? jellyfinAlbum.albumArtists
-            : jellyfinAlbum.artist
-              ? [jellyfinAlbum.artist]
-              : [];
-
-    if (rawArtists.length === 0 && !fallbackPrimaryArtistId) return;
-
-    const credits: Array<{
-        artistId: string | null;
-        displayName: string;
-        normalizedDisplayName: string;
-        role: "PRIMARY" | "COMPILATION";
-        sortOrder: number;
-        sourceArtistId: string | null;
-    }> = [];
-
-    for (let i = 0; i < rawArtists.length; i++) {
-        const sourceArtist = rawArtists[i];
-        const displayName = sourceArtist.name?.trim() || "Unknown Artist";
-        const normalizedDisplayName = normalizeTitle(displayName);
-
-        let artistId: string | null = null;
-        if (isVariousArtistsName(displayName)) {
-            artistId = await ensureCanonicalVariousArtistId();
-        } else {
-            const bridged = await resolveJellyfinArtistToNative(displayName, null);
-            artistId = bridged?.nativeId ?? null;
-        }
-
-        const sourceArtistId = sourceArtist.id.startsWith("jellyfin:")
-            ? sourceArtist.id.slice("jellyfin:".length)
-            : sourceArtist.id;
-
-        credits.push({
-            artistId,
-            displayName,
-            normalizedDisplayName,
-            role: isVariousArtistsName(displayName) ? "COMPILATION" : "PRIMARY",
-            sortOrder: i,
-            sourceArtistId: sourceArtistId || null,
-        });
-    }
-
-    if (credits.length === 0 && fallbackPrimaryArtistId) {
-        const fallbackArtist = await prisma.artist.findUnique({
-            where: { id: fallbackPrimaryArtistId },
-            select: { id: true, name: true },
-        });
-        if (fallbackArtist) {
-            credits.push({
-                artistId: fallbackArtist.id,
-                displayName: fallbackArtist.name,
-                normalizedDisplayName: normalizeTitle(fallbackArtist.name),
-                role: "PRIMARY",
-                sortOrder: 0,
-                sourceArtistId: null,
-            });
-        }
-    }
-
-    if (credits.length === 0) return;
-
-    const uniqueArtistKeys = new Set(
-        credits.map((c) => c.normalizedDisplayName).filter(Boolean)
-    );
-    const hasVariousArtists = credits.some((c) =>
-        isVariousArtistsName(c.displayName)
-    );
-    const isCompilation = hasVariousArtists || uniqueArtistKeys.size > 1;
-
-    await prisma.$transaction([
-        prisma.albumArtistCredit.deleteMany({
-            where: { albumId: canonicalAlbumId, source: "JELLYFIN" },
-        }),
-        prisma.albumArtistCredit.createMany({
-            data: credits.map((credit) => ({
-                albumId: canonicalAlbumId,
-                artistId: credit.artistId,
-                displayName: credit.displayName,
-                normalizedDisplayName: credit.normalizedDisplayName,
-                role: credit.role,
-                sortOrder: credit.sortOrder,
-                source: "JELLYFIN",
-                sourceArtistId: credit.sourceArtistId,
-                confidence: 0.95,
-                evidence: {
-                    jellyfinAlbumTitle: jellyfinAlbum.title,
-                },
-            })),
-        }),
-        prisma.album.update({
-            where: { id: canonicalAlbumId },
-            data: { isCompilation },
-        }),
-    ]);
-}
-
 /**
- * Sync OwnedAlbum records for all albums currently in the Jellyfin library.
+ * Refresh the `jf:rgmbid:<rgMbid>` -> `<jellyfin item id>` Redis cache.
  *
- * Albums managed by Lidarr/Jellyfin never go through the native MusicScanner,
- * so OwnedAlbum records are never created via that path. This function fills
- * that gap by iterating all Jellyfin albums, resolving each artist to a native
- * Artist record, and upserting OwnedAlbum for every album that has an rgMbid.
- *
- * Albums without an rgMbid in Jellyfin's ProviderIds (missing MusicBrainz tags)
- * are skipped \u2014 the fallback in /library/albums/:id handles those by checking
- * Jellyfin directly at request time.
+ * Read by `GET /library/albums/:id` (Arch-X.a.2) so that an MBID-only
+ * lookup can resolve to a Jellyfin id with a single GET instead of
+ * scanning the whole library. Iterates Jellyfin albums in pages and
+ * sets a key per album that has an `rgMbid` ProviderId. Albums missing
+ * an rgMbid in Jellyfin are skipped — the album detail handler falls
+ * back to its bounded `getJellyfinAlbumByRgMbid` scan in that case.
  */
-export async function syncJellyfinOwnedAlbums(): Promise<{
+export async function refreshJellyfinRgMbidCache(): Promise<{
     processed: number;
-    created: number;
+    cached: number;
     skipped: number;
 }> {
-    if (!(await isJellyfinMusicSource())) return { processed: 0, created: 0, skipped: 0 };
+    if (!(await isJellyfinMusicSource())) return { processed: 0, cached: 0, skipped: 0 };
 
     const cfg = await getJellyfinConfig();
-    if (!cfg) return { processed: 0, created: 0, skipped: 0 };
+    if (!cfg) return { processed: 0, cached: 0, skipped: 0 };
+    if (!redisClient.isReady) return { processed: 0, cached: 0, skipped: 0 };
 
     let processed = 0;
-    let created = 0;
+    let cached = 0;
     let skipped = 0;
     let offset = 0;
-    const validLegacyArtistIds = new Set<string>();
-    const missingLegacyArtistIds = new Set<string>();
 
-    logger.debug("[JellyfinOwnedSync] Starting OwnedAlbum sync from Jellyfin...");
+    logger.debug("[JellyfinRgMbidCache] Refreshing rgMbid -> Jellyfin id cache...");
 
     try {
         while (true) {
@@ -297,229 +162,25 @@ export async function syncJellyfinOwnedAlbums(): Promise<{
             for (const album of albums) {
                 processed++;
 
-                const artistName = album.artist?.name;
-                if (!artistName && !album.rgMbid) {
+                if (!album.rgMbid) {
                     skipped++;
                     continue;
                 }
 
+                const rawJfId = album.id.startsWith("jellyfin:")
+                    ? album.id.slice("jellyfin:".length)
+                    : album.id;
+
                 try {
-                    const bridged = artistName
-                        ? await resolveJellyfinArtistToNative(artistName, null)
-                        : null;
-                    if (!bridged && !album.rgMbid) {
-                        skipped++;
-                        continue;
-                    }
-
-                    const rawJfId = album.id.startsWith("jellyfin:")
-                        ? album.id.slice("jellyfin:".length)
-                        : album.id;
-
-                    // Resolve canonical album for source mapping + ownership facts.
-                    let canonicalAlbum = null as
-                        | {
-                              id: string;
-                              rgMbid: string;
-                              title: string;
-                              artistId: string;
-                          }
-                        | null;
-                    if (album.rgMbid) {
-                        canonicalAlbum = await prisma.album.findUnique({
-                            where: { rgMbid: album.rgMbid },
-                            select: {
-                                id: true,
-                                rgMbid: true,
-                                title: true,
-                                artistId: true,
-                            },
-                        });
-                    }
-                    if (!canonicalAlbum) {
-                        if (bridged?.nativeId) {
-                            const exactTitle = await prisma.album.findFirst({
-                                where: {
-                                    artistId: bridged.nativeId,
-                                    title: { equals: album.title, mode: "insensitive" },
-                                },
-                                select: {
-                                    id: true,
-                                    rgMbid: true,
-                                    title: true,
-                                    artistId: true,
-                                },
-                            });
-                            canonicalAlbum = exactTitle;
-                        }
-                    }
-                    if (!canonicalAlbum) {
-                        if (bridged?.nativeId) {
-                            const normalizedTarget = normalizeTitle(album.title);
-                            const titleCandidates = await prisma.album.findMany({
-                                where: { artistId: bridged.nativeId },
-                                select: {
-                                    id: true,
-                                    rgMbid: true,
-                                    title: true,
-                                    artistId: true,
-                                },
-                                take: 50,
-                            });
-                            canonicalAlbum =
-                                titleCandidates.find(
-                                    (c) => normalizeTitle(c.title) === normalizedTarget
-                                ) ?? null;
-                        }
-                    }
-
-                    const matchMethod =
-                        album.rgMbid &&
-                        canonicalAlbum?.rgMbid &&
-                        album.rgMbid === canonicalAlbum.rgMbid
-                            ? "RGMBID"
-                            : "TITLE_ARTIST_NORMALIZED";
-
-                    if (canonicalAlbum) {
-                        await prisma.albumSourceMap.upsert({
-                            where: {
-                                source_sourceAlbumId: {
-                                    source: "JELLYFIN",
-                                    sourceAlbumId: rawJfId,
-                                },
-                            },
-                            create: {
-                                source: "JELLYFIN",
-                                sourceAlbumId: rawJfId,
-                                albumId: canonicalAlbum.id,
-                                confidence: matchMethod === "RGMBID" ? 1.0 : 0.92,
-                                matchMethod,
-                                evidence: {
-                                    jellyfinTitle: album.title,
-                                    jellyfinArtist: artistName,
-                                    jellyfinRgMbid: album.rgMbid ?? null,
-                                },
-                            },
-                            update: {
-                                albumId: canonicalAlbum.id,
-                                confidence: matchMethod === "RGMBID" ? 1.0 : 0.92,
-                                matchMethod,
-                                evidence: {
-                                    jellyfinTitle: album.title,
-                                    jellyfinArtist: artistName,
-                                    jellyfinRgMbid: album.rgMbid ?? null,
-                                },
-                            },
-                        });
-
-                        await prisma.albumOwnershipFact.upsert({
-                            where: {
-                                albumId_source: {
-                                    albumId: canonicalAlbum.id,
-                                    source: "JELLYFIN",
-                                },
-                            },
-                            create: {
-                                albumId: canonicalAlbum.id,
-                                source: "JELLYFIN",
-                                sourceAlbumId: rawJfId,
-                                status: "OWNED",
-                                matchMethod,
-                                confidence: matchMethod === "RGMBID" ? 1.0 : 0.92,
-                                evidence: {
-                                    jellyfinTitle: album.title,
-                                    jellyfinArtist: artistName,
-                                    jellyfinRgMbid: album.rgMbid ?? null,
-                                },
-                            },
-                            update: {
-                                sourceAlbumId: rawJfId,
-                                status: "OWNED",
-                                matchMethod,
-                                confidence: matchMethod === "RGMBID" ? 1.0 : 0.92,
-                                observedAt: new Date(),
-                                evidence: {
-                                    jellyfinTitle: album.title,
-                                    jellyfinArtist: artistName,
-                                    jellyfinRgMbid: album.rgMbid ?? null,
-                                },
-                            },
-                        });
-
-                        await syncCanonicalAlbumArtistCredits(
-                            canonicalAlbum.id,
-                            {
-                                title: album.title,
-                                artist: album.artist,
-                                albumArtists: album.albumArtists,
-                            },
-                            bridged?.nativeId ?? null
-                        );
-                    }
-
-                    // Keep legacy OwnedAlbum path for compatibility while read paths migrate.
-                    if (album.rgMbid && bridged?.nativeId) {
-                        let canWriteLegacy = validLegacyArtistIds.has(
-                            bridged.nativeId
-                        );
-                        if (
-                            !canWriteLegacy &&
-                            !missingLegacyArtistIds.has(bridged.nativeId)
-                        ) {
-                            const artistExists = await prisma.artist.findUnique({
-                                where: { id: bridged.nativeId },
-                                select: { id: true },
-                            });
-                            if (artistExists) {
-                                validLegacyArtistIds.add(bridged.nativeId);
-                                canWriteLegacy = true;
-                            } else {
-                                missingLegacyArtistIds.add(bridged.nativeId);
-                            }
-                        }
-
-                        if (canWriteLegacy) {
-                            try {
-                                await prisma.ownedAlbum.upsert({
-                                    where: {
-                                        artistId_rgMbid: {
-                                            artistId: bridged.nativeId,
-                                            rgMbid: album.rgMbid,
-                                        },
-                                    },
-                                    create: {
-                                        artistId: bridged.nativeId,
-                                        rgMbid: album.rgMbid,
-                                        source: "jellyfin_sync",
-                                    },
-                                    update: {},
-                                });
-                                created++;
-                            } catch (err: any) {
-                                // If artist row vanished between exists-check and upsert,
-                                // mark this artistId as missing and avoid repeated FK spam.
-                                if (err?.code === "P2003") {
-                                    validLegacyArtistIds.delete(bridged.nativeId);
-                                    missingLegacyArtistIds.add(bridged.nativeId);
-                                } else {
-                                    throw err;
-                                }
-                            }
-                        }
-                    }
-
-                    // Cache rgMbid → Jellyfin ID so album detail pages can do a
-                    // single direct lookup instead of scanning the whole library.
-                    if (redisClient.isReady) {
-                        if (album.rgMbid) {
-                            await redisClient
-                                .setEx(`jf:rgmbid:${album.rgMbid}`, 30 * 24 * 3600, rawJfId)
-                                .catch(() => {});
-                        }
-                    }
+                    await redisClient.setEx(
+                        `jf:rgmbid:${album.rgMbid}`,
+                        RGMBID_CACHE_TTL_SECONDS,
+                        rawJfId
+                    );
+                    cached++;
                 } catch (err: any) {
                     logger.debug(
-                        `[JellyfinOwnedSync] Failed for album "${album.title}" by "${artistName}":`,
+                        `[JellyfinRgMbidCache] Redis SET failed for album "${album.title}":`,
                         err?.message
                     );
                     skipped++;
@@ -531,11 +192,11 @@ export async function syncJellyfinOwnedAlbums(): Promise<{
         }
 
         logger.info(
-            `[JellyfinOwnedSync] Done: ${processed} albums, ${created} OwnedAlbum records upserted, ${skipped} skipped`
+            `[JellyfinRgMbidCache] Done: ${processed} albums, ${cached} cached, ${skipped} skipped`
         );
     } catch (err: any) {
-        logger.error("[JellyfinOwnedSync] Failed:", err?.message || err);
+        logger.error("[JellyfinRgMbidCache] Failed:", err?.message || err);
     }
 
-    return { processed, created, skipped };
+    return { processed, cached, skipped };
 }

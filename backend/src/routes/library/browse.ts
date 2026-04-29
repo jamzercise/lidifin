@@ -172,15 +172,19 @@ router.get("/recently-listened", async (req, res) => {
             .filter((item) => item.type === "artist")
             .map((item) => item.id);
         const prismaArtistIds = artistIds.filter((id) => !id.startsWith("jellyfin:"));
-        const albumCounts = prismaArtistIds.length > 0
-            ? await prisma.ownedAlbum.groupBy({
-                  by: ["artistId"],
-                  where: { artistId: { in: prismaArtistIds } },
-                  _count: { rgMbid: true },
-              })
-            : [];
+        const albumCounts =
+            prismaArtistIds.length > 0
+                ? await prisma.album.groupBy({
+                      by: ["artistId"],
+                      where: {
+                          artistId: { in: prismaArtistIds },
+                          tracks: { some: {} },
+                      },
+                      _count: { id: true },
+                  })
+                : [];
         const albumCountMap = new Map(
-            albumCounts.map((ac) => [ac.artistId, ac._count.rgMbid])
+            albumCounts.map((ac) => [ac.artistId, ac._count.id])
         );
 
         // Get artist images: DataCache for Prisma, Jellyfin batch for jellyfin: ids
@@ -275,7 +279,6 @@ router.get("/recently-added", async (req, res) => {
         // Native: get most recently added LIBRARY albums (by lastSynced)
         const recentAlbums = await prisma.album.findMany({
             where: {
-                location: "LIBRARY",
                 tracks: { some: {} },
             },
             orderBy: { lastSynced: "desc" },
@@ -1043,12 +1046,13 @@ router.get("/radio", async (req, res) => {
                 logger.debug(`[Radio:artist] Artist vibe:`, avgVibe);
 
                 // 2. Get library artist IDs (artists user actually owns)
-                const ownedArtists = await prisma.ownedAlbum.findMany({
+                const libraryArtists = await prisma.album.findMany({
+                    where: { tracks: { some: {} } },
                     select: { artistId: true },
                     distinct: ["artistId"],
                 });
                 const libraryArtistIds = new Set(
-                    ownedArtists.map((o) => o.artistId)
+                    libraryArtists.map((r) => r.artistId)
                 );
                 libraryArtistIds.delete(artistId); // Exclude the current artist
                 logger.debug(
@@ -1677,12 +1681,13 @@ router.get("/radio", async (req, res) => {
 
                 // 4. Fallback B: Similar artists from Last.fm (filtered to library)
                 if (vibeMatchedIds.length < limitNum) {
-                    const ownedArtistIds = await prisma.ownedAlbum.findMany({
+                    const ownedArtistIds = await prisma.album.findMany({
+                        where: { tracks: { some: {} } },
                         select: { artistId: true },
                         distinct: ["artistId"],
                     });
                     const libraryArtistSet = new Set(
-                        ownedArtistIds.map((o) => o.artistId)
+                        ownedArtistIds.map((r) => r.artistId)
                     );
                     libraryArtistSet.delete(sourceArtistId);
 

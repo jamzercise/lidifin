@@ -203,17 +203,17 @@ startUnifiedEnrichmentWorker().catch((err) => {
             logger.debug("Jellyfin metadata sync skipped – Jellyfin is not music source");
             return;
         }
-        const { syncJellyfinOwnedAlbums } = await import(
+        const { refreshJellyfinRgMbidCache } = await import(
             "../services/jellyfinMetadataSync"
         );
 
-        const runOwnedAlbumSync = async (label: string) => {
+        const runRgMbidCacheRefresh = async (label: string) => {
             try {
-                await syncJellyfinOwnedAlbums();
-                logger.debug(`[JellyfinMetadata] ${label}: owned album sync complete`);
+                await refreshJellyfinRgMbidCache();
+                logger.debug(`[JellyfinMetadata] ${label}: rgMbid cache refresh complete`);
             } catch (err: any) {
                 logger.warn(
-                    `[JellyfinMetadata] ${label}: owned album sync failed:`,
+                    `[JellyfinMetadata] ${label}: rgMbid cache refresh failed:`,
                     err?.message
                 );
             }
@@ -244,19 +244,19 @@ startUnifiedEnrichmentWorker().catch((err) => {
         // Run sync 30s after startup (allow Jellyfin to be ready)
         timeouts.push(
             setTimeout(async () => {
-                await runOwnedAlbumSync("startup");
+                await runRgMbidCacheRefresh("startup");
                 await runHeavyMetadataPass("startup");
             }, 30000)
         );
         // Schedule periodic sync every 6 hours
         intervals.push(
             setInterval(async () => {
-                await runOwnedAlbumSync("periodic");
+                await runRgMbidCacheRefresh("periodic");
                 await runHeavyMetadataPass("periodic");
             }, 6 * 60 * 60 * 1000)
         );
         logger.debug(
-            "Jellyfin metadata maintenance scheduled (owned album sync every 6h, heavy sync/enrich on off-peak/idle)"
+            "Jellyfin metadata maintenance scheduled (rgMbid cache refresh every 6h, heavy sync/enrich on off-peak/idle)"
         );
     } catch (err) {
         logger.warn("Jellyfin metadata sync setup failed:", err);
