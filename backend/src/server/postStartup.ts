@@ -168,9 +168,8 @@ async function reconcileDownloadQueue(): Promise<void> {
 }
 
 /**
- * Schedule image backfill 3 minutes after startup so it doesn't run in
- * parallel with the artist-counts backfill (reduces DB/network
- * contention at boot).
+ * Schedule image backfill 3 minutes after startup to avoid contending with
+ * other boot-time work (DB/network).
  */
 function scheduleImageBackfill(): void {
     const IMAGE_BACKFILL_DELAY_MS = 3 * 60 * 1000;

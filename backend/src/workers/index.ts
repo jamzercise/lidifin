@@ -180,7 +180,7 @@ startUnifiedEnrichmentWorker().catch((err) => {
     }
 })();
 
-// Precomputed library list cache (owned albums) – only used when Prisma is music source
+// Precomputed Prisma album-list cache – only used when Prisma is music source
 (async () => {
     try {
         const { isJellyfinMusicSource } = await import("../services/jellyfin");

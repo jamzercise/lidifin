@@ -129,8 +129,8 @@ export async function syncJellyfinTrackMetadata(): Promise<SyncResult | null> {
  * lookup can resolve to a Jellyfin id with a single GET instead of
  * scanning the whole library. Iterates Jellyfin albums in pages and
  * sets a key per album that has an `rgMbid` ProviderId. Albums missing
- * an rgMbid in Jellyfin are skipped — the album detail handler falls
- * back to its bounded `getJellyfinAlbumByRgMbid` scan in that case.
+ * an rgMbid in Jellyfin are skipped — MBID URLs 404 until metadata provides
+ * an id (or the user opens the album by `jellyfin:` id).
  */
 export async function refreshJellyfinRgMbidCache(): Promise<{
     processed: number;

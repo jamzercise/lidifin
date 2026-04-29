@@ -1,6 +1,6 @@
 /**
- * Precomputed library list cache – stores owned-album ID lists in Redis so GET /library/albums
- * can serve from cache and avoid heavy DB queries on every request.
+ * Precomputed library list cache – stores Prisma album IDs (with tracks) in Redis
+ * so GET /library/albums can avoid heavy queries when not using Jellyfin.
  *
  * - Refresh runs every 5 minutes (or on demand after a scan).
  * - Cache key per sort order: lib:albums:owned:ids:{sortBy}

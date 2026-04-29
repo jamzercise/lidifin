@@ -629,68 +629,6 @@ export async function getJellyfinArtistAlbumCounts(
     return new Map(results.map((r) => [r.id, r.count]));
 }
 
-/**
- * Find a Jellyfin album by MusicBrainz release group ID.
- * Searches through albums (paginated) until one with matching ProviderIds is found.
- * Returns null if not found within limit (avoids scanning huge libraries).
- */
-export async function getJellyfinAlbumByRgMbid(
-    cfg: JellyfinConfig,
-    rgMbid: string
-): Promise<JellyfinItem | null> {
-    const token = getEffectiveToken(cfg);
-    const userId = getEffectiveUserId(cfg);
-    const client = createClient(cfg.url, token);
-    const path = userId ? `/Users/${userId}/Items` : "/Items";
-    // Keep this bounded so slow Jellyfin instances don't stall album route responses.
-    const maxToSearch = 600;
-    let offset = 0;
-
-    while (offset < maxToSearch) {
-        let res:
-            | import("axios").AxiosResponse<{
-                  Items: JellyfinItem[];
-                  TotalRecordCount?: number;
-              }>
-            | null = null;
-        try {
-            res = await client.get<{
-                Items: JellyfinItem[];
-                TotalRecordCount?: number;
-            }>(path, {
-                params: {
-                    IncludeItemTypes: "MusicAlbum,BoxSet",
-                    Recursive: "true",
-                    Limit: 100,
-                    StartIndex: offset,
-                    Fields: "Id,Name,ProviderIds,Type",
-                },
-                timeout: 15000,
-            });
-        } catch (err: any) {
-            const isTimeout =
-                err?.code === "ECONNABORTED" ||
-                String(err?.message ?? "").includes("timeout");
-            if (isTimeout) {
-                logger.warn(
-                    `[Jellyfin] rgMbid album scan timed out at offset ${offset}; skipping deep scan`
-                );
-                return null;
-            }
-            throw err;
-        }
-        const items = res.data?.Items ?? [];
-        if (items.length === 0) break;
-
-        for (const item of items) {
-            const found = extractRgMbid(item.ProviderIds);
-            if (found === rgMbid) return item;
-        }
-        offset += items.length;
-    }
-    return null;
-}
-
 /** Max albums to fetch per artist (avoids many Jellyfin calls for prolific artists). */
 const MAX_ARTIST_ALBUMS = 50;
 

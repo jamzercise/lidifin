@@ -7,7 +7,6 @@ import {
     getJellyfinConfig,
     isJellyfinMusicSource,
     getJellyfinAlbums,
-    getJellyfinAlbumByRgMbid,
     getJellyfinTracksAllForAlbum,
     getJellyfinItem,
 } from "../../services/jellyfin";
@@ -297,11 +296,9 @@ router.get("/albums", async (req, res) => {
 //   1. `jellyfin:UUID` (or bare 32-char UUID) — direct Jellyfin fetch.
 //      The common path; owned content always lands here after X.a.1.1.
 //   2. MusicBrainz release-group MBID (dashed UUID) — typically a
-//      discovery click. Look up in Jellyfin via the syncJellyfinOwnedAlbums
-//      Redis cache, falling back to a bounded scan. If the user owns the
-//      release, return owned response with playable Jellyfin tracks.
-//      Otherwise 404 — the frontend then falls through to
-//      `/artists/album/:rgMbid` for MusicBrainz-only data.
+//      discovery click. Resolve rgMbid via Redis `jf:rgmbid:*` (filled by
+//      refreshJellyfinRgMbidCache), then GET Items/{id}. If missing, 404 —
+//      the frontend falls through to `/artists/album/:rgMbid` for MB data.
 //   3. Anything else (legacy Prisma cuid) — defensive Prisma metadata
 //      lookup returned as a discovery view (`owned: false`). Removed in
 //      this PR: opportunistic Prisma <-> Jellyfin reconciliation
@@ -356,9 +353,7 @@ router.get("/albums/:id", async (req, res) => {
                 });
             }
 
-            // Honor the existing miss-cache and circuit-breaker so we don't
-            // pay for the bounded scan on every request when Jellyfin
-            // demonstrably doesn't have this MBID (or is sick).
+            // Honor miss-cache and circuit-breaker (no per-request library scan).
             const missKey = albumLookupMissKey(`mbid:${idParam}`);
             const hasMissCache = redisClient.isReady
                 ? (await redisClient
@@ -375,26 +370,19 @@ router.get("/albums/:id", async (req, res) => {
                 return res.status(404).json({ error: "Album not found" });
             }
 
-            // Fast path: rgMbid → Jellyfin id is cached by
-            // syncJellyfinOwnedAlbums. Use it for a cheap `Items/{id}`
-            // lookup before falling back to the bounded scan.
+            // Redis jf:rgmbid:<mbid> → Jellyfin item id (see refreshJellyfinRgMbidCache).
             const cacheKey = `jf:rgmbid:${idParam}`;
-            let albumItem: Awaited<
-                ReturnType<typeof getJellyfinAlbumByRgMbid>
-            > = null;
+            let albumItem: Awaited<ReturnType<typeof getJellyfinItem>> = null;
             const cachedJfId = redisClient.isReady
                 ? await redisClient.get(cacheKey).catch(() => null)
                 : null;
             if (cachedJfId) {
-                albumItem = await getJellyfinItem(
-                    cfg,
-                    cachedJfId,
-                    "MusicAlbum"
-                ).catch(() => null);
-            }
-            if (!albumItem) {
                 try {
-                    albumItem = await getJellyfinAlbumByRgMbid(cfg, idParam);
+                    albumItem = await getJellyfinItem(
+                        cfg,
+                        cachedJfId,
+                        "MusicAlbum"
+                    );
                 } catch (err) {
                     await recordAlbumLookupFailure("mbid-route");
                     if (redisClient.isReady) {
@@ -408,10 +396,8 @@ router.get("/albums/:id", async (req, res) => {
                     }
                     throw err;
                 }
-                if (albumItem && redisClient.isReady) {
-                    await redisClient
-                        .setEx(cacheKey, 30 * 24 * 3600, albumItem.Id)
-                        .catch(() => {});
+                if (!albumItem && redisClient.isReady) {
+                    await redisClient.del(cacheKey).catch(() => {});
                 }
             }
 
