@@ -11,13 +11,8 @@
  *      MusicBrainz id into a Jellyfin id with a single point lookup
  *      instead of a bounded scan over the whole library.
  *
- * Historical context: prior to Arch-X.d, this module also wrote
- * `OwnedAlbum`, `AlbumOwnershipFact`, `AlbumSourceMap`, and
- * `AlbumArtistCredit` so legacy /library route handlers could read
- * ownership without hitting Jellyfin. Those tables (and the writers
- * that populated them) were removed once X.a's Jellyfin-first cutover
- * made them redundant; ownership is now read from Jellyfin at request
- * time.
+ * Historical: before Arch-X.d this module also mirrored ownership into Prisma.
+ * Those writers are gone; ownership is read from Jellyfin at request time.
  */
 
 import { logger } from "../utils/logger";

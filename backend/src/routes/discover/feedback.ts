@@ -94,8 +94,7 @@ export function registerFeedbackRoutes(router: Router): void {
                 }
             }
 
-            // Find the actual Album record and create OwnedAlbum so it appears in library immediately
-            // Match by artist name + album title since rgMbid may differ between DiscoveryAlbum and scanned Album
+            // Match scanned Album by rgMbid or artist + title (ids can differ from DiscoveryAlbum).
             const dbAlbum = await prisma.album.findFirst({
                 where: {
                     OR: [

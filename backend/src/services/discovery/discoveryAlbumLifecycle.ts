@@ -29,14 +29,11 @@ export class DiscoveryAlbumLifecycle {
     /**
      * Marks a LIKED discovery album as moved.
      *
-     * Pre Arch-X.d this also flipped `Album.location` from DISCOVER to
-     * LIBRARY and inserted an `OwnedAlbum` row so the album would show
-     * up under "owned" in the library UI. After X.d, both of those
-     * tables are gone — ownership is read from Jellyfin at request
-     * time, and there is no separate "discovery" Album state. The DB
-     * Album row (if any) is left as-is; we only flip the
-     * `DiscoveryAlbum.status` so the discover-weekly UI knows the user
-     * kept it.
+     * Pre Arch-X.d this also updated Prisma mirror ownership rows; those
+     * are removed — Jellyfin is the source of truth for library membership.
+     * There is no separate "discovery" Album state. The DB album row (if any)
+     * is left as-is; we only flip `DiscoveryAlbum.status` so the discover
+     * UI knows the user kept it.
      */
     async moveLikedAlbumToLibrary(album: DiscoveryAlbumInfo): Promise<void> {
         await prisma.discoveryAlbum.update({

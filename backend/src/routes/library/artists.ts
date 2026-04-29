@@ -109,12 +109,8 @@ router.get("/artists", async (req, res) => {
             }
         }
 
-        // Local-files (non-Jellyfin) fallback. After Arch-X.d the
-        // denormalized count columns + OwnedAlbum + AlbumOwnershipFact
-        // are gone, so ownership is approximated by "artist has any
-        // album with tracks". The `?filter=discovery` URL is preserved
-        // for backward-compat but always returns empty (discovery is
-        // pass-through MusicBrainz, not an Album row, post X.a/X.c).
+        // Non-Jellyfin: artists with at least one album that has tracks.
+        // `filter=discovery` is a no-op (returns empty) for URL compatibility.
         const orderBy = ARTIST_SORT_MAP[sortBy as string] ?? { name: "asc" as const };
 
         if (filter === "discovery") {
@@ -485,11 +481,7 @@ router.get("/artists/:id/enrichment", async (req, res) => {
 //  4. Defers discovery albums (MusicBrainz release groups not in Jellyfin)
 //     to the phase-2 enrichment endpoint, which the frontend merges in.
 //
-// Removed in X.a.1: the long Prisma-first path (~860 lines), the
-// MusicBrainz MBID search-and-update fallback, the cross-artist
-// `albumIdentityKey` merge, the global title-search loop, and the
-// dual-table OwnedAlbum / Album.ownershipFacts ownership reconciliation.
-// Schema slimming and dead-code removal happen in X.d/X.e.
+// Removed in X.a.1: long Prisma-first path and legacy mirror reconciliation (X.d dropped those tables).
 router.get("/artists/:id", async (req, res) => {
     try {
         const idParam = decodeURIComponent(req.params.id);

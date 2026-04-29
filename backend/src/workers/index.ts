@@ -31,7 +31,7 @@ import { runSyncAndEnrich } from "../services/jellyfinMetadataJob";
 import {
     startLibraryListCacheRefresh,
     stopLibraryListCacheRefresh,
-    refreshAllOwnedAlbumsCache,
+    refreshAllPrismaAlbumListCaches,
 } from "../services/libraryListCache";
 
 // Track intervals and timeouts for cleanup
@@ -188,7 +188,7 @@ startUnifiedEnrichmentWorker().catch((err) => {
             logger.debug("Library list cache refresh skipped – Jellyfin is music source");
         } else {
             startLibraryListCacheRefresh();
-            await refreshAllOwnedAlbumsCache();
+            await refreshAllPrismaAlbumListCaches();
         }
     } catch (err) {
         logger.warn("Initial library list cache refresh failed:", err);
@@ -268,8 +268,8 @@ scanQueue.on("completed", (job, result) => {
     logger.debug(
         `Scan job ${job.id} completed: +${result.tracksAdded} ~${result.tracksUpdated} -${result.tracksRemoved}`
     );
-    refreshAllOwnedAlbumsCache().catch((err) => {
-        logger.warn("Library list cache refresh after scan failed:", err);
+    refreshAllPrismaAlbumListCaches().catch((err) => {
+        logger.warn("Prisma album list cache refresh after scan failed:", err);
     });
 });
 

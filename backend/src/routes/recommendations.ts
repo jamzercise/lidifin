@@ -488,14 +488,14 @@ router.get("/albums", async (req, res) => {
         // Batch check ownership instead of N+1
         const slicedAlbums = uniqueAlbums.slice(0, 20);
         const artistIdsForOwnership = [...new Set(slicedAlbums.map((a) => a.artistId))];
-        const ownedAlbumsForRec = await prisma.album.findMany({
+        const albumsWithTracks = await prisma.album.findMany({
             where: {
                 artistId: { in: artistIdsForOwnership },
                 tracks: { some: {} },
             },
             select: { rgMbid: true },
         });
-        const ownedRgMbidSet = new Set(ownedAlbumsForRec.map((o) => o.rgMbid));
+        const ownedRgMbidSet = new Set(albumsWithTracks.map((a) => a.rgMbid));
 
         const recommendations = slicedAlbums.map((album) => ({
             ...album,

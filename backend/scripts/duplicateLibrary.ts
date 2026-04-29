@@ -73,7 +73,6 @@ async function duplicateLibrary() {
                 // Remove relation fields that shouldn't be copied directly
                 delete artistData.similarFrom;
                 delete artistData.similarTo;
-                delete artistData.ownedAlbums;
 
                 await prisma.artist.create({
                     data: artistData,

@@ -14,7 +14,7 @@ import {
     albumWireShapeFromJellyfin,
     isCompilationAlbumFromArtists,
 } from "./albumDetailHelpers";
-import { getCachedOwnedAlbumIds } from "../../services/libraryListCache";
+import { getCachedPrismaAlbumListIds } from "../../services/libraryListCache";
 import { redisClient } from "../../utils/redis";
 import {
     logger,
@@ -147,7 +147,7 @@ router.get("/albums", async (req, res) => {
         if (filter === "owned") {
             // When no artist filter, try precomputed cache first (worker refreshes every 5 min).
             if (!artistId) {
-                const cachedIds = await getCachedOwnedAlbumIds(sortBy as string);
+                const cachedIds = await getCachedPrismaAlbumListIds(sortBy as string);
                 if (cachedIds && cachedIds.length >= 0) {
                     const total = cachedIds.length;
                     const pageIds = cachedIds.slice(offset, offset + limit);
@@ -292,20 +292,9 @@ router.get("/albums", async (req, res) => {
 
 // GET /library/albums/:id
 //
-// Jellyfin-first resolution. Three branches:
-//   1. `jellyfin:UUID` (or bare 32-char UUID) — direct Jellyfin fetch.
-//      The common path; owned content always lands here after X.a.1.1.
-//   2. MusicBrainz release-group MBID (dashed UUID) — typically a
-//      discovery click. Resolve rgMbid via Redis `jf:rgmbid:*` (filled by
-//      refreshJellyfinRgMbidCache), then GET Items/{id}. If missing, 404 —
-//      the frontend falls through to `/artists/album/:rgMbid` for MB data.
-//   3. Anything else (legacy Prisma cuid) — defensive Prisma metadata
-//      lookup returned as a discovery view (`owned: false`). Removed in
-//      this PR: opportunistic Prisma <-> Jellyfin reconciliation
-//      (AlbumSourceMap / AlbumOwnershipFact / AlbumArtistCredit /
-//      TrackArtistCredit healing transactions, title/container search
-//      fallbacks). Owned content reaches us as `jellyfin:UUID` now, so
-//      the reconciliation has nothing to do.
+// Jellyfin-first: (1) jellyfin:UUID — direct fetch. (2) MB release-group
+// MBID — Redis jf:rgmbid:* then Items/{id}; else 404 → frontend uses MB.
+// (3) legacy Prisma cuid — metadata only, owned: false (no mirror reconcile).
 router.get("/albums/:id", async (req, res) => {
     try {
         const idParam = decodeURIComponent(req.params.id);

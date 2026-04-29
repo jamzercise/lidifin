@@ -1,10 +1,11 @@
 /**
- * Precomputed library list cache – stores Prisma album IDs (with tracks) in Redis
- * so GET /library/albums can avoid heavy queries when not using Jellyfin.
+ * Precomputed album-list cache for Prisma-backed libraries (non-Jellyfin source).
+ * Stores album IDs that have ≥1 track in Redis so GET /library/albums can avoid
+ * heavy list queries.
  *
- * - Refresh runs every 5 minutes (or on demand after a scan).
- * - Cache key per sort order: lib:albums:owned:ids:{sortBy}
- * - TTL 5 minutes; list endpoints read from cache when available and fall back to DB on miss.
+ * - Refresh: every 5 minutes and after scan (worker).
+ * - Key per sort: lib:albums:owned:ids:{sortBy} (legacy segment; means "local mirror albums").
+ * - TTL 5 minutes; reads fall back to DB on miss.
  */
 
 import { prisma, Prisma } from "../utils/db";
@@ -22,10 +23,9 @@ function cacheKey(sortBy: string): string {
 }
 
 /**
- * Refresh the precomputed list of owned album IDs for a given sort order.
- * Called by the scheduler and optionally after library scan.
+ * Refresh cached album IDs for one sort order (Prisma albums that have tracks).
  */
-export async function refreshOwnedAlbumsCache(sortBy: string): Promise<number> {
+export async function refreshPrismaAlbumListCache(sortBy: string): Promise<number> {
     const orderClause =
         sortBy === "name-desc"
             ? Prisma.raw('a."title" DESC')
@@ -33,10 +33,6 @@ export async function refreshOwnedAlbumsCache(sortBy: string): Promise<number> {
               ? Prisma.raw('a."year" DESC NULLS LAST')
               : Prisma.raw('a."title" ASC');
 
-    // After Arch-X.d, all `Album` rows are owned/library content
-    // (DISCOVER rows + OwnedAlbum + AlbumOwnershipFact were removed).
-    // The "has tracks" predicate keeps cache identical to legacy
-    // behavior — tracks-less rows shouldn't be served as owned.
     const rows = await prisma.$queryRaw<{ id: string }[]>`
         SELECT a.id
         FROM "Album" a
@@ -63,23 +59,21 @@ export async function refreshOwnedAlbumsCache(sortBy: string): Promise<number> {
     return ids.length;
 }
 
-/**
- * Refresh all sort orders. Run periodically (e.g. every 5 min) or after library scan.
- */
-export async function refreshAllOwnedAlbumsCache(): Promise<void> {
+/** Refresh all sort orders (scheduler and post-scan). */
+export async function refreshAllPrismaAlbumListCaches(): Promise<void> {
     for (const sortBy of SORT_OPTIONS) {
         try {
-            await refreshOwnedAlbumsCache(sortBy);
+            await refreshPrismaAlbumListCache(sortBy);
         } catch (err) {
             logger.warn(`[LibraryListCache] Refresh failed for ${sortBy}:`, err);
         }
     }
 }
 
-/**
- * Get owned album IDs from cache for a sort order. Returns null on miss or error.
- */
-export async function getCachedOwnedAlbumIds(sortBy: string): Promise<string[] | null> {
+/** Read cached album IDs for a sort order, or null on miss / error. */
+export async function getCachedPrismaAlbumListIds(
+    sortBy: string
+): Promise<string[] | null> {
     if (!redisClient.isReady) return null;
     const key = cacheKey(sortBy);
     try {
@@ -93,41 +87,21 @@ export async function getCachedOwnedAlbumIds(sortBy: string): Promise<string[] |
     }
 }
 
-/**
- * Invalidate cache (e.g. after a scan so next request refetches). Optional.
- */
-export async function invalidateOwnedAlbumsCache(): Promise<void> {
-    if (!redisClient.isReady) return;
-    try {
-        for (const sortBy of SORT_OPTIONS) {
-            await redisClient.del(cacheKey(sortBy));
-        }
-        logger.debug("[LibraryListCache] Invalidated owned albums cache");
-    } catch (err) {
-        logger.warn("[LibraryListCache] Invalidate failed:", err);
-    }
-}
-
 let refreshIntervalId: NodeJS.Timeout | null = null;
 
 const REFRESH_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
-/**
- * Start the periodic refresh. Call from worker or API (one process only).
- */
+/** Periodic Prisma album-list refresh (worker only). */
 export function startLibraryListCacheRefresh(): void {
     if (refreshIntervalId) return;
     refreshIntervalId = setInterval(() => {
-        refreshAllOwnedAlbumsCache().catch((err) => {
+        refreshAllPrismaAlbumListCaches().catch((err) => {
             logger.warn("[LibraryListCache] Scheduled refresh failed:", err);
         });
     }, REFRESH_INTERVAL_MS);
     logger.debug("[LibraryListCache] Scheduled refresh every 5 minutes");
 }
 
-/**
- * Stop the periodic refresh (e.g. on shutdown).
- */
 export function stopLibraryListCacheRefresh(): void {
     if (refreshIntervalId) {
         clearInterval(refreshIntervalId);
