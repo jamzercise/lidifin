@@ -297,6 +297,89 @@ model TranscodedFile {
   @@index([lastAccessed])
 }
 
+/// Audio + vibe analysis for Jellyfin-sourced tracks, keyed by jellyfin:uuid.
+///
+/// Decouples analysis from the legacy `Track` table (which is keyed by
+/// Prisma cuid and bound to local `filePath` / `fileModified`). In
+/// Jellyfin-only mode, there are no local files and `Track` rows are not
+/// produced, so analysis storage moves here. Writers (audio analyzer +
+/// CLAP vibe analyzer) and readers (mix generators, mood buckets) migrate
+/// to this table incrementally in Arch-X.b.2/X.b.3 follow-ups; until then
+/// the model exists empty and the legacy `Track.*` analysis columns
+/// remain in use for any local-files-mode deployments. The legacy columns
+/// are removed in Arch-X.d alongside the rest of the Track-as-Prisma-mirror
+/// schema.
+///
+/// Field set mirrors `Track`'s analysis surface 1:1 except for tag arrays
+/// already living on `JellyfinTrackMetadata` (lastfmTags) and
+/// FK-coupled relations (moodBuckets, embedding) — those are redirected
+/// to use `jellyfinTrackId` separately as part of the Track removal in
+/// Arch-X.d.
+model JellyfinTrackAnalysis {
+  /// jellyfin:UUID format (matches the precedent set by JellyfinTrackMetadata).
+  jellyfinTrackId String @id
+
+  bpm                  Float?
+  beatsCount           Int?
+  key                  String?
+  keyScale             String?
+  keyStrength          Float?
+  energy               Float?
+  loudness             Float?
+  dynamicRange         Float?
+  danceability         Float?
+  valence              Float?
+  arousal              Float?
+  instrumentalness     Float?
+  acousticness         Float?
+  speechiness          Float?
+  moodHappy            Float?
+  moodSad              Float?
+  moodRelaxed          Float?
+  moodAggressive       Float?
+  moodParty            Float?
+  moodAcoustic         Float?
+  moodElectronic       Float?
+  danceabilityMl       Float?
+  moodTags             String[] @default([])
+  essentiaGenres       String[] @default([])
+
+  analysisStatus       String    @default("pending")
+  analysisVersion      String?
+  analysisMode         String?
+  analyzedAt           DateTime?
+  analysisError        String?
+  analysisRetryCount   Int       @default(0)
+  analysisStartedAt    DateTime?
+
+  vibeAnalysisStatus          String?
+  vibeAnalysisStartedAt       DateTime?
+  vibeAnalysisError           String?
+  vibeAnalysisRetryCount      Int       @default(0)
+  vibeAnalysisStatusUpdatedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([analysisStatus])
+  @@index([analysisMode])
+  @@index([bpm])
+  @@index([energy])
+  @@index([valence])
+  @@index([danceability])
+  @@index([arousal])
+  @@index([acousticness])
+  @@index([instrumentalness])
+  @@index([moodHappy])
+  @@index([moodSad])
+  @@index([moodRelaxed])
+  @@index([moodAggressive])
+  @@index([moodParty])
+  @@index([moodAcoustic])
+  @@index([moodElectronic])
+  @@index([vibeAnalysisStatus])
+}
+
 /// Jellyfin track metadata for mood/vibe and genre radio when Jellyfin is music source.
 model JellyfinTrackMetadata {
   jellyfinId   String    @id // jellyfin:uuid format
