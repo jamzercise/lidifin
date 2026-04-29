@@ -1128,7 +1128,7 @@ async function executePodcastRefreshPhase(): Promise<number> {
 
     logger.debug(`[Enrichment] Refreshing ${stalePodcasts.length} podcast feeds...`);
 
-    const { refreshPodcastFeed } = await import("../routes/podcasts");
+    const { refreshPodcastFeed } = await import("../services/podcastFeedRefresh");
     let refreshed = 0;
 
     for (const podcast of stalePodcasts) {
