@@ -7,13 +7,14 @@ import {
     getJellyfinConfig,
     isJellyfinMusicSource,
     getJellyfinAlbums,
-    getJellyfinAlbumContainers,
     getJellyfinAlbumByRgMbid,
     getJellyfinTracksAllForAlbum,
     getJellyfinItem,
-    getJellyfinImageUrl,
-    extractRgMbid,
 } from "../../services/jellyfin";
+import {
+    albumWireShapeFromJellyfin,
+    isCompilationAlbumFromArtists,
+} from "./albumDetailHelpers";
 import { getCachedOwnedAlbumIds } from "../../services/libraryListCache";
 import { redisClient } from "../../utils/redis";
 import {
@@ -26,83 +27,6 @@ import {
 } from "./_helpers";
 
 const router = Router();
-
-function normalizeTitle(value: string | null | undefined): string {
-    return (value ?? "")
-        .toLowerCase()
-        .replace(/[^\w\s]/g, " ")
-        .replace(/\s+/g, " ")
-        .trim();
-}
-
-function isVariousArtistsName(value: string): boolean {
-    return (
-        value === "various artists" ||
-        value === "various artist" ||
-        value === "various" ||
-        value === "va"
-    );
-}
-
-function getAlbumArtistsFromJellyfinItem(item: any): Array<{ id: string; name: string }> {
-    return (item?.AlbumArtists ?? [])
-        .filter((a: any) => !!a?.Id && !!a?.Name)
-        .map((a: any) => ({
-            id: `jellyfin:${a.Id}`,
-            name: a.Name,
-        }));
-}
-
-function isCompilationAlbumFromArtists(
-    albumArtists: Array<{ id: string; name: string }>
-): boolean {
-    const normalized = albumArtists
-        .map((a) => normalizeTitle(a.name))
-        .filter(Boolean);
-    if (normalized.some((n) => isVariousArtistsName(n))) return true;
-    return new Set(normalized).size > 1;
-}
-
-function tokenSet(value: string): Set<string> {
-    return new Set(
-        value
-            .split(" ")
-            .map((t) => t.trim())
-            .filter((t) => t.length >= 3)
-    );
-}
-
-function normalizeTitleLoose(value: string | null | undefined): string {
-    return normalizeTitle(value)
-        .replace(
-            /\b(?:box\s*set|disc|disk|cd|volume|vol|part|pt)\s*(?:\d+|[ivxlcdm]+)\b/gi,
-            " "
-        )
-        .replace(/\b(?:deluxe|edition|expanded|remaster(?:ed)?)\b/gi, " ")
-        .replace(/\s+/g, " ")
-        .trim();
-}
-
-function titlesLikelySame(a: string, b: string): boolean {
-    const na = normalizeTitle(a);
-    const nb = normalizeTitle(b);
-    if (!na || !nb) return false;
-    if (na === nb) return true;
-    const la = normalizeTitleLoose(a);
-    const lb = normalizeTitleLoose(b);
-    if (la && lb && la === lb) return true;
-    if (na.includes(nb) || nb.includes(na)) return true;
-    if (la && lb && (la.includes(lb) || lb.includes(la))) return true;
-    const aTokens = tokenSet(na);
-    const bTokens = tokenSet(nb);
-    if (aTokens.size === 0 || bTokens.size === 0) return false;
-    let overlap = 0;
-    for (const t of aTokens) {
-        if (bTokens.has(t)) overlap++;
-    }
-    const minSize = Math.min(aTokens.size, bTokens.size);
-    return overlap >= Math.max(2, Math.floor(minSize * 0.7));
-}
 
 const ALBUM_LOOKUP_CIRCUIT_OPEN_KEY = "jf:circuit:album_lookup:open";
 const ALBUM_LOOKUP_CIRCUIT_FAILS_KEY = "jf:circuit:album_lookup:fails";
@@ -380,12 +304,29 @@ router.get("/albums", async (req, res) => {
 });
 
 // GET /library/albums/:id
+//
+// Jellyfin-first resolution. Three branches:
+//   1. `jellyfin:UUID` (or bare 32-char UUID) — direct Jellyfin fetch.
+//      The common path; owned content always lands here after X.a.1.1.
+//   2. MusicBrainz release-group MBID (dashed UUID) — typically a
+//      discovery click. Look up in Jellyfin via the syncJellyfinOwnedAlbums
+//      Redis cache, falling back to a bounded scan. If the user owns the
+//      release, return owned response with playable Jellyfin tracks.
+//      Otherwise 404 — the frontend then falls through to
+//      `/artists/album/:rgMbid` for MusicBrainz-only data.
+//   3. Anything else (legacy Prisma cuid) — defensive Prisma metadata
+//      lookup returned as a discovery view (`owned: false`). Removed in
+//      this PR: opportunistic Prisma <-> Jellyfin reconciliation
+//      (AlbumSourceMap / AlbumOwnershipFact / AlbumArtistCredit /
+//      TrackArtistCredit healing transactions, title/container search
+//      fallbacks). Owned content reaches us as `jellyfin:UUID` now, so
+//      the reconciliation has nothing to do.
 router.get("/albums/:id", async (req, res) => {
     try {
         const idParam = decodeURIComponent(req.params.id);
         const resolvedId = resolveIdForJellyfin(idParam);
 
-        // Jellyfin album (jellyfin:uuid or raw 32-char UUID from URL)
+        // Branch 1: explicit Jellyfin id.
         if (resolvedId.startsWith("jellyfin:")) {
             if (!(await isJellyfinMusicSource())) {
                 return res.status(404).json({ error: "Album not found" });
@@ -404,76 +345,137 @@ router.get("/albums/:id", async (req, res) => {
             ]);
             if (
                 !albumItem ||
-                (albumItem.Type !== "MusicAlbum" && albumItem.Type !== "BoxSet")
+                (albumItem.Type !== "MusicAlbum" &&
+                    albumItem.Type !== "BoxSet")
             ) {
                 return res.status(404).json({ error: "Album not found" });
             }
-            const albumArtists = getAlbumArtistsFromJellyfinItem(albumItem);
-            const artist = albumItem.AlbumArtists?.[0]
-                ? {
-                      id: `jellyfin:${albumItem.AlbumArtists[0].Id}`,
-                      name: albumItem.AlbumArtists[0].Name,
-                      mbid: null as string | null,
-                  }
-                : { id: "", name: "Unknown Artist", mbid: null as string | null };
-            const coverArt = getJellyfinImageUrl(
-                cfg.url,
-                albumItem.Id,
-                albumItem.ImageTags?.Primary,
-                cfg.apiKey,
-                cfg.userId
+            return res.json(
+                albumWireShapeFromJellyfin(cfg, albumItem, tracks)
             );
-            const rgMbid = extractRgMbid(albumItem.ProviderIds);
-            return res.json({
-                id: resolvedId,
-                title: albumItem.Name,
-                artist,
-                albumArtists: albumArtists.length > 0 ? albumArtists : [artist],
-                isCompilation: isCompilationAlbumFromArtists(
-                    albumArtists.length > 0 ? albumArtists : [artist]
-                ),
-                tracks,
-                owned: true,
-                coverArt,
-                coverUrl: coverArt,
-                rgMbid: rgMbid ?? undefined,
-            });
         }
 
-        // Find album by ID or rgMbid (for discovery albums) in single query
-        let album = await prisma.album.findFirst({
-            where: {
-                OR: [
-                    { id: idParam },
-                    { rgMbid: idParam },
-                ],
-            },
+        // Branch 2: MusicBrainz release-group MBID.
+        if (MBID_REGEX.test(idParam)) {
+            if (!(await isJellyfinMusicSource())) {
+                return res.status(404).json({ error: "Album not found" });
+            }
+            const cfg = await getJellyfinConfig();
+            if (!cfg) {
+                return res.status(503).json({
+                    error: "Jellyfin is not configured",
+                    jellyfin: true,
+                });
+            }
+
+            // Honor the existing miss-cache and circuit-breaker so we don't
+            // pay for the bounded scan on every request when Jellyfin
+            // demonstrably doesn't have this MBID (or is sick).
+            const missKey = albumLookupMissKey(`mbid:${idParam}`);
+            const hasMissCache = redisClient.isReady
+                ? (await redisClient
+                      .get(missKey)
+                      .catch(() => null)) === "1"
+                : false;
+            const circuitOpen = await isAlbumLookupCircuitOpen();
+            if (hasMissCache || circuitOpen) {
+                logger.debug(
+                    `[Album] Skipping MBID lookup for ${idParam} (${
+                        hasMissCache ? "miss-cache" : "circuit-open"
+                    })`
+                );
+                return res.status(404).json({ error: "Album not found" });
+            }
+
+            // Fast path: rgMbid → Jellyfin id is cached by
+            // syncJellyfinOwnedAlbums. Use it for a cheap `Items/{id}`
+            // lookup before falling back to the bounded scan.
+            const cacheKey = `jf:rgmbid:${idParam}`;
+            let albumItem: Awaited<
+                ReturnType<typeof getJellyfinAlbumByRgMbid>
+            > = null;
+            const cachedJfId = redisClient.isReady
+                ? await redisClient.get(cacheKey).catch(() => null)
+                : null;
+            if (cachedJfId) {
+                albumItem = await getJellyfinItem(
+                    cfg,
+                    cachedJfId,
+                    "MusicAlbum"
+                ).catch(() => null);
+            }
+            if (!albumItem) {
+                try {
+                    albumItem = await getJellyfinAlbumByRgMbid(cfg, idParam);
+                } catch (err) {
+                    await recordAlbumLookupFailure("mbid-route");
+                    if (redisClient.isReady) {
+                        await redisClient
+                            .setEx(
+                                missKey,
+                                ALBUM_LOOKUP_MISS_TTL_SECONDS,
+                                "1"
+                            )
+                            .catch(() => {});
+                    }
+                    throw err;
+                }
+                if (albumItem && redisClient.isReady) {
+                    await redisClient
+                        .setEx(cacheKey, 30 * 24 * 3600, albumItem.Id)
+                        .catch(() => {});
+                }
+            }
+
+            if (
+                !albumItem ||
+                (albumItem.Type !== "MusicAlbum" &&
+                    albumItem.Type !== "BoxSet")
+            ) {
+                if (redisClient.isReady) {
+                    await redisClient
+                        .setEx(
+                            missKey,
+                            ALBUM_LOOKUP_MISS_TTL_SECONDS,
+                            "1"
+                        )
+                        .catch(() => {});
+                }
+                return res.status(404).json({ error: "Album not found" });
+            }
+
+            await recordAlbumLookupSuccess();
+            if (redisClient.isReady) {
+                await redisClient.del(missKey).catch(() => {});
+            }
+
+            const resolvedJfId = `jellyfin:${albumItem.Id}`;
+            const tracks = await getJellyfinTracksAllForAlbum(
+                cfg,
+                resolvedJfId
+            );
+            return res.json(
+                albumWireShapeFromJellyfin(cfg, albumItem, tracks, {
+                    rgMbidFromUrl: idParam,
+                })
+            );
+        }
+
+        // Branch 3: legacy Prisma cuid path. Defensive read for any
+        // bookmarked URLs still carrying raw Album.id values. We do NOT
+        // reconcile against Jellyfin here.
+        const album = await prisma.album.findFirst({
+            where: { id: idParam },
             include: {
                 artist: {
-                    select: {
-                        id: true,
-                        mbid: true,
-                        name: true,
-                    },
+                    select: { id: true, mbid: true, name: true },
                 },
                 albumArtistCredits: {
                     orderBy: { sortOrder: Prisma.SortOrder.asc },
                     include: {
                         artist: {
-                            select: {
-                                id: true,
-                                name: true,
-                                mbid: true,
-                            },
+                            select: { id: true, name: true, mbid: true },
                         },
-                    },
-                },
-                sourceMaps: {
-                    where: { source: "JELLYFIN" },
-                    orderBy: { updatedAt: Prisma.SortOrder.desc },
-                    take: 3,
-                    select: {
-                        sourceAlbumId: true,
                     },
                 },
                 tracks: {
@@ -495,627 +497,8 @@ router.get("/albums/:id", async (req, res) => {
                 },
             },
         });
-
-        // If not in Prisma and Jellyfin mode: try album by MusicBrainz rgMbid when idParam is MBID format
-        if (!album && MBID_REGEX.test(idParam) && (await isJellyfinMusicSource())) {
-            const cfg = await getJellyfinConfig();
-            if (cfg) {
-                const mbidMissKey = albumLookupMissKey(`mbid:${idParam}`);
-                const hasMissCache = redisClient.isReady
-                    ? (await redisClient.get(mbidMissKey).catch(() => null)) === "1"
-                    : false;
-                const circuitOpen = await isAlbumLookupCircuitOpen();
-                if (hasMissCache || circuitOpen) {
-                    logger.debug(
-                        `[Album] Skipping MBID deep lookup for ${idParam} (${hasMissCache ? "miss-cache" : "circuit-open"})`
-                    );
-                    return res.status(404).json({ error: "Album not found" });
-                }
-
-                let albumItem = null as Awaited<ReturnType<typeof getJellyfinAlbumByRgMbid>>;
-                try {
-                    albumItem = await getJellyfinAlbumByRgMbid(cfg, idParam);
-                    if (albumItem) {
-                        await recordAlbumLookupSuccess();
-                        if (redisClient.isReady) {
-                            await redisClient.del(mbidMissKey).catch(() => {});
-                        }
-                    } else if (redisClient.isReady) {
-                        await redisClient
-                            .setEx(mbidMissKey, ALBUM_LOOKUP_MISS_TTL_SECONDS, "1")
-                            .catch(() => {});
-                    }
-                } catch (err) {
-                    await recordAlbumLookupFailure("mbid-route");
-                    if (redisClient.isReady) {
-                        await redisClient
-                            .setEx(mbidMissKey, ALBUM_LOOKUP_MISS_TTL_SECONDS, "1")
-                            .catch(() => {});
-                    }
-                    throw err;
-                }
-                if (
-                    albumItem &&
-                    (albumItem.Type === "MusicAlbum" || albumItem.Type === "BoxSet")
-                ) {
-                    const resolvedId = `jellyfin:${albumItem.Id}`;
-                    const tracks = await getJellyfinTracksAllForAlbum(cfg, resolvedId);
-                    const albumArtists = getAlbumArtistsFromJellyfinItem(albumItem);
-                    const artist = albumItem.AlbumArtists?.[0]
-                        ? {
-                              id: `jellyfin:${albumItem.AlbumArtists[0].Id}`,
-                              name: albumItem.AlbumArtists[0].Name,
-                              mbid: null as string | null,
-                          }
-                        : { id: "", name: "Unknown Artist", mbid: null as string | null };
-                    const coverArt = getJellyfinImageUrl(
-                        cfg.url,
-                        albumItem.Id,
-                        albumItem.ImageTags?.Primary,
-                        cfg.apiKey,
-                        cfg.userId
-                    );
-                    return res.json({
-                        id: resolvedId,
-                        title: albumItem.Name,
-                        artist,
-                        albumArtists: albumArtists.length > 0 ? albumArtists : [artist],
-                        isCompilation: isCompilationAlbumFromArtists(
-                            albumArtists.length > 0 ? albumArtists : [artist]
-                        ),
-                        tracks,
-                        owned: true,
-                        coverArt,
-                        coverUrl: coverArt,
-                        rgMbid: idParam,
-                    });
-                }
-            }
-        }
-
         if (!album) {
             return res.status(404).json({ error: "Album not found" });
-        }
-
-        // New primary ownership path: AlbumOwnershipFact (source=JELLYFIN).
-        const ownershipFact = await prisma.albumOwnershipFact.findUnique({
-            where: {
-                albumId_source: {
-                    albumId: album.id,
-                    source: "JELLYFIN",
-                },
-            },
-            select: {
-                status: true,
-                sourceAlbumId: true,
-                matchMethod: true,
-                confidence: true,
-            },
-        });
-        let isOwned = ownershipFact?.status === "OWNED";
-        const sourceAlbumHints = [
-            ownershipFact?.sourceAlbumId,
-            ...album.sourceMaps.map((m) => m.sourceAlbumId),
-        ].filter(
-            (id, index, all): id is string =>
-                !!id && all.indexOf(id) === index
-        );
-
-        // Compatibility fallback while we transition off OwnedAlbum reads.
-        if (!isOwned && album.rgMbid) {
-            const owned = await prisma.ownedAlbum.findFirst({
-                where: {
-                    OR: [
-                        {
-                            artistId: album.artistId,
-                            rgMbid: album.rgMbid,
-                        },
-                        {
-                            rgMbid: album.rgMbid,
-                        },
-                    ],
-                },
-                select: { artistId: true, rgMbid: true },
-            });
-            isOwned = !!owned;
-        }
-
-        // Prisma album exists but OwnedAlbum says not owned — check Jellyfin.
-        // The Prisma record may come from enrichment/discovery while the actual
-        // music lives in Jellyfin. If found there, serve the Jellyfin version
-        // which has playable tracks.
-        if (!isOwned && (await isJellyfinMusicSource())) {
-            const cfg = await getJellyfinConfig();
-            if (cfg) {
-                let jellyfinAlbum: any = null;
-                const lookupMissKey = albumLookupMissKey(
-                    album.rgMbid ? `${album.id}:${album.rgMbid}` : album.id
-                );
-                const hasMissCache = redisClient.isReady
-                    ? (await redisClient.get(lookupMissKey).catch(() => null)) === "1"
-                    : false;
-                const lookupCircuitOpen = await isAlbumLookupCircuitOpen();
-                let attemptedExpensiveLookup = false;
-
-                for (const sourceAlbumId of sourceAlbumHints) {
-                    if (jellyfinAlbum) break;
-                    jellyfinAlbum = await getJellyfinItem(
-                        cfg,
-                        sourceAlbumId,
-                        "MusicAlbum"
-                    ).catch(() => null);
-                }
-
-                if (album.rgMbid) {
-                    // Fast path: syncJellyfinOwnedAlbums caches rgMbid→JellyfinID.
-                    // Use that for a direct item lookup instead of scanning 2000+ albums.
-                    const redisCacheKey = `jf:rgmbid:${album.rgMbid}`;
-                    const cachedJfId = redisClient.isReady
-                        ? await redisClient.get(redisCacheKey).catch(() => null)
-                        : null;
-
-                    if (cachedJfId) {
-                        jellyfinAlbum = await getJellyfinItem(cfg, cachedJfId, "MusicAlbum").catch(
-                            () => null
-                        );
-                    }
-                    if (!jellyfinAlbum) {
-                        if (hasMissCache || lookupCircuitOpen) {
-                            logger.debug(
-                                `[Album] Skipping rgMbid deep scan for "${album.title}" (${hasMissCache ? "miss-cache" : "circuit-open"})`
-                            );
-                        } else {
-                            attemptedExpensiveLookup = true;
-                            jellyfinAlbum = await getJellyfinAlbumByRgMbid(
-                                cfg,
-                                album.rgMbid
-                            ).catch(async (err) => {
-                                logger.debug(
-                                    `[Album] Jellyfin rgMbid scan failed for "${album.title}" (${album.rgMbid}):`,
-                                    err instanceof Error ? err.message : err
-                                );
-                                await recordAlbumLookupFailure("rgmbid-scan");
-                                return null;
-                            });
-                        }
-                        if (jellyfinAlbum && redisClient.isReady) {
-                            await redisClient
-                                .setEx(redisCacheKey, 30 * 24 * 3600, jellyfinAlbum.Id)
-                                .catch(() => {});
-                        }
-                    }
-                }
-
-                if (!jellyfinAlbum && !hasMissCache && !lookupCircuitOpen) {
-                    attemptedExpensiveLookup = true;
-                    // MBIDs are sometimes missing or mismatched (release vs release-group).
-                    // Fallback to title/artist matching in Jellyfin for robustness.
-                    const normalizedTargetTitle = normalizeTitle(album.title);
-                    const normalizedTargetArtist = normalizeTitle(
-                        album.artist?.name ?? ""
-                    );
-                    const isVariousTargetArtist =
-                        !!normalizedTargetArtist &&
-                        isVariousArtistsName(normalizedTargetArtist);
-                    let candidate:
-                        | {
-                              id: string;
-                              title: string;
-                              coverArt: string | null;
-                              artist?: { id: string; name: string };
-                              year?: number;
-                              rgMbid?: string;
-                          }
-                        | undefined;
-                    const isCandidateMatch = (a: {
-                        title: string;
-                        artist?: { id: string; name: string };
-                    }) => {
-                        const sameTitle = titlesLikelySame(
-                            a.title,
-                            normalizedTargetTitle
-                        );
-                        if (!sameTitle) return false;
-
-                        if (!normalizedTargetArtist || isVariousTargetArtist) return true;
-
-                        const normalizedCandidateArtist = normalizeTitle(
-                            a.artist?.name ?? ""
-                        );
-                        if (!normalizedCandidateArtist) return true;
-                        return (
-                            normalizedCandidateArtist === normalizedTargetArtist ||
-                            isVariousArtistsName(normalizedCandidateArtist)
-                        );
-                    };
-
-                    // Try indexed Jellyfin search first using a few title variants.
-                    const searchTerms = Array.from(
-                        new Set(
-                            [
-                                album.title,
-                                album.title.replace(/[()[\]{}]/g, " ").trim(),
-                                album.title
-                                    .replace(/\bbox\s*set\b/gi, "")
-                                    .trim(),
-                            ].filter((v) => !!v)
-                        )
-                    );
-                    for (const searchTerm of searchTerms) {
-                        if (candidate) break;
-                        let offset = 0;
-                        const limit = 100;
-                        let pages = 0;
-                        const maxPagesPerTerm = 3;
-                        while (!candidate) {
-                            let jfResult: Awaited<ReturnType<typeof getJellyfinAlbums>>;
-                            try {
-                                jfResult = await getJellyfinAlbums(cfg, {
-                                    search: searchTerm,
-                                    limit,
-                                    offset,
-                                });
-                            } catch (err) {
-                                logger.debug(
-                                    `[Album] Jellyfin title search failed for "${searchTerm}" at offset ${offset}:`,
-                                    err instanceof Error ? err.message : err
-                                );
-                                await recordAlbumLookupFailure("title-search");
-                                break;
-                            }
-                            const { albums: jfAlbums, total } = jfResult;
-                            if (jfAlbums.length === 0) break;
-                            candidate = jfAlbums.find(isCandidateMatch);
-                            if (candidate) break;
-                            offset += jfAlbums.length;
-                            pages += 1;
-                            if (offset >= total || jfAlbums.length < limit) break;
-                            if (pages >= maxPagesPerTerm) break;
-                        }
-                    }
-
-                    // Intentionally avoid deep full-library scans on interactive routes.
-                    // If indexed search does not find a candidate, defer reconciliation to
-                    // background jobs instead of blocking this request.
-
-                    // Extra fallback: Jellyfin can classify some releases as BoxSet.
-                    // Search both MusicAlbum and BoxSet containers before giving up.
-                    if (!candidate) {
-                        for (const searchTerm of searchTerms) {
-                            if (candidate) break;
-                            let offset = 0;
-                            const limit = 100;
-                            let pages = 0;
-                            const maxPagesPerTerm = 2;
-                            while (!candidate) {
-                                let containerResult: Awaited<
-                                    ReturnType<typeof getJellyfinAlbumContainers>
-                                >;
-                                try {
-                                    containerResult = await getJellyfinAlbumContainers(cfg, {
-                                        search: searchTerm,
-                                        limit,
-                                        offset,
-                                    });
-                                } catch (err) {
-                                    logger.debug(
-                                        `[Album] Jellyfin container search failed for "${searchTerm}" at offset ${offset}:`,
-                                        err instanceof Error ? err.message : err
-                                    );
-                                    await recordAlbumLookupFailure("container-search");
-                                    break;
-                                }
-                                const { items, total } = containerResult;
-                                if (items.length === 0) break;
-                                const matched = items.find((item) =>
-                                    isCandidateMatch({
-                                        title: item.Name,
-                                        artist: item.AlbumArtists?.[0]
-                                            ? {
-                                                  id: `jellyfin:${item.AlbumArtists[0].Id}`,
-                                                  name: item.AlbumArtists[0].Name,
-                                              }
-                                            : undefined,
-                                    })
-                                );
-                                if (matched) {
-                                    candidate = {
-                                        id: `jellyfin:${matched.Id}`,
-                                        title: matched.Name,
-                                        coverArt: getJellyfinImageUrl(
-                                            cfg.url,
-                                            matched.Id,
-                                            matched.ImageTags?.Primary,
-                                            cfg.apiKey,
-                                            cfg.userId
-                                        ),
-                                        artist: matched.AlbumArtists?.[0]
-                                            ? {
-                                                  id: `jellyfin:${matched.AlbumArtists[0].Id}`,
-                                                  name: matched.AlbumArtists[0].Name,
-                                              }
-                                            : undefined,
-                                        year: matched.ProductionYear ?? undefined,
-                                        rgMbid: extractRgMbid(matched.ProviderIds),
-                                    };
-                                    break;
-                                }
-                                offset += items.length;
-                                pages += 1;
-                                if (offset >= total || items.length < limit) break;
-                                if (pages >= maxPagesPerTerm) break;
-                            }
-                        }
-                    }
-                    if (candidate?.id?.startsWith("jellyfin:")) {
-                        const rawId = candidate.id.slice("jellyfin:".length);
-                        jellyfinAlbum = await getJellyfinItem(
-                            cfg,
-                            rawId,
-                            "MusicAlbum"
-                        ).catch(() => null);
-                    }
-                } else if (!jellyfinAlbum && (hasMissCache || lookupCircuitOpen)) {
-                    logger.debug(
-                        `[Album] Skipping expensive Jellyfin title scan for "${album.title}" (${hasMissCache ? "miss-cache" : "circuit-open"})`
-                    );
-                }
-
-                if (jellyfinAlbum) {
-                    await recordAlbumLookupSuccess();
-                    if (redisClient.isReady) {
-                        await redisClient.del(lookupMissKey).catch(() => {});
-                    }
-                } else if (attemptedExpensiveLookup && redisClient.isReady) {
-                    await redisClient
-                        .setEx(lookupMissKey, ALBUM_LOOKUP_MISS_TTL_SECONDS, "1")
-                        .catch(() => {});
-                }
-
-                if (
-                    jellyfinAlbum &&
-                    (jellyfinAlbum.Type === "MusicAlbum" ||
-                        jellyfinAlbum.Type === "BoxSet")
-                ) {
-                    const sourceAlbumId = jellyfinAlbum.Id;
-                    const albumArtists = getAlbumArtistsFromJellyfinItem(jellyfinAlbum);
-                    const primaryAlbumArtists =
-                        albumArtists.length > 0
-                            ? albumArtists
-                            : album.artist
-                              ? [{ id: album.artist.id, name: album.artist.name }]
-                              : [];
-                    const method =
-                        album.rgMbid &&
-                        album.rgMbid === extractRgMbid(jellyfinAlbum.ProviderIds)
-                            ? "RGMBID"
-                            : "TITLE_ARTIST_NORMALIZED";
-
-                    // Opportunistically heal/refresh source map + ownership fact.
-                    await prisma.$transaction([
-                        prisma.albumSourceMap.upsert({
-                            where: {
-                                source_sourceAlbumId: {
-                                    source: "JELLYFIN",
-                                    sourceAlbumId,
-                                },
-                            },
-                            create: {
-                                source: "JELLYFIN",
-                                sourceAlbumId,
-                                albumId: album.id,
-                                matchMethod: method,
-                                confidence: method === "RGMBID" ? 1.0 : 0.92,
-                                evidence: {
-                                    jellyfinTitle: jellyfinAlbum.Name || album.title,
-                                    jellyfinArtist:
-                                        jellyfinAlbum.AlbumArtists?.[0]?.Name ??
-                                        album.artist?.name ??
-                                        null,
-                                    jellyfinRgMbid:
-                                        extractRgMbid(jellyfinAlbum.ProviderIds) ??
-                                        null,
-                                },
-                            },
-                            update: {
-                                albumId: album.id,
-                                matchMethod: method,
-                                confidence: method === "RGMBID" ? 1.0 : 0.92,
-                                evidence: {
-                                    jellyfinTitle: jellyfinAlbum.Name || album.title,
-                                    jellyfinArtist:
-                                        jellyfinAlbum.AlbumArtists?.[0]?.Name ??
-                                        album.artist?.name ??
-                                        null,
-                                    jellyfinRgMbid:
-                                        extractRgMbid(jellyfinAlbum.ProviderIds) ??
-                                        null,
-                                },
-                            },
-                        }),
-                        prisma.albumOwnershipFact.upsert({
-                            where: {
-                                albumId_source: {
-                                    albumId: album.id,
-                                    source: "JELLYFIN",
-                                },
-                            },
-                            create: {
-                                albumId: album.id,
-                                source: "JELLYFIN",
-                                sourceAlbumId,
-                                status: "OWNED",
-                                matchMethod: method,
-                                confidence: method === "RGMBID" ? 1.0 : 0.92,
-                                evidence: {
-                                    jellyfinTitle: jellyfinAlbum.Name || album.title,
-                                    jellyfinArtist:
-                                        jellyfinAlbum.AlbumArtists?.[0]?.Name ??
-                                        album.artist?.name ??
-                                        null,
-                                    jellyfinRgMbid:
-                                        extractRgMbid(jellyfinAlbum.ProviderIds) ??
-                                        null,
-                                },
-                            },
-                            update: {
-                                sourceAlbumId,
-                                status: "OWNED",
-                                matchMethod: method,
-                                confidence: method === "RGMBID" ? 1.0 : 0.92,
-                                observedAt: new Date(),
-                                evidence: {
-                                    jellyfinTitle: jellyfinAlbum.Name || album.title,
-                                    jellyfinArtist:
-                                        jellyfinAlbum.AlbumArtists?.[0]?.Name ??
-                                        album.artist?.name ??
-                                        null,
-                                    jellyfinRgMbid:
-                                        extractRgMbid(jellyfinAlbum.ProviderIds) ??
-                                        null,
-                                },
-                            },
-                        }),
-                        prisma.albumArtistCredit.deleteMany({
-                            where: {
-                                albumId: album.id,
-                                source: "JELLYFIN",
-                            },
-                        }),
-                        ...(primaryAlbumArtists.length > 0
-                            ? [
-                                  prisma.albumArtistCredit.createMany({
-                                      data: primaryAlbumArtists.map((a, idx) => ({
-                                          albumId: album.id,
-                                          artistId:
-                                              a.id && !a.id.startsWith("jellyfin:")
-                                                  ? a.id
-                                                  : null,
-                                          displayName: a.name,
-                                          normalizedDisplayName: normalizeTitle(a.name),
-                                          role: isVariousArtistsName(normalizeTitle(a.name))
-                                              ? "COMPILATION"
-                                              : "PRIMARY",
-                                          sortOrder: idx,
-                                          source: "JELLYFIN",
-                                          sourceArtistId: a.id.startsWith("jellyfin:")
-                                              ? a.id.slice("jellyfin:".length)
-                                              : null,
-                                          confidence: method === "RGMBID" ? 1.0 : 0.92,
-                                          evidence: {
-                                              jellyfinAlbumTitle:
-                                                  jellyfinAlbum.Name || album.title,
-                                          },
-                                      })),
-                                  }),
-                              ]
-                            : []),
-                        prisma.album.update({
-                            where: { id: album.id },
-                            data: {
-                                isCompilation:
-                                    isCompilationAlbumFromArtists(primaryAlbumArtists),
-                            },
-                        }),
-                    ]);
-
-                    const jfId = `jellyfin:${jellyfinAlbum.Id}`;
-                    const tracks = await getJellyfinTracksAllForAlbum(cfg, jfId);
-                    if (album.tracks.length > 0) {
-                        const jellyfinTrackByTitle = new Map<
-                            string,
-                            { id: string; name: string }
-                        >();
-                        for (const t of tracks) {
-                            const key = normalizeTitle(t.title);
-                            if (!key || jellyfinTrackByTitle.has(key)) continue;
-                            if (!t.artist?.name) continue;
-                            jellyfinTrackByTitle.set(key, {
-                                id: t.artist.id,
-                                name: t.artist.name,
-                            });
-                        }
-
-                        const trackCreditRows = album.tracks
-                            .map((nativeTrack, idx) => {
-                                const matched = jellyfinTrackByTitle.get(
-                                    normalizeTitle(nativeTrack.title)
-                                );
-                                if (!matched?.name) return null;
-                                return {
-                                    trackId: nativeTrack.id,
-                                    artistId: null as string | null,
-                                    displayName: matched.name,
-                                    normalizedDisplayName: normalizeTitle(matched.name),
-                                    role: "PRIMARY" as const,
-                                    sortOrder: 0,
-                                    source: "JELLYFIN" as const,
-                                    sourceArtistId: matched.id.startsWith("jellyfin:")
-                                        ? matched.id.slice("jellyfin:".length)
-                                        : null,
-                                    confidence: 0.9,
-                                    evidence: {
-                                        jellyfinTrackIndex: idx,
-                                        jellyfinAlbumId: jellyfinAlbum.Id,
-                                    },
-                                };
-                            })
-                            .filter((row): row is NonNullable<typeof row> => !!row);
-
-                        await prisma.$transaction([
-                            prisma.trackArtistCredit.deleteMany({
-                                where: {
-                                    trackId: { in: album.tracks.map((t) => t.id) },
-                                    source: "JELLYFIN",
-                                },
-                            }),
-                            ...(trackCreditRows.length > 0
-                                ? [
-                                      prisma.trackArtistCredit.createMany({
-                                          data: trackCreditRows,
-                                      }),
-                                  ]
-                                : []),
-                        ]);
-                    }
-                    const artist = jellyfinAlbum.AlbumArtists?.[0]
-                        ? {
-                              id: `jellyfin:${jellyfinAlbum.AlbumArtists[0].Id}`,
-                              name: jellyfinAlbum.AlbumArtists[0].Name,
-                              mbid: album.artist?.mbid ?? null,
-                          }
-                        : album.artist
-                          ? { id: album.artist.id, name: album.artist.name, mbid: album.artist.mbid ?? null }
-                          : { id: "", name: "Unknown Artist", mbid: null as string | null };
-                    const coverArt = getJellyfinImageUrl(
-                        cfg.url,
-                        jellyfinAlbum.Id,
-                        jellyfinAlbum.ImageTags?.Primary,
-                        cfg.apiKey,
-                        cfg.userId
-                    );
-                    return res.json({
-                        id: jfId,
-                        title: jellyfinAlbum.Name || album.title,
-                        artist,
-                        albumArtists:
-                            primaryAlbumArtists.length > 0
-                                ? primaryAlbumArtists
-                                : [artist],
-                        isCompilation: isCompilationAlbumFromArtists(
-                            primaryAlbumArtists.length > 0
-                                ? primaryAlbumArtists
-                                : [artist]
-                        ),
-                        tracks,
-                        owned: true,
-                        coverArt,
-                        coverUrl: coverArt,
-                        rgMbid: album.rgMbid,
-                        year: album.year ?? jellyfinAlbum.ProductionYear ?? undefined,
-                    });
-                }
-            }
         }
 
         const albumArtists =
@@ -1139,7 +522,10 @@ router.get("/albums/:id", async (req, res) => {
             const primaryTrackCredit = track.trackArtistCredits[0];
             const trackArtist = primaryTrackCredit
                 ? {
-                      id: primaryTrackCredit.artist?.id ?? primaryTrackCredit.artistId ?? "",
+                      id:
+                          primaryTrackCredit.artist?.id ??
+                          primaryTrackCredit.artistId ??
+                          "",
                       name:
                           primaryTrackCredit.artist?.name ??
                           primaryTrackCredit.displayName,
@@ -1158,12 +544,12 @@ router.get("/albums/:id", async (req, res) => {
             };
         });
 
-        res.json({
+        return res.json({
             ...album,
             artist: primaryArtist,
             albumArtists,
             tracks,
-            owned: isOwned,
+            owned: false,
             coverArt: album.coverUrl,
         });
     } catch (error) {
