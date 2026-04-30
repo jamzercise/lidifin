@@ -76,7 +76,7 @@ jobs:
               run: npm test -- --passWithNoTests
 
     lint-frontend:
-        name: Lint Frontend
+        name: Lint Frontend (ESLint + jsx-a11y)
         runs-on: ubuntu-latest
         steps:
             - name: Checkout code

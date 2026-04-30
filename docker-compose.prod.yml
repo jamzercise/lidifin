@@ -19,6 +19,10 @@
 #      with Dockge" for the variables you should set
 #      (SESSION_SECRET, INTERNAL_API_SECRET, MUSIC_PATH, TZ).
 #   4. Open http://YOUR_HOST:31013
+#
+# Operational note: the published all-in-one image runs PostgreSQL with
+# log_min_duration_statement=500 (statements ≥500 ms are logged). Dev
+# compose uses the same via docker-compose.dev.yml postgres command.
 
 services:
   lidifin:
