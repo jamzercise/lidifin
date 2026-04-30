@@ -181,12 +181,18 @@ class StaleJobCleanupService {
 
         for (const queue of queues) {
             try {
-                // Clean completed jobs older than retention period
+                // Clean completed/failed jobs older than retention (grace ms, max count, type)
+                const CLEAN_BATCH = 10_000;
                 const completedCleaned = await queue.clean(
                     retentionMs,
-                    "completed"
+                    CLEAN_BATCH,
+                    "completed",
                 );
-                const failedCleaned = await queue.clean(retentionMs, "failed");
+                const failedCleaned = await queue.clean(
+                    retentionMs,
+                    CLEAN_BATCH,
+                    "failed",
+                );
 
                 const queueCleaned =
                     completedCleaned.length + failedCleaned.length;

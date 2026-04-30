@@ -1,75 +1,57 @@
-import Bull from "bull";
+import { Queue } from "bullmq";
 import { logger } from "../utils/logger";
-import { config } from "../config";
+import { getBullMqConnection } from "./queueConnection";
 
-// Parse Redis URL for Bull configuration
-const redisUrl = new URL(config.redisUrl);
-const redisConfig = {
-    host: redisUrl.hostname,
-    port: parseInt(redisUrl.port) || 6379,
-};
+const connection = getBullMqConnection();
 
-// Default queue settings for better stability
-const defaultQueueSettings: Bull.QueueOptions["settings"] = {
-    // Check for stalled jobs every 30 seconds
-    stalledInterval: 30000,
-    // Mark a job as stalled if it hasn't reported progress in 30 seconds
-    lockDuration: 30000,
-    // Retry stalled jobs once before marking as failed
+const SEVEN_DAYS_SEC = 7 * 24 * 60 * 60;
+const FOURTEEN_DAYS_SEC = 14 * 24 * 60 * 60;
+
+const defaultQueueOptions = {
+    connection,
+    defaultJobOptions: {
+        removeOnComplete: {
+            age: SEVEN_DAYS_SEC,
+            count: 5000,
+        },
+        removeOnFail: {
+            age: FOURTEEN_DAYS_SEC,
+            count: 10000,
+        },
+    },
+} as const;
+
+/** Worker tuning (mirrors former Bull stalled/lock settings). */
+export const workerStallSettings = {
+    stalledInterval: 30_000,
+    lockDuration: 30_000,
     maxStalledCount: 1,
-};
+} as const;
 
-// Create queues with stability settings
-export const scanQueue = new Bull("library-scan", {
-    redis: redisConfig,
-    settings: defaultQueueSettings,
-});
+export const scanQueue = new Queue("library-scan", defaultQueueOptions);
+export const discoverQueue = new Queue("discover-weekly", defaultQueueOptions);
+export const imageQueue = new Queue("image-optimization", defaultQueueOptions);
+export const validationQueue = new Queue("file-validation", defaultQueueOptions);
 
-export const discoverQueue = new Bull("discover-weekly", {
-    redis: redisConfig,
-    settings: defaultQueueSettings,
-});
+export const queues = [
+    scanQueue,
+    discoverQueue,
+    imageQueue,
+    validationQueue,
+];
 
-export const imageQueue = new Bull("image-optimization", {
-    redis: redisConfig,
-    settings: defaultQueueSettings,
-});
-
-export const validationQueue = new Bull("file-validation", {
-    redis: redisConfig,
-    settings: defaultQueueSettings,
-});
-
-// Export all queues for monitoring
-export const queues = [scanQueue, discoverQueue, imageQueue, validationQueue];
-
-// Add error handlers to all queues to prevent unhandled exceptions
 queues.forEach((queue) => {
-    queue.on("error", (error) => {
-        logger.error(`Bull queue error (${queue.name}):`, {
+    queue.on("error", (error: Error) => {
+        logger.error(`BullMQ queue error (${queue.name}):`, {
             message: error.message,
             stack: error.stack,
         });
     });
-
-    queue.on("stalled", (job) => {
-        logger.warn(`Bull job stalled (${queue.name}):`, {
-            jobId: job.id,
-            data: job.data,
-        });
-    });
 });
 
-// Close all queues (for API process shutdown; worker process uses shutdownWorkers() instead)
 export async function closeAllQueues(): Promise<void> {
-    await Promise.all([
-        scanQueue.close(),
-        discoverQueue.close(),
-        imageQueue.close(),
-        validationQueue.close(),
-    ]);
-    logger.debug("Bull queues closed");
+    await Promise.all(queues.map((q) => q.close()));
+    logger.debug("BullMQ queues closed");
 }
 
-// Log queue initialization
-logger.debug("Bull queues initialized with stability settings");
+logger.debug("BullMQ queues initialized");

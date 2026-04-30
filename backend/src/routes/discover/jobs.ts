@@ -95,7 +95,7 @@ export function registerJobsRoutes(router: Router): void {
             logger.debug(`\n Queuing Discover Weekly generation for user ${userId}`);
 
             // Add generation job to queue
-            const job = await discoverQueue.add({ userId });
+            const job = await discoverQueue.add("discover-weekly", { userId });
 
             res.json({
                 message: "Discover Weekly generation started",
@@ -117,7 +117,7 @@ export function registerJobsRoutes(router: Router): void {
             }
 
             const state = await job.getState();
-            const progress = job.progress();
+            const progress = job.progress;
             const result = job.returnvalue;
 
             res.json({

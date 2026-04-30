@@ -1,4 +1,4 @@
-import { Job } from "bull";
+import type { Job } from "bullmq";
 import { logger } from "../../utils/logger";
 import { discoverWeeklyService } from "../../services/discoverWeekly";
 
@@ -23,12 +23,12 @@ export async function processDiscoverWeekly(
         `[DiscoverJob ${job.id}] Generating Discover Weekly for user ${userId}`
     );
 
-    await job.progress(10);
+    await job.updateProgress(10);
 
     try {
         // Note: The discoverWeeklyService.generatePlaylist doesn't have progress callback yet
         // For now, we'll just report progress at key stages
-        await job.progress(20); // Starting generation
+        await job.updateProgress(20); // Starting generation
 
         logger.debug(
             `[DiscoverJob ${job.id}] Calling discoverWeeklyService.generatePlaylist...`
@@ -42,7 +42,7 @@ export async function processDiscoverWeekly(
             batchId: result.batchId,
         });
 
-        await job.progress(100); // Complete
+        await job.updateProgress(100); // Complete
 
         logger.debug(
             `[DiscoverJob ${job.id}] Generation complete: SUCCESS`

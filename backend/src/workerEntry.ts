@@ -1,5 +1,5 @@
 /**
- * Worker process entrypoint – runs Bull job processors and background workers only.
+ * Worker process entrypoint – runs BullMQ job workers and background workers only.
  * Run separately from the API so heavy jobs (scan, discover, etc.) don't share CPU/DB with HTTP.
  *
  * Usage: node dist/workerEntry.js
@@ -10,7 +10,7 @@ import { prisma } from "./utils/db";
 import { logger } from "./utils/logger";
 
 async function main() {
-    logger.info("[Worker] Starting worker process (Bull processors + enrichment + cron)");
+    logger.info("[Worker] Starting worker process (BullMQ + enrichment + cron)");
     await import("./workers");
     logger.info("[Worker] Worker process running");
 }

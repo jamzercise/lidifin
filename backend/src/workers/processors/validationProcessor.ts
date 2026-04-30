@@ -1,4 +1,4 @@
-import { Job } from 'bull';
+import type { Job } from "bullmq";
 import { logger } from "../../utils/logger";
 import { FileValidatorService } from '../../services/fileValidator';
 
@@ -16,12 +16,12 @@ export interface ValidationJobResult {
 export async function processValidation(job: Job<ValidationJobData>): Promise<ValidationJobResult> {
   logger.debug(`[ValidationJob ${job.id}] Starting file validation`);
 
-  await job.progress(0);
+  await job.updateProgress(0);
 
   const validator = new FileValidatorService();
   const result = await validator.validateLibrary();
 
-  await job.progress(100);
+  await job.updateProgress(100);
 
   logger.debug(`[ValidationJob ${job.id}] Validation complete: ${result.tracksRemoved} tracks removed`);
 

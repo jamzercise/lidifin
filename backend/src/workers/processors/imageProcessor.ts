@@ -1,4 +1,4 @@
-import { Job } from 'bull';
+import type { Job } from "bullmq";
 import { logger } from "../../utils/logger";
 
 export interface ImageJobData {
@@ -18,17 +18,17 @@ export async function processImageOptimization(job: Job<ImageJobData>): Promise<
 
   logger.debug(`[ImageJob ${job.id}] Processing ${type} for cover ${coverId}`);
 
-  await job.progress(0);
+  await job.updateProgress(0);
 
   try {
     // Image optimization placeholder - currently a no-op
     // Future: implement thumbnail generation and WebP conversion using sharp
 
-    await job.progress(50);
+    await job.updateProgress(50);
 
     logger.debug(`[ImageJob ${job.id}] Image optimization complete`);
 
-    await job.progress(100);
+    await job.updateProgress(100);
 
     return {
       success: true,

@@ -98,7 +98,7 @@ router.get("/scan/status/:jobId", async (req, res) => {
         }
 
         const state = await job.getState();
-        const progress = job.progress();
+        const progress = job.progress;
         const result = job.returnvalue;
 
         res.json({

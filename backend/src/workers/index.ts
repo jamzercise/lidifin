@@ -5,10 +5,13 @@ import {
     imageQueue,
     validationQueue,
 } from "./queues";
-import { processScan } from "./processors/scanProcessor";
-import { processDiscoverWeekly } from "./processors/discoverProcessor";
-import { processImageOptimization } from "./processors/imageProcessor";
-import { processValidation } from "./processors/validationProcessor";
+import {
+    scanWorker,
+    discoverWorker,
+    imageWorker,
+    validationWorker,
+    bullMqWorkers,
+} from "./jobWorkers";
 import {
     startUnifiedEnrichmentWorker,
     stopUnifiedEnrichmentWorker,
@@ -108,11 +111,7 @@ async function shouldRunHeavyMaintenance(taskName: string): Promise<boolean> {
     }
 }
 
-// Register processors with named job types
-scanQueue.process("scan", processScan);
-discoverQueue.process(processDiscoverWeekly);
-imageQueue.process(processImageOptimization);
-validationQueue.process(processValidation);
+// BullMQ Workers (one per queue) are created in jobWorkers.ts
 
 // Register download queue callback for unavailable albums
 downloadQueueManager.onUnavailableAlbum(async (info) => {
@@ -263,8 +262,8 @@ startUnifiedEnrichmentWorker().catch((err) => {
     }
 })();
 
-// Event handlers for scan queue
-scanQueue.on("completed", (job, result) => {
+// Event handlers (BullMQ: listen on Worker instances)
+scanWorker.on("completed", (job, result) => {
     logger.debug(
         `Scan job ${job.id} completed: +${result.tracksAdded} ~${result.tracksUpdated} -${result.tracksRemoved}`
     );
@@ -273,16 +272,19 @@ scanQueue.on("completed", (job, result) => {
     });
 });
 
-scanQueue.on("failed", (job, err) => {
-    logger.error(`Scan job ${job.id} failed:`, err.message);
+scanWorker.on("failed", (job, err) => {
+    logger.error(`Scan job ${job?.id ?? "?"} failed:`, err.message);
 });
 
-scanQueue.on("active", (job) => {
-    logger.debug(` Scan job ${job.id} started`);
+scanWorker.on("active", (job) => {
+    logger.debug(` Scan job ${job!.id} started`);
 });
 
-// Event handlers for discover queue
-discoverQueue.on("completed", (job, result) => {
+scanWorker.on("stalled", (jobId) => {
+    logger.warn(`BullMQ job stalled (library-scan):`, { jobId });
+});
+
+discoverWorker.on("completed", (job, result) => {
     if (result.success) {
         logger.debug(
             `Discover job ${job.id} completed: ${result.playlistName} (${result.songCount} songs)`
@@ -292,16 +294,21 @@ discoverQueue.on("completed", (job, result) => {
     }
 });
 
-discoverQueue.on("failed", (job, err) => {
-    logger.error(`Discover job ${job.id} failed:`, err.message);
+discoverWorker.on("failed", (job, err) => {
+    logger.error(`Discover job ${job?.id ?? "?"} failed:`, err.message);
 });
 
-discoverQueue.on("active", (job) => {
-    logger.debug(` Discover job ${job.id} started for user ${job.data.userId}`);
+discoverWorker.on("active", (job) => {
+    logger.debug(
+        ` Discover job ${job!.id} started for user ${job!.data.userId}`
+    );
 });
 
-// Event handlers for image queue
-imageQueue.on("completed", (job, result) => {
+discoverWorker.on("stalled", (jobId) => {
+    logger.warn(`BullMQ job stalled (discover-weekly):`, { jobId });
+});
+
+imageWorker.on("completed", (job, result) => {
     logger.debug(
         `Image job ${job.id} completed: ${
             result.success ? "success" : result.error
@@ -309,26 +316,33 @@ imageQueue.on("completed", (job, result) => {
     );
 });
 
-imageQueue.on("failed", (job, err) => {
-    logger.error(`Image job ${job.id} failed:`, err.message);
+imageWorker.on("failed", (job, err) => {
+    logger.error(`Image job ${job?.id ?? "?"} failed:`, err.message);
 });
 
-// Event handlers for validation queue
-validationQueue.on("completed", (job, result) => {
+imageWorker.on("stalled", (jobId) => {
+    logger.warn(`BullMQ job stalled (image-optimization):`, { jobId });
+});
+
+validationWorker.on("completed", (job, result) => {
     logger.debug(
         `Validation job ${job.id} completed: ${result.tracksChecked} checked, ${result.tracksRemoved} removed`
     );
 });
 
-validationQueue.on("failed", (job, err) => {
-    logger.error(` Validation job ${job.id} failed:`, err.message);
+validationWorker.on("failed", (job, err) => {
+    logger.error(` Validation job ${job?.id ?? "?"} failed:`, err.message);
 });
 
-validationQueue.on("active", (job) => {
-    logger.debug(` Validation job ${job.id} started`);
+validationWorker.on("active", (job) => {
+    logger.debug(` Validation job ${job!.id} started`);
 });
 
-logger.debug("Worker processors registered and event handlers attached");
+validationWorker.on("stalled", (jobId) => {
+    logger.warn(`BullMQ job stalled (file-validation):`, { jobId });
+});
+
+logger.debug("BullMQ workers registered and event handlers attached");
 
 // Start Discovery Weekly cron scheduler (Sundays at 8 PM)
 startDiscoverWeeklyCron();
@@ -587,13 +601,13 @@ export async function shutdownWorkers(): Promise<void> {
     }
     timeouts.length = 0;
 
-    // Remove all event listeners to prevent memory leaks
+    bullMqWorkers.forEach((w) => w.removeAllListeners());
     scanQueue.removeAllListeners();
     discoverQueue.removeAllListeners();
     imageQueue.removeAllListeners();
     validationQueue.removeAllListeners();
 
-    // Close all queues gracefully
+    await Promise.all(bullMqWorkers.map((w) => w.close()));
     await Promise.all([
         scanQueue.close(),
         discoverQueue.close(),

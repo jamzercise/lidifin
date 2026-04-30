@@ -7,7 +7,7 @@ import { requireAuth, requireAdmin } from "../middleware/auth";
 
 /**
  * Run all post-listen startup tasks: dev tooling, music config init,
- * Bull Board admin dashboard, cache warmup, scheduled cleanups, and
+ * Bull Board admin dashboard (BullMQ), cache warmup, scheduled cleanups, and
  * background backfills.
  *
  * Each task is wrapped to be non-fatal on failure where possible —
@@ -48,12 +48,12 @@ export async function runPostStartupTasks(app: Express): Promise<void> {
 }
 
 /**
- * Mount Bull Board (admin-only) for queue inspection. The processors
- * themselves run in a separate worker process; the API only adds jobs.
+ * Mount Bull Board (admin-only) for queue inspection. Workers run in a
+ * separate process; the API only adds jobs to BullMQ queues.
  */
 async function mountBullBoard(app: Express): Promise<void> {
     const { createBullBoard } = await import("@bull-board/api");
-    const { BullAdapter } = await import("@bull-board/api/bullAdapter");
+    const { BullMQAdapter } = await import("@bull-board/api/bullMQAdapter");
     const { ExpressAdapter } = await import("@bull-board/express");
     const { scanQueue, discoverQueue, imageQueue } = await import(
         "../workers/queues"
@@ -64,9 +64,9 @@ async function mountBullBoard(app: Express): Promise<void> {
 
     createBullBoard({
         queues: [
-            new BullAdapter(scanQueue),
-            new BullAdapter(discoverQueue),
-            new BullAdapter(imageQueue),
+            new BullMQAdapter(scanQueue),
+            new BullMQAdapter(discoverQueue),
+            new BullMQAdapter(imageQueue),
         ],
         serverAdapter,
     });
