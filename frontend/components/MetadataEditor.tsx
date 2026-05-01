@@ -191,7 +191,7 @@ export function MetadataEditor({
                             variant="primary"
                             onClick={handleSave}
                             disabled={isSaving}
-                            className="rounded-full inline-flex items-center gap-2"
+                            className="rounded-full inline-flex items-center gap-2 !bg-[#B1D2C3] !text-black hover:!bg-[#9bc4b3] hover:!text-black shadow-md shadow-black/20 focus-visible:ring-offset-[#121212]"
                         >
                             {isSaving ? (
                                 <>

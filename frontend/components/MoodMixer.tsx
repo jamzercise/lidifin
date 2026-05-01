@@ -249,7 +249,19 @@ export function MoodMixer({ isOpen, onClose }: MoodMixerProps) {
             isOpen={isOpen}
             onClose={onClose}
             title="Mood Mixer"
-            subtitle="Pick your vibe"
+            subtitle={
+                <span>
+                    <span className="block">Pick your vibe</span>
+                    <span className="mt-1.5 block text-xs font-normal leading-snug text-gray-500">
+                        Starts playback in the player now (no playlist is
+                        created on your{" "}
+                        <span className="text-gray-400">Playlists</span> page).
+                        When mixes are built from your analyzed library, you may
+                        also see them under{" "}
+                        <span className="text-gray-400">Mixes</span>.
+                    </span>
+                </span>
+            }
             titleLeading={
                 <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#B1D2C3] to-amber-600 flex items-center justify-center shrink-0">
                     <AudioWaveform

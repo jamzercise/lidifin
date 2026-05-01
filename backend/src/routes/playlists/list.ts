@@ -132,24 +132,22 @@ export function registerPlaylistListRoute(router: Router): void {
                             username: true,
                         },
                     },
-                    items: {
-                        select: {
-                            id: true,
-                            playlistId: true,
-                            trackId: true,
-                            sort: true,
-                        },
-                        orderBy: { sort: "asc" },
+                    _count: {
+                        select: { items: true },
                     },
                 },
             });
 
-            const playlistsWithCounts = playlists.map((playlist) => ({
-                ...playlist,
-                trackCount: playlist.items.length,
-                isOwner: playlist.userId === userId,
-                isHidden: hiddenPlaylistIds.has(playlist.id),
-            }));
+            const playlistsWithCounts = playlists.map((playlist) => {
+                const { _count, ...rest } = playlist;
+                return {
+                    ...rest,
+                    items: [],
+                    trackCount: _count.items,
+                    isOwner: playlist.userId === userId,
+                    isHidden: hiddenPlaylistIds.has(playlist.id),
+                };
+            });
 
             // Debug: log shared playlists with user info
             const sharedPlaylists = playlistsWithCounts.filter(
