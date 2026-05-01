@@ -1,10 +1,13 @@
 "use client";
 
-import { useId, useState } from "react";
-import { Edit, X, Save } from "lucide-react";
+import { useState } from "react";
+import { Edit, Save } from "lucide-react";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 import { GradientSpinner } from "./ui/GradientSpinner";
+import { Modal } from "./ui/Modal";
+import { Button } from "./ui/Button";
+import { ConfirmDialog } from "./ui/ConfirmDialog";
 import Image from "next/image";
 
 interface MetadataEditorProps {
@@ -47,11 +50,13 @@ export function MetadataEditor({
     onSave,
 }: MetadataEditorProps) {
     const [isOpen, setIsOpen] = useState(false);
+    const [showResetConfirm, setShowResetConfirm] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
     const [isResetting, setIsResetting] = useState(false);
     const [formData, setFormData] = useState(currentData);
     const hasOverrides = currentData._hasUserOverrides ?? false;
-    const titleId = useId();
+    const editKind =
+        type === "artist" ? "Artist" : type === "album" ? "Album" : "Track";
 
     const handleOpen = () => {
         setFormData(currentData);
@@ -63,15 +68,7 @@ export function MetadataEditor({
         setFormData(currentData);
     };
 
-    const handleReset = async () => {
-        if (
-            !confirm(
-                "Reset all metadata to original values? This cannot be undone."
-            )
-        ) {
-            return;
-        }
-
+    const executeReset = async () => {
         setIsResetting(true);
         try {
             if (type === "artist") {
@@ -161,44 +158,56 @@ export function MetadataEditor({
                 <Edit className="w-4 h-4 text-white" />
             </button>
 
-            {/* Modal */}
-            {isOpen && (
-                <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-                    <div
-                        role="dialog"
-                        aria-modal="true"
-                        aria-labelledby={titleId}
-                        className="bg-[#121212] rounded-lg max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col"
-                    >
-                        {/* Header */}
-                        <div className="flex items-center justify-between p-6 border-b border-white/10">
-                            <h2
-                                id={titleId}
-                                className="text-2xl font-bold text-white"
+            <Modal
+                isOpen={isOpen}
+                onClose={handleClose}
+                title={`Edit ${editKind} Metadata`}
+                backdropClassName="bg-black/80"
+                className="max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden rounded-lg border-white/10 bg-[#121212] bg-none shadow-2xl"
+                contentClassName="flex-1 min-h-0 overflow-y-auto space-y-4"
+                footer={
+                    <div className="flex w-full flex-wrap items-center justify-end gap-3 border-t border-white/10 pt-4 mt-2">
+                        {hasOverrides ? (
+                            <Button
+                                variant="danger"
+                                onClick={() => setShowResetConfirm(true)}
+                                disabled={isSaving || isResetting}
+                                className="rounded-full"
                             >
-                                Edit{" "}
-                                {type === "artist"
-                                    ? "Artist"
-                                    : type === "album"
-                                    ? "Album"
-                                    : "Track"}{" "}
-                                Metadata
-                            </h2>
-                            <button
-                                type="button"
-                                onClick={handleClose}
-                                aria-label="Close metadata editor"
-                                className="p-2 hover:bg-white/10 rounded-full transition-all"
-                            >
-                                <X
-                                    className="w-6 h-6 text-white"
-                                    aria-hidden="true"
-                                />
-                            </button>
-                        </div>
-
-                        {/* Content */}
-                        <div className="flex-1 overflow-y-auto p-6 space-y-4">
+                                {isResetting
+                                    ? "Resetting..."
+                                    : "Reset to Original"}
+                            </Button>
+                        ) : null}
+                        <Button
+                            variant="secondary"
+                            onClick={handleClose}
+                            disabled={isSaving}
+                            className="rounded-full"
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            variant="primary"
+                            onClick={handleSave}
+                            disabled={isSaving}
+                            className="rounded-full inline-flex items-center gap-2"
+                        >
+                            {isSaving ? (
+                                <>
+                                    <GradientSpinner size="sm" />
+                                    Saving...
+                                </>
+                            ) : (
+                                <>
+                                    <Save className="w-4 h-4" />
+                                    Save Changes
+                                </>
+                            )}
+                        </Button>
+                    </div>
+                }
+            >
                             {/* Name/Title */}
                             <div>
                                 <label className="block text-sm font-bold text-white mb-2">
@@ -445,49 +454,22 @@ export function MetadataEditor({
                                     automatic enrichment.
                                 </p>
                             </div>
-                        </div>
+            </Modal>
 
-                        {/* Footer */}
-                        <div className="flex items-center justify-end gap-3 p-6 border-t border-white/10">
-                            {hasOverrides && (
-                                <button
-                                    onClick={handleReset}
-                                    disabled={isSaving || isResetting}
-                                    className="px-6 py-2 rounded-full bg-red-500/20 hover:bg-red-500/30 text-red-400 font-bold transition-all border border-red-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
-                                >
-                                    {isResetting
-                                        ? "Resetting..."
-                                        : "Reset to Original"}
-                                </button>
-                            )}
-                            <button
-                                onClick={handleClose}
-                                className="px-6 py-2 rounded-full bg-white/10 hover:bg-white/20 text-white font-bold transition-all"
-                                disabled={isSaving}
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                onClick={handleSave}
-                                disabled={isSaving}
-                                className="px-6 py-2 rounded-full bg-[#B1D2C3] hover:bg-[#9bc4b3] text-black font-bold transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                                {isSaving ? (
-                                    <>
-                                        <GradientSpinner size="sm" />
-                                        Saving...
-                                    </>
-                                ) : (
-                                    <>
-                                        <Save className="w-4 h-4" />
-                                        Save Changes
-                                    </>
-                                )}
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
+            <ConfirmDialog
+                isOpen={showResetConfirm}
+                onClose={() => setShowResetConfirm(false)}
+                onConfirm={() => {
+                    void executeReset();
+                }}
+                title="Reset metadata?"
+                message="Reset all metadata to original values? This cannot be undone."
+                confirmText="Reset"
+                cancelText="Cancel"
+                variant="danger"
+                overlayClassName="z-[60]"
+            />
+
         </>
     );
 }

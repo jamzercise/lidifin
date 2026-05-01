@@ -1,15 +1,15 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useState } from "react";
 import { api, MoodType, MoodBucketPreset } from "@/lib/api";
 import { useAudioControls } from "@/lib/audio-controls-context";
 import { Track } from "@/lib/audio-state-context";
 import { useQueryClient } from "@tanstack/react-query";
+import { Modal } from "@/components/ui/Modal";
 import {
     Play,
     Loader2,
     AudioWaveform,
-    X,
     Smile,
     Frown,
     Coffee,
@@ -112,21 +112,13 @@ export function MoodMixer({ isOpen, onClose }: MoodMixerProps) {
     const [presets, setPresets] = useState<MoodBucketPreset[]>([]);
     const [loading, setLoading] = useState(true);
     const [generating, setGenerating] = useState<MoodType | null>(null);
-    const [isVisible, setIsVisible] = useState(false);
     const [audioMuseAvailable, setAudioMuseAvailable] = useState(false);
-    const titleId = useId();
 
-    // Handle visibility animation
     useEffect(() => {
-        if (isOpen) {
-            setIsVisible(true);
-            loadPresets();
-            loadAudioMuseStatus();
-        } else {
-            // Delay hiding to allow exit animation
-            const timeout = setTimeout(() => setIsVisible(false), 200);
-            return () => clearTimeout(timeout);
-        }
+        if (!isOpen) return;
+        setLoading(true);
+        void loadPresets();
+        void loadAudioMuseStatus();
     }, [isOpen]);
 
     const loadPresets = async () => {
@@ -252,89 +244,53 @@ export function MoodMixer({ isOpen, onClose }: MoodMixerProps) {
     const isMoodDisabled = (mood: MoodType) =>
         !audioMuseAvailable && getTrackCount(mood) < 5;
 
-    if (!isVisible && !isOpen) return null;
-
     return (
-        <div
-            className={`fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 transition-opacity duration-200 ${
-                isOpen ? "opacity-100" : "opacity-0"
-            }`}
-            onClick={onClose}
-        >
-            <div
-                role="dialog"
-                aria-modal="true"
-                aria-labelledby={titleId}
-                className={`bg-gradient-to-b from-[#1a1a1a] to-[#0a0a0a] rounded-2xl max-w-lg w-full max-h-[85vh] overflow-hidden border border-white/10 shadow-2xl transition-all duration-200 ${
-                    isOpen ? "scale-100 opacity-100" : "scale-95 opacity-0"
-                }`}
-                onClick={(e) => e.stopPropagation()}
-            >
-                {/* Header */}
-                <div className="p-6 border-b border-white/10 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#B1D2C3] to-amber-600 flex items-center justify-center">
-                            <AudioWaveform
-                                className="w-5 h-5 text-black"
-                                aria-hidden="true"
-                            />
-                        </div>
-                        <div>
-                            <h2
-                                id={titleId}
-                                className="text-xl font-bold text-white"
-                            >
-                                Mood Mixer
-                            </h2>
-                            <p className="text-sm text-gray-400">
-                                Pick your vibe
-                            </p>
-                        </div>
-                    </div>
-                    <button
-                        type="button"
-                        onClick={onClose}
-                        aria-label="Close mood mixer"
-                        className="p-2 rounded-full hover:bg-white/10 transition-colors"
-                    >
-                        <X className="w-5 h-5 text-gray-400" aria-hidden="true" />
-                    </button>
+        <Modal
+            isOpen={isOpen}
+            onClose={onClose}
+            title="Mood Mixer"
+            subtitle="Pick your vibe"
+            titleLeading={
+                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#B1D2C3] to-amber-600 flex items-center justify-center shrink-0">
+                    <AudioWaveform
+                        className="w-5 h-5 text-black"
+                        aria-hidden="true"
+                    />
                 </div>
+            }
+            backdropClassName="bg-black/80"
+            className="max-w-lg w-full max-h-[85vh] flex flex-col overflow-hidden rounded-2xl border-white/10 shadow-2xl bg-gradient-to-b from-[#1a1a1a] to-[#0a0a0a]"
+            contentClassName="flex-1 min-h-0 overflow-y-auto"
+        >
+            {generating ? (
+                <div className="mb-4 px-1 py-2 rounded-lg bg-[#B1D2C3]/20 border border-[#B1D2C3]/40 flex items-center gap-2 text-[#B1D2C3]">
+                    <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" />
+                    <span className="text-sm font-medium">
+                        Generating your mix… This may take up to a minute.
+                    </span>
+                </div>
+            ) : null}
 
-                {/* Generating indicator */}
-                {generating && (
-                    <div className="mx-4 mb-2 px-4 py-2 rounded-lg bg-[#B1D2C3]/20 border border-[#B1D2C3]/40 flex items-center gap-2 text-[#B1D2C3]">
-                        <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" />
-                        <span className="text-sm font-medium">
-                            Generating your mix… This may take up to a minute.
-                        </span>
-                    </div>
-                )}
+            {loading ? (
+                <div className="flex items-center justify-center py-12">
+                    <Loader2 className="w-8 h-8 animate-spin text-[#B1D2C3]" />
+                </div>
+            ) : (
+                <div className="grid grid-cols-3 gap-3">
+                    {MOOD_ORDER.map((mood) => {
+                        const config = MOOD_CONFIG[mood];
+                        const Icon = config.icon;
+                        const trackCount = getTrackCount(mood);
+                        const isDisabled = isMoodDisabled(mood);
+                        const isGenerating = generating === mood;
 
-                {/* Content */}
-                <div className="p-6 overflow-y-auto max-h-[calc(85vh-100px)]">
-                    {loading ? (
-                        <div className="flex items-center justify-center py-12">
-                            <Loader2 className="w-8 h-8 animate-spin text-[#B1D2C3]" />
-                        </div>
-                    ) : (
-                        /* 3x3 Mood Grid */
-                        <div className="grid grid-cols-3 gap-3">
-                            {MOOD_ORDER.map((mood) => {
-                                const config = MOOD_CONFIG[mood];
-                                const Icon = config.icon;
-                                const trackCount = getTrackCount(mood);
-                                const isDisabled = isMoodDisabled(mood);
-                                const isGenerating = generating === mood;
-
-                                return (
-                                    <button
-                                        key={mood}
-                                        onClick={() => generateMix(mood)}
-                                        disabled={
-                                            generating !== null || isDisabled
-                                        }
-                                        className={`
+                        return (
+                            <button
+                                key={mood}
+                                type="button"
+                                onClick={() => generateMix(mood)}
+                                disabled={generating !== null || isDisabled}
+                                className={`
                                             relative group aspect-square rounded-xl overflow-hidden
                                             bg-gradient-to-br ${config.color}
                                             border border-white/10 hover:border-white/30
@@ -342,54 +298,47 @@ export function MoodMixer({ isOpen, onClose }: MoodMixerProps) {
                                             disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100
                                             flex flex-col items-center justify-center gap-2 p-3
                                         `}
-                                        title={
-                                            isDisabled
-                                                ? `Need at least 5 tracks (have ${trackCount}). Configure AudioMuse-AI for instant playlists.`
-                                                : config.description
-                                        }
-                                    >
-                                        {/* Icon */}
-                                        <div className="relative z-10">
-                                            {isGenerating ? (
-                                                <Loader2 className="w-8 h-8 text-white animate-spin" />
-                                            ) : (
-                                                <Icon className="w-8 h-8 text-white drop-shadow-lg" />
-                                            )}
+                                title={
+                                    isDisabled
+                                        ? `Need at least 5 tracks (have ${trackCount}). Configure AudioMuse-AI for instant playlists.`
+                                        : config.description
+                                }
+                            >
+                                <div className="relative z-10">
+                                    {isGenerating ? (
+                                        <Loader2 className="w-8 h-8 text-white animate-spin" />
+                                    ) : (
+                                        <Icon className="w-8 h-8 text-white drop-shadow-lg" />
+                                    )}
+                                </div>
+
+                                <span className="relative z-10 text-sm font-semibold text-white drop-shadow-lg">
+                                    {config.label}
+                                </span>
+
+                                <span className="absolute top-2 right-2 text-[10px] font-medium text-white/70 bg-black/30 px-1.5 py-0.5 rounded-full">
+                                    {trackCount}
+                                </span>
+
+                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                    {!isGenerating && !isDisabled && (
+                                        <div className="w-12 h-12 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center">
+                                            <Play
+                                                className="w-6 h-6 text-white ml-0.5"
+                                                fill="currentColor"
+                                            />
                                         </div>
-
-                                        {/* Label */}
-                                        <span className="relative z-10 text-sm font-semibold text-white drop-shadow-lg">
-                                            {config.label}
-                                        </span>
-
-                                        {/* Track count badge */}
-                                        <span className="absolute top-2 right-2 text-[10px] font-medium text-white/70 bg-black/30 px-1.5 py-0.5 rounded-full">
-                                            {trackCount}
-                                        </span>
-
-                                        {/* Hover overlay with play icon */}
-                                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                                            {!isGenerating && !isDisabled && (
-                                                <div className="w-12 h-12 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center">
-                                                    <Play
-                                                        className="w-6 h-6 text-white ml-0.5"
-                                                        fill="currentColor"
-                                                    />
-                                                </div>
-                                            )}
-                                        </div>
-                                    </button>
-                                );
-                            })}
-                        </div>
-                    )}
-
-                    {/* Help text */}
-                    <p className="text-center text-xs text-gray-500 mt-4">
-                        Moods are based on audio analysis of your library
-                    </p>
+                                    )}
+                                </div>
+                            </button>
+                        );
+                    })}
                 </div>
-            </div>
-        </div>
+            )}
+
+            <p className="text-center text-xs text-gray-500 mt-4">
+                Moods are based on audio analysis of your library
+            </p>
+        </Modal>
     );
 }

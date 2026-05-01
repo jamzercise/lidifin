@@ -1,11 +1,13 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useId, useRef } from "react";
 import { Play, ListPlus, Loader2, Sparkles } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAudioControls } from "@/lib/audio-controls-context";
 import { Track } from "@/lib/audio-state-context";
 import { CachedImage } from "@/components/ui/CachedImage";
+import { Modal } from "@/components/ui/Modal";
+import { Button } from "@/components/ui/Button";
 import { formatTime } from "@/utils/formatTime";
 import { toast } from "sonner";
 
@@ -24,7 +26,7 @@ interface ResolvedTrack {
 
 export function SongsFromSimilarArtists({
     artistId,
-    artistName,
+    artistName: _artistName,
 }: SongsFromSimilarArtistsProps) {
     const { playTracks } = useAudioControls();
     const [tracks, setTracks] = useState<ResolvedTrack[]>([]);
@@ -33,6 +35,14 @@ export function SongsFromSimilarArtists({
     const [saving, setSaving] = useState(false);
     const [showSaveDialog, setShowSaveDialog] = useState(false);
     const [playlistName, setPlaylistName] = useState("");
+    const playlistInputId = useId();
+    const playlistInputRef = useRef<HTMLInputElement>(null);
+
+    useEffect(() => {
+        if (showSaveDialog) {
+            playlistInputRef.current?.focus();
+        }
+    }, [showSaveDialog]);
 
     useEffect(() => {
         if (!artistId || !artistId.startsWith("jellyfin:")) return;
@@ -192,44 +202,51 @@ export function SongsFromSimilarArtists({
                 ))}
             </div>
 
-            {showSaveDialog && (
-                <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
-                    <div
-                        className="bg-[#1a1a1a] rounded-xl p-6 w-full max-w-sm border border-white/10"
-                        onClick={(e) => e.stopPropagation()}
-                    >
-                        <h3 className="text-lg font-semibold text-white mb-2">
-                            Save to Playlist
-                        </h3>
-                        <input
-                            type="text"
-                            value={playlistName}
-                            onChange={(e) => setPlaylistName(e.target.value)}
-                            placeholder="Playlist name"
-                            className="w-full px-4 py-2 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-500 mb-4"
-                            autoFocus
-                        />
-                        <div className="flex gap-2">
-                            <button
-                                onClick={() => {
-                                    setShowSaveDialog(false);
-                                    setPlaylistName("");
-                                }}
-                                className="flex-1 py-2 rounded-lg bg-white/10 text-white hover:bg-white/20"
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                onClick={handleSaveToPlaylist}
-                                disabled={!playlistName.trim() || saving}
-                                className="flex-1 py-2 rounded-lg bg-purple-500 text-white hover:bg-purple-600 disabled:opacity-50"
-                            >
-                                {saving ? "Saving..." : "Save"}
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
+            <Modal
+                isOpen={showSaveDialog}
+                onClose={() => {
+                    setShowSaveDialog(false);
+                    setPlaylistName("");
+                }}
+                title="Save to Playlist"
+                backdropClassName="bg-black/80"
+                className="max-w-sm w-full rounded-xl border-white/10 bg-[#1a1a1a] bg-none"
+                footer={
+                    <>
+                        <Button
+                            variant="secondary"
+                            onClick={() => {
+                                setShowSaveDialog(false);
+                                setPlaylistName("");
+                            }}
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            variant="secondary"
+                            className="bg-purple-500 hover:bg-purple-600 text-white border-0"
+                            onClick={handleSaveToPlaylist}
+                            disabled={!playlistName.trim() || saving}
+                            isLoading={saving}
+                        >
+                            Save
+                        </Button>
+                    </>
+                }
+            >
+                <label htmlFor={playlistInputId} className="sr-only">
+                    Playlist name
+                </label>
+                <input
+                    ref={playlistInputRef}
+                    id={playlistInputId}
+                    type="text"
+                    value={playlistName}
+                    onChange={(e) => setPlaylistName(e.target.value)}
+                    placeholder="Playlist name"
+                    className="w-full px-4 py-2 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-500"
+                />
+            </Modal>
         </section>
     );
 }

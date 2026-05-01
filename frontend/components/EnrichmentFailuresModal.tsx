@@ -1,10 +1,11 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { enrichmentApi } from "@/lib/enrichmentApi";
+import { Modal } from "@/components/ui/Modal";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import {
-    X,
     RefreshCw,
     SkipForward,
     Trash2,
@@ -28,7 +29,6 @@ export function EnrichmentFailuresModal({
     );
     const [currentPage, setCurrentPage] = useState(1);
     const [showClearConfirm, setShowClearConfirm] = useState(false);
-    const titleId = useId();
     const pageSize = 20;
     const queryClient = useQueryClient();
 
@@ -157,53 +157,47 @@ export function EnrichmentFailuresModal({
 
     const totalFailures = counts?.total || 0;
     const totalPages = Math.ceil((failures?.total || 0) / pageSize);
+    const clearFailureCount =
+        selectedType === "all"
+            ? totalFailures
+            : (counts?.[selectedType] ?? 0);
+    const clearMessage = `This will permanently delete ${
+        selectedType === "all" ? "all" : selectedType
+    } ${clearFailureCount} failure${
+        clearFailureCount !== 1 ? "s" : ""
+    }. This action cannot be undone.`;
 
     return (
-        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
-            <div
-                role="dialog"
-                aria-modal="true"
-                aria-labelledby={titleId}
-                className="bg-[#1a1a1a] rounded-lg w-full max-w-4xl max-h-[90vh] flex flex-col border border-white/10"
-            >
-                {/* Header */}
-                <div className="flex items-center justify-between p-6 border-b border-white/10">
-                    <div>
-                        <h2 id={titleId} className="text-xl font-bold text-white">
-                            Enrichment Failures
-                        </h2>
-                        <p className="text-sm text-white/50 mt-1">
-                            {totalFailures} total failure
-                            {totalFailures !== 1 ? "s" : ""} to review
-                        </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        {totalFailures > 0 && (
-                            <button
-                                onClick={() => setShowClearConfirm(true)}
-                                disabled={clearAllMutation.isPending}
-                                className="px-3 py-1.5 text-sm bg-red-600 text-white rounded-lg
-                                    hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                            >
-                                {clearAllMutation.isPending ? "Clearing..." : "Clear All"}
-                            </button>
-                        )}
+        <>
+            <Modal
+                isOpen={isOpen}
+                onClose={onClose}
+                title="Enrichment Failures"
+                subtitle={`${totalFailures} total failure${
+                    totalFailures !== 1 ? "s" : ""
+                } to review`}
+                headerActions={
+                    totalFailures > 0 ? (
                         <button
                             type="button"
-                            onClick={onClose}
-                            aria-label="Close enrichment failures dialog"
-                            className="p-2 hover:bg-white/10 rounded-lg transition-colors"
+                            onClick={() => setShowClearConfirm(true)}
+                            disabled={clearAllMutation.isPending}
+                            className="px-3 py-1.5 text-sm bg-red-600 text-white rounded-lg
+                                    hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                         >
-                            <X
-                                className="w-5 h-5 text-white/70"
-                                aria-hidden="true"
-                            />
+                            {clearAllMutation.isPending
+                                ? "Clearing..."
+                                : "Clear All"}
                         </button>
-                    </div>
-                </div>
-
+                    ) : null
+                }
+                backdropClassName="bg-black/80"
+                className="max-w-4xl w-full max-h-[90vh] flex flex-col overflow-hidden rounded-lg border-white/10 bg-[#1a1a1a] bg-none shadow-2xl"
+                contentClassName="flex flex-1 flex-col min-h-0 overflow-hidden mb-0 p-0"
+            >
+                <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
                 {/* Filter Tabs */}
-                <div className="flex gap-3 px-6 py-4 border-b border-white/10 overflow-x-auto">
+                <div className="flex gap-3 px-6 py-4 border-b border-white/10 overflow-x-auto shrink-0">
                     {(
                         [
                             { key: "all" as const, label: "All", count: counts?.total || 0 },
@@ -277,7 +271,7 @@ export function EnrichmentFailuresModal({
                 )}
 
                 {/* Failures List */}
-                <div className="flex-1 overflow-y-auto p-4">
+                <div className="flex-1 min-h-0 overflow-y-auto p-4">
                     {isLoading ? (
                         <div className="flex items-center justify-center h-64">
                             <div className="text-white/50">
@@ -390,7 +384,7 @@ export function EnrichmentFailuresModal({
 
                 {/* Pagination */}
                 {totalPages > 1 && (
-                    <div className="flex items-center justify-between p-4 border-t border-white/10">
+                    <div className="flex shrink-0 items-center justify-between p-4 border-t border-white/10">
                         <button
                             onClick={() =>
                                 setCurrentPage((p) => Math.max(1, p - 1))
@@ -418,45 +412,23 @@ export function EnrichmentFailuresModal({
                         </button>
                     </div>
                 )}
-            </div>
-
-            {/* Clear All Confirmation Dialog */}
-            {showClearConfirm && (
-                <div className="fixed inset-0 bg-black/80 z-[60] flex items-center justify-center p-4">
-                    <div className="bg-[#1a1a1a] rounded-lg p-6 max-w-md border border-white/10">
-                        <h3 className="text-lg font-bold text-white mb-2">
-                            Clear All Failures?
-                        </h3>
-                        <p className="text-sm text-white/70 mb-4">
-                            This will permanently delete {selectedType === "all" ? "all" : selectedType}{" "}
-                            {selectedType === "all" ? totalFailures : counts?.[selectedType] || 0} failure
-                            {(selectedType === "all" ? totalFailures : counts?.[selectedType] || 0) !== 1 ? "s" : ""}.
-                            This action cannot be undone.
-                        </p>
-                        <div className="flex justify-end gap-2">
-                            <button
-                                onClick={() => setShowClearConfirm(false)}
-                                className="px-4 py-2 text-sm bg-white/10 text-white/70 rounded-lg
-                                    hover:bg-white/20 transition-colors"
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                onClick={() => {
-                                    clearAllMutation.mutate(
-                                        selectedType === "all" ? undefined : selectedType
-                                    );
-                                    setShowClearConfirm(false);
-                                }}
-                                className="px-4 py-2 text-sm bg-red-600 text-white rounded-lg
-                                    hover:bg-red-700 transition-colors"
-                            >
-                                Clear All
-                            </button>
-                        </div>
-                    </div>
                 </div>
-            )}
-        </div>
+            </Modal>
+
+            <ConfirmDialog
+                isOpen={showClearConfirm}
+                onClose={() => setShowClearConfirm(false)}
+                onConfirm={() => {
+                    clearAllMutation.mutate(
+                        selectedType === "all" ? undefined : selectedType
+                    );
+                }}
+                title="Clear All Failures?"
+                message={clearMessage}
+                confirmText="Clear All"
+                variant="danger"
+                overlayClassName="z-[60]"
+            />
+        </>
     );
 }
