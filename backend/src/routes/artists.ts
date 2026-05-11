@@ -7,6 +7,9 @@ import { deezerService } from "../services/deezer";
 import { redisClient } from "../utils/redis";
 import { normalizeToArray } from "../utils/normalize";
 import { requireAuthOrToken } from "../middleware/auth";
+import {
+    isDiscoveryAlbumSaved,
+} from "../services/savedDiscoveryAlbumService";
 
 const router = Router();
 router.use(requireAuthOrToken);
@@ -389,6 +392,7 @@ router.get("/discover/:nameOrMbid", async (req, res) => {
 router.get("/album/:mbid", async (req, res) => {
     try {
         const { mbid } = req.params;
+        const userId = req.user!.id;
 
         // Check Redis cache first for discovery content
         const cacheKey = `discovery:album:${mbid}`;
@@ -396,7 +400,11 @@ router.get("/album/:mbid", async (req, res) => {
             const cached = await redisClient.get(cacheKey);
             if (cached) {
                 logger.debug(`[Discovery] Cache hit for album: ${mbid}`);
-                return res.json(JSON.parse(cached));
+                const parsed = JSON.parse(cached) as Record<string, unknown>;
+                delete parsed.savedForLater;
+                const rg = String(parsed.rgMbid ?? mbid);
+                const savedForLater = await isDiscoveryAlbumSaved(userId, rg);
+                return res.json({ ...parsed, savedForLater });
             }
         } catch (err) {
             // Redis errors are non-critical
@@ -526,7 +534,7 @@ router.get("/album/:mbid", async (req, res) => {
         // Format response
         const releaseMbid = release?.id || null;
 
-        const response = {
+        const baseResponse = {
             id: releaseGroupId,
             rgMbid: releaseGroupId,
             mbid: releaseMbid || releaseGroupId,
@@ -562,19 +570,23 @@ router.get("/album/:mbid", async (req, res) => {
             source: "discovery",
         };
 
-        // Cache discovery response for 24 hours
+        // Cache discovery response for 24 hours (no per-user fields)
         try {
             await redisClient.setEx(
                 cacheKey,
                 DISCOVERY_CACHE_TTL,
-                JSON.stringify(response)
+                JSON.stringify(baseResponse)
             );
             logger.debug(`[Discovery] Cached album: ${albumTitle}`);
         } catch (err) {
             // Redis errors are non-critical
         }
 
-        res.json(response);
+        const savedForLater = await isDiscoveryAlbumSaved(
+            userId,
+            releaseGroupId
+        );
+        res.json({ ...baseResponse, savedForLater });
     } catch (error: any) {
         logger.error("Album discovery error:", error);
         res.status(500).json({

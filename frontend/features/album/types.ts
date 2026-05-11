@@ -27,6 +27,7 @@ export interface Album {
     owned?: boolean;
     tracks?: Track[];
     similarAlbums?: SimilarAlbum[];
+    savedForLater?: boolean;
 }
 
 export interface Track {

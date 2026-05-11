@@ -64,9 +64,15 @@ export function useArtistData() {
         const discoveryToAdd = (enrichment.discoveryAlbums || []).filter(
             (d: { rgMbid?: string }) => !ownedRgMbids.has(d.rgMbid)
         );
-        const mergedAlbums = [...(artist.albums || []), ...discoveryToAdd].sort(
-            (a: { year?: number }, b: { year?: number }) => (b.year ?? 0) - (a.year ?? 0)
-        );
+        const savedRgMbids = new Set(enrichment.savedRgMbids ?? []);
+        const mergedAlbums = [...(artist.albums || []), ...discoveryToAdd]
+            .map((a: { rgMbid?: string; year?: number; [key: string]: unknown }) => ({
+                ...a,
+                savedForLater: !!(
+                    a.rgMbid && savedRgMbids.has(a.rgMbid)
+                ),
+            }))
+            .sort((a, b) => (b.year ?? 0) - (a.year ?? 0));
         return {
             ...artist,
             bio: enrichment.bio ?? artist.bio,

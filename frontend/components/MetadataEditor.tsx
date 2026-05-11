@@ -187,11 +187,11 @@ export function MetadataEditor({
                         >
                             Cancel
                         </Button>
-                        <Button
-                            variant="primary"
+                        <button
+                            type="button"
                             onClick={handleSave}
                             disabled={isSaving}
-                            className="rounded-full inline-flex items-center gap-2 !bg-[#B1D2C3] !text-black hover:!bg-[#9bc4b3] hover:!text-black shadow-md shadow-black/20 focus-visible:ring-offset-[#121212]"
+                            className="inline-flex items-center justify-center gap-2 rounded-full border-2 border-[#6a9a8c] bg-[#B1D2C3] px-5 py-2.5 text-sm font-semibold text-black shadow-lg shadow-black/30 hover:bg-[#9bc4b3] disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B1D2C3] focus-visible:ring-offset-2 focus-visible:ring-offset-[#121212]"
                         >
                             {isSaving ? (
                                 <>
@@ -200,11 +200,11 @@ export function MetadataEditor({
                                 </>
                             ) : (
                                 <>
-                                    <Save className="w-4 h-4" />
+                                    <Save className="w-4 h-4 shrink-0 text-black" />
                                     Save Changes
                                 </>
                             )}
-                        </Button>
+                        </button>
                     </div>
                 }
             >

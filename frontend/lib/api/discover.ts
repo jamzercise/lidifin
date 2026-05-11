@@ -23,6 +23,34 @@ declare module "./client" {
         getArtistDiscovery(nameOrMbid: string): Promise<ApiData>;
         getAlbumDiscovery(rgMbid: string): Promise<ApiData>;
         getTrackPreview(artistName: string, trackTitle: string): Promise<{ previewUrl: string }>;
+        getSavedDiscoveryAlbums(params?: {
+            limit?: number;
+            offset?: number;
+        }): Promise<{
+            albums: Array<{
+                id: string;
+                userId: string;
+                rgMbid: string;
+                artistName: string;
+                artistMbid: string | null;
+                albumTitle: string;
+                coverUrl: string | null;
+                source: string | null;
+                savedAt: string;
+            }>;
+            total: number;
+            offset: number;
+            limit: number;
+        }>;
+        saveDiscoveryAlbum(body: {
+            rgMbid: string;
+            artistName: string;
+            albumTitle: string;
+            artistMbid?: string | null;
+            coverUrl?: string | null;
+            source?: string | null;
+        }): Promise<{ album: ApiData }>;
+        unsaveDiscoveryAlbum(rgMbid: string): Promise<{ removed: boolean }>;
     }
 }
 
@@ -97,4 +125,35 @@ ApiClient.prototype.rebuildDiscoverWeekly = async function (this: ApiClient) {
 
 ApiClient.prototype.getTrackPreview = async function (this: ApiClient, artistName: string, trackTitle: string) {
     return this.request(`/artists/preview/${encodeURIComponent(artistName)}/${encodeURIComponent(trackTitle)}`);
+};
+
+ApiClient.prototype.getSavedDiscoveryAlbums = async function (this: ApiClient, params?: {
+    limit?: number;
+    offset?: number;
+}) {
+    const q = new URLSearchParams();
+    if (params?.limit != null) q.set("limit", String(params.limit));
+    if (params?.offset != null) q.set("offset", String(params.offset));
+    const qs = q.toString();
+    return this.request(`/discover/saved-albums${qs ? `?${qs}` : ""}`);
+};
+
+ApiClient.prototype.saveDiscoveryAlbum = async function (this: ApiClient, body: {
+    rgMbid: string;
+    artistName: string;
+    albumTitle: string;
+    artistMbid?: string | null;
+    coverUrl?: string | null;
+    source?: string | null;
+}) {
+    return this.request("/discover/saved-albums", {
+        method: "POST",
+        body: JSON.stringify(body),
+    });
+};
+
+ApiClient.prototype.unsaveDiscoveryAlbum = async function (this: ApiClient, rgMbid: string) {
+    return this.request(`/discover/saved-albums/${encodeURIComponent(rgMbid)}`, {
+        method: "DELETE",
+    });
 };

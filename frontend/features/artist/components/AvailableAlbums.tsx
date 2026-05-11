@@ -1,13 +1,16 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { useParams } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { Album, ArtistSource } from "../types";
 import type { ColorPalette } from "@/hooks/useImageColor";
 import { PlayableCard } from "@/components/ui/PlayableCard";
 import { Disc3 } from "lucide-react";
 import { api } from "@/lib/api";
 import { toAlbumRouteId } from "@/lib/route-ids";
-import { usePrefetchAlbum } from "@/hooks/useQueries";
+import { usePrefetchAlbum, queryKeys } from "@/hooks/useQueries";
 
 interface AvailableAlbumsProps {
     albums: Album[];
@@ -18,7 +21,6 @@ interface AvailableAlbumsProps {
     isPendingDownload: (mbid: string) => boolean;
 }
 
-// Component to handle lazy-loading cover art for albums without cached covers
 function LazyAlbumCard({
     album,
     source,
@@ -27,6 +29,8 @@ function LazyAlbumCard({
     isPendingDownload,
     onPrefetch,
     index,
+    onToggleSavedForLater,
+    bookmarkBusyMbid,
 }: {
     album: Album;
     source: ArtistSource;
@@ -35,9 +39,14 @@ function LazyAlbumCard({
     isPendingDownload: (mbid: string) => boolean;
     onPrefetch?: () => void;
     index: number;
+    onToggleSavedForLater?: (
+        album: Album,
+        e: React.MouseEvent,
+        nextSaved: boolean
+    ) => void;
+    bookmarkBusyMbid: string | null;
 }) {
     const [coverArt, setCoverArt] = useState<string | null>(() => {
-        // Initial cover art from props
         if (source === "library" && album.coverArt) {
             return api.getCoverArtUrl(album.coverArt, 300);
         }
@@ -48,14 +57,12 @@ function LazyAlbumCard({
     });
     const [fetchAttempted, setFetchAttempted] = useState(false);
 
-    // Lazy-load cover art if not available
     useEffect(() => {
         if (coverArt || fetchAttempted) return;
-        
+
         const mbid = album.rgMbid || album.mbid;
         if (!mbid || mbid.startsWith("temp-")) return;
 
-        // Fetch cover art from our backend (which caches it)
         const fetchCover = async () => {
             try {
                 const response = await api.request<{ coverUrl: string }>(
@@ -65,21 +72,22 @@ function LazyAlbumCard({
                     setCoverArt(api.getCoverArtUrl(response.coverUrl, 300));
                 }
             } catch {
-                // Cover not found, leave as null
+                /* cover optional */
             } finally {
                 setFetchAttempted(true);
             }
         };
 
-        // Delay fetch slightly to avoid thundering herd on page load
         const timeoutId = setTimeout(fetchCover, index * 100);
         return () => clearTimeout(timeoutId);
     }, [album, coverArt, fetchAttempted, index]);
 
-    // Get MBID for download tracking
     const albumMbid = album.rgMbid || album.mbid || "";
+    const canBookmark =
+        !!albumMbid &&
+        !albumMbid.startsWith("temp-") &&
+        !!onToggleSavedForLater;
 
-    // Build subtitle with year and type
     const subtitleParts: string[] = [];
     if (album.year) subtitleParts.push(String(album.year));
     if (album.type) subtitleParts.push(album.type);
@@ -93,15 +101,27 @@ function LazyAlbumCard({
             coverArt={coverArt}
             title={album.title}
             subtitle={subtitle}
-            placeholderIcon={
-                <Disc3 className="w-12 h-12 text-gray-600" />
-            }
+            placeholderIcon={<Disc3 className="w-12 h-12 text-gray-600" />}
             circular={false}
             badge="download"
             showPlayButton={false}
             colors={colors}
             isDownloading={isPendingDownload(albumMbid)}
             onDownload={(e) => onDownloadAlbum(album, e)}
+            bookmark={
+                canBookmark
+                    ? {
+                          active: !!album.savedForLater,
+                          busy: bookmarkBusyMbid === albumMbid,
+                          onClick: (e) =>
+                              onToggleSavedForLater!(
+                                  album,
+                                  e,
+                                  !album.savedForLater
+                              ),
+                      }
+                    : null
+            }
             tvCardIndex={index}
         />
     );
@@ -114,7 +134,17 @@ function AlbumGrid({
     onDownloadAlbum,
     isPendingDownload,
     prefetchAlbum,
-}: Omit<AvailableAlbumsProps, "artistName"> & { prefetchAlbum: (id: string) => void }) {
+    onToggleSavedForLater,
+    bookmarkBusyMbid,
+}: Omit<AvailableAlbumsProps, "artistName"> & {
+    prefetchAlbum: (id: string) => void;
+    onToggleSavedForLater?: (
+        album: Album,
+        e: React.MouseEvent,
+        nextSaved: boolean
+    ) => void;
+    bookmarkBusyMbid: string | null;
+}) {
     return (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
             {albums.map((album, index) => (
@@ -127,6 +157,8 @@ function AlbumGrid({
                     isPendingDownload={isPendingDownload}
                     onPrefetch={() => prefetchAlbum(toAlbumRouteId(album))}
                     index={index}
+                    onToggleSavedForLater={onToggleSavedForLater}
+                    bookmarkBusyMbid={bookmarkBusyMbid}
                 />
             ))}
         </div>
@@ -135,18 +167,63 @@ function AlbumGrid({
 
 export function AvailableAlbums({
     albums,
-    artistName: _artistName,
+    artistName,
     source,
     colors,
     onDownloadAlbum,
     isPendingDownload,
 }: AvailableAlbumsProps) {
+    const params = useParams();
+    const artistPageId = params.id as string;
+    const queryClient = useQueryClient();
     const prefetchAlbum = usePrefetchAlbum();
+    const [bookmarkBusyMbid, setBookmarkBusyMbid] = useState<string | null>(
+        null
+    );
+
+    const onToggleSavedForLater = useCallback(
+        async (album: Album, e: React.MouseEvent, nextSaved: boolean) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const mbid = album.rgMbid || album.mbid;
+            if (!mbid || mbid.startsWith("temp-")) return;
+            setBookmarkBusyMbid(mbid);
+            try {
+                if (nextSaved) {
+                    await api.saveDiscoveryAlbum({
+                        rgMbid: mbid,
+                        artistName,
+                        albumTitle: album.title,
+                        coverUrl: album.coverUrl ?? album.coverArt ?? null,
+                        source: "artist-page",
+                    });
+                    toast.success("Saved for later");
+                } else {
+                    await api.unsaveDiscoveryAlbum(mbid);
+                    toast.success("Removed from saved");
+                }
+                await queryClient.invalidateQueries({
+                    queryKey: queryKeys.artistEnrichment(artistPageId),
+                });
+                await queryClient.invalidateQueries({
+                    queryKey: ["discover", "saved-albums"],
+                });
+            } catch (err) {
+                console.error(err);
+                toast.error(
+                    nextSaved ? "Could not save album" : "Could not remove save"
+                );
+            } finally {
+                setBookmarkBusyMbid(null);
+            }
+        },
+        [artistName, artistPageId, queryClient]
+    );
+
     if (!albums || albums.length === 0) {
         return null;
     }
 
-    // Separate studio albums from EPs/Singles/Demos
     const studioAlbums = albums.filter(
         (album) => album.type?.toLowerCase() === "album"
     );
@@ -156,12 +233,9 @@ export function AvailableAlbums({
 
     return (
         <>
-            {/* Studio Albums Section */}
             {studioAlbums.length > 0 && (
                 <section>
-                    <h2 className="text-xl font-bold mb-4">
-                        Albums Available
-                    </h2>
+                    <h2 className="text-xl font-bold mb-4">Albums Available</h2>
                     <div data-tv-section="available-albums">
                         <AlbumGrid
                             albums={studioAlbums}
@@ -170,17 +244,16 @@ export function AvailableAlbums({
                             onDownloadAlbum={onDownloadAlbum}
                             isPendingDownload={isPendingDownload}
                             prefetchAlbum={prefetchAlbum}
+                            onToggleSavedForLater={onToggleSavedForLater}
+                            bookmarkBusyMbid={bookmarkBusyMbid}
                         />
                     </div>
                 </section>
             )}
 
-            {/* EPs, Singles & Demos Section */}
             {epsAndSingles.length > 0 && (
                 <section>
-                    <h2 className="text-xl font-bold mb-4">
-                        Singles and EPs
-                    </h2>
+                    <h2 className="text-xl font-bold mb-4">Singles and EPs</h2>
                     <div data-tv-section="available-eps-singles">
                         <AlbumGrid
                             albums={epsAndSingles}
@@ -189,6 +262,8 @@ export function AvailableAlbums({
                             onDownloadAlbum={onDownloadAlbum}
                             isPendingDownload={isPendingDownload}
                             prefetchAlbum={prefetchAlbum}
+                            onToggleSavedForLater={onToggleSavedForLater}
+                            bookmarkBusyMbid={bookmarkBusyMbid}
                         />
                     </div>
                 </section>

@@ -11,6 +11,7 @@ import { Track } from "@/lib/audio-state-context";
 import { toast } from "sonner";
 import { shuffleArray } from "@/utils/shuffle";
 import { FindSimilarModal } from "@/components/AudioMuse/FindSimilarModal";
+import { Modal } from "@/components/ui/Modal";
 
 const MoodMixer = lazy(() => import("@/components/MoodMixer").then((mod) => ({ default: mod.MoodMixer })));
 
@@ -639,54 +640,72 @@ export default function RadioPage() {
                         </div>
 
                         {/* Artist Similarity Modal */}
-                        {showArtistSimilarity && (
-                            <div
-                                className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80"
-                                role="dialog"
-                                aria-modal="true"
-                                aria-labelledby="artist-similarity-title"
-                                aria-describedby="artist-similarity-desc"
-                            >
-                                <div className="bg-[#1a1a1a] rounded-xl p-6 max-w-md w-full border border-white/10 max-h-[90vh] overflow-y-auto">
-                                    <h3 id="artist-similarity-title" className="text-lg font-bold text-white mb-2">Artist Similarity Radio</h3>
-                                    <p id="artist-similarity-desc" className="text-sm text-white/60 mb-4">
-                                        Enter an artist name from your library to play tracks from similar artists.
-                                    </p>
-                                    <input
-                                        type="text"
-                                        value={artistSearchQuery}
-                                        onChange={(e) => setArtistSearchQuery(e.target.value)}
-                                        onKeyDown={(e) => e.key === "Enter" && handleArtistSimilarityClick()}
-                                        placeholder="e.g. Against Me!"
-                                        aria-label="Artist name"
-                                        aria-invalid={!artistSearchQuery.trim()}
-                                        className="w-full px-4 py-3 rounded-lg bg-white/10 text-white placeholder-white/40 border border-white/20 focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/30 mb-2"
-                                        autoFocus
-                                    />
-                                    {!artistSearchQuery.trim() && (
-                                        <p className="text-xs text-white/50 mb-4">Enter an artist name to continue</p>
-                                    )}
-                                    <div className="flex gap-3 justify-end mt-4">
-                                        <button
-                                            onClick={() => { setShowArtistSimilarity(false); setArtistSearchQuery(""); }}
-                                            className="px-4 py-2.5 rounded-lg text-white/80 hover:text-white hover:bg-white/10 transition-colors"
-                                            aria-label="Cancel"
-                                        >
-                                            Cancel
-                                        </button>
-                                        <button
-                                            onClick={handleArtistSimilarityClick}
-                                            disabled={artistSimilarityLoading || !artistSearchQuery.trim()}
-                                            className="px-6 py-2.5 rounded-lg bg-brand text-black font-semibold hover:bg-brand/90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 min-w-[140px] justify-center"
-                                            aria-label="Start Radio"
-                                        >
-                                            {artistSimilarityLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-                                            Start Radio
-                                        </button>
-                                    </div>
+                        <Modal
+                            isOpen={showArtistSimilarity}
+                            onClose={() => {
+                                setShowArtistSimilarity(false);
+                                setArtistSearchQuery("");
+                            }}
+                            title="Artist Similarity Radio"
+                            description="Enter an artist name from your library to play tracks from similar artists."
+                            backdropClassName="bg-black/80"
+                            className="max-w-md w-full max-h-[90vh] overflow-y-auto rounded-xl border border-white/10 bg-[#1a1a1a]"
+                            contentClassName="space-y-2"
+                            footer={
+                                <div className="flex w-full gap-3 justify-end">
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setShowArtistSimilarity(false);
+                                            setArtistSearchQuery("");
+                                        }}
+                                        className="px-4 py-2.5 rounded-lg text-white/80 hover:text-white hover:bg-white/10 transition-colors"
+                                        aria-label="Cancel"
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={handleArtistSimilarityClick}
+                                        disabled={
+                                            artistSimilarityLoading ||
+                                            !artistSearchQuery.trim()
+                                        }
+                                        className="px-6 py-2.5 rounded-lg bg-brand text-black font-semibold hover:bg-brand/90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 min-w-[140px] justify-center"
+                                        aria-label="Start Radio"
+                                    >
+                                        {artistSimilarityLoading ? (
+                                            <Loader2 className="w-4 h-4 animate-spin" />
+                                        ) : (
+                                            <Play className="w-4 h-4" />
+                                        )}
+                                        Start Radio
+                                    </button>
                                 </div>
-                            </div>
-                        )}
+                            }
+                        >
+                            <input
+                                type="text"
+                                value={artistSearchQuery}
+                                onChange={(e) =>
+                                    setArtistSearchQuery(e.target.value)
+                                }
+                                onKeyDown={(e) =>
+                                    e.key === "Enter" &&
+                                    handleArtistSimilarityClick()
+                                }
+                                placeholder="e.g. Against Me!"
+                                aria-label="Artist name"
+                                aria-invalid={!artistSearchQuery.trim()}
+                                className="w-full px-4 py-3 rounded-lg bg-white/10 text-white placeholder-white/40 border border-white/20 focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/30"
+                                autoFocus
+                            />
+                            {!artistSearchQuery.trim() ? (
+                                <p className="text-xs text-white/50">
+                                    Enter an artist name to continue
+                                </p>
+                            ) : null}
+                        </Modal>
                     </section>
                 )}
 

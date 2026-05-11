@@ -2,7 +2,7 @@
 
 import { ReactNode, memo, useMemo } from "react";
 import Link from "next/link";
-import { Play, Pause, Check, Download } from "lucide-react";
+import { Play, Pause, Check, Download, Bookmark, BookmarkCheck, Loader2 } from "lucide-react";
 import { Card, CardProps } from "./Card";
 import { cn } from "@/utils/cn";
 import type { ColorPalette } from "@/hooks/useImageColor";
@@ -24,6 +24,11 @@ export interface PlayableCardProps extends Omit<CardProps, "onPlay"> {
     showPlayButton?: boolean;
     circular?: boolean;
     badge?: "owned" | "download" | null;
+    bookmark?: {
+        active: boolean;
+        busy?: boolean;
+        onClick: (e: React.MouseEvent) => void;
+    } | null;
     isDownloading?: boolean;
     colors?: ColorPalette | null;
     tvCardIndex?: number;
@@ -42,6 +47,7 @@ const PlayableCard = memo(function PlayableCard({
     showPlayButton = true,
     circular = false,
     badge = null,
+    bookmark = null,
     isDownloading = false,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     colors = null,
@@ -85,6 +91,44 @@ const PlayableCard = memo(function PlayableCard({
                         )
                     }
                     <div className="absolute inset-0 bg-gradient-to-b from-black/0 to-black/30 opacity-0 group-hover:opacity-100 pointer-events-none" />
+                    {bookmark ? (
+                        <button
+                            type="button"
+                            onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                if (!bookmark.busy) bookmark.onClick(e);
+                            }}
+                            disabled={bookmark.busy}
+                            className={cn(
+                                "absolute top-2 left-2 z-10 flex h-9 w-9 items-center justify-center rounded-full",
+                                "border border-white/15 bg-black/55 text-white shadow-lg",
+                                "transition-colors hover:bg-black/70",
+                                bookmark.busy && "cursor-wait opacity-70"
+                            )}
+                            title={
+                                bookmark.active
+                                    ? "Remove from saved albums"
+                                    : "Save for later"
+                            }
+                            aria-label={
+                                bookmark.active
+                                    ? "Remove from saved albums"
+                                    : "Save album for later"
+                            }
+                        >
+                            {bookmark.busy ? (
+                                <Loader2
+                                    className="h-4 w-4 animate-spin"
+                                    aria-hidden
+                                />
+                            ) : bookmark.active ? (
+                                <BookmarkCheck className="h-4 w-4" aria-hidden />
+                            ) : (
+                                <Bookmark className="h-4 w-4" aria-hidden />
+                            )}
+                        </button>
+                    ) : null}
                 </div>
 
                 {/* Play Button */}

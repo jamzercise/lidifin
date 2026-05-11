@@ -328,36 +328,36 @@ ApiClient.prototype.retryFailedAnalysis = async function (this: ApiClient) {
 };
 
 ApiClient.prototype.updateArtistMetadata = async function (this: ApiClient, artistId: string, data: { name?: string; bio?: string; genres?: string[]; mbid?: string; heroUrl?: string }) {
-    return this.request(`/enrichment/artists/${artistId}/metadata`, {
+    return this.request(`/enrichment/artists/${encodeURIComponent(artistId)}/metadata`, {
         method: "PUT",
         body: JSON.stringify(data),
     });
 };
 
 ApiClient.prototype.updateAlbumMetadata = async function (this: ApiClient, albumId: string, data: { title?: string; year?: number; genres?: string[]; rgMbid?: string; coverUrl?: string }) {
-    return this.request(`/enrichment/albums/${albumId}/metadata`, {
+    return this.request(`/enrichment/albums/${encodeURIComponent(albumId)}/metadata`, {
         method: "PUT",
         body: JSON.stringify(data),
     });
 };
 
 ApiClient.prototype.updateTrackMetadata = async function (this: ApiClient, trackId: string, data: ApiData) {
-    return this.request(`/library/tracks/${trackId}/metadata`, {
+    return this.request(`/enrichment/tracks/${encodeURIComponent(trackId)}/metadata`, {
         method: "PUT",
         body: JSON.stringify(data),
     });
 };
 
 ApiClient.prototype.resetArtistMetadata = async function (this: ApiClient, artistId: string) {
-    return this.request(`/enrichment/artists/${artistId}/reset`, { method: "POST" });
+    return this.request(`/enrichment/artists/${encodeURIComponent(artistId)}/reset`, { method: "POST" });
 };
 
 ApiClient.prototype.resetAlbumMetadata = async function (this: ApiClient, albumId: string) {
-    return this.request(`/enrichment/albums/${albumId}/reset`, { method: "POST" });
+    return this.request(`/enrichment/albums/${encodeURIComponent(albumId)}/reset`, { method: "POST" });
 };
 
 ApiClient.prototype.resetTrackMetadata = async function (this: ApiClient, trackId: string) {
-    return this.request(`/enrichment/tracks/${trackId}/reset`, { method: "POST" });
+    return this.request(`/enrichment/tracks/${encodeURIComponent(trackId)}/reset`, { method: "POST" });
 };
 
 // API Keys

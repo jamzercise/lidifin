@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import { X, Plus, Music2 } from "lucide-react";
+import { Plus, Music2 } from "lucide-react";
 import { GradientSpinner } from "./GradientSpinner";
+import { Modal } from "./Modal";
 
 interface PlaylistSelectorProps {
     isOpen: boolean;
@@ -25,7 +26,6 @@ export function PlaylistSelector({
     const [isPublic, setIsPublic] = useState(false);
     const [isCreating, setIsCreating] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
-    const titleId = useId();
 
     useEffect(() => {
         if (isOpen) {
@@ -83,87 +83,16 @@ export function PlaylistSelector({
         }
     };
 
-    if (!isOpen) return null;
-
     return (
-        <div
-            className="fixed inset-0 bg-black/80  flex items-center justify-center z-50 p-4"
-            onClick={onClose}
-        >
-            <div
-                role="dialog"
-                aria-modal="true"
-                aria-labelledby={titleId}
-                className="bg-linear-to-b from-[#121212] to-[#121212] rounded-xl max-w-md w-full max-h-[80vh] overflow-hidden flex flex-col border border-white/10 shadow-2xl"
-                onClick={(e) => e.stopPropagation()}
-            >
-                <div className="flex items-center justify-between p-6 border-b border-white/10">
-                    <h2 id={titleId} className="text-2xl font-bold text-white">
-                        Add to Playlist
-                    </h2>
-                    <button
-                        type="button"
-                        onClick={onClose}
-                        aria-label="Close dialog"
-                        className="p-2 hover:bg-white/10 rounded-full transition-colors"
-                    >
-                        <X
-                            className="w-5 h-5 text-gray-400"
-                            aria-hidden="true"
-                        />
-                    </button>
-                </div>
-
-                {isSaving && (
-                    <div className="px-6 py-3 flex items-center gap-3 bg-black/30 border-b border-white/10 text-sm text-gray-300">
-                        <GradientSpinner size="sm" />
-                        <span>{loadingMessage || "Adding..."}</span>
-                    </div>
-                )}
-
-                <div className="flex-1 overflow-y-auto p-4 space-y-2">
-                    {isLoading ? (
-                        <div className="flex items-center justify-center py-12">
-                            <GradientSpinner size="md" />
-                        </div>
-                    ) : playlists.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center py-12 text-center">
-                            <Music2 className="w-12 h-12 text-gray-600 mb-3" />
-                            <p className="text-gray-400">No playlists yet</p>
-                            <p className="text-gray-500 text-sm mt-1">
-                                Create one below to get started
-                            </p>
-                        </div>
-                    ) : (
-                        playlists.map((playlist) => (
-                            <button
-                                key={playlist.id}
-                                onClick={() =>
-                                    handleSelectPlaylist(playlist.id)
-                                }
-                                className="w-full text-left px-4 py-4 rounded-lg bg-white/5 hover:bg-white/10 transition-all border border-white/5 hover:border-white/10 group"
-                                disabled={isSaving}
-                            >
-                                <div className="flex items-center justify-between">
-                                    <div className="flex-1 min-w-0">
-                                        <p className="text-white font-semibold truncate group-hover:text-[#B1D2C3] transition-colors">
-                                            {playlist.name}
-                                        </p>
-                                        <p className="text-xs text-gray-400 mt-1">
-                                            {playlist.trackCount || 0}{" "}
-                                            {playlist.trackCount === 1
-                                                ? "track"
-                                                : "tracks"}
-                                        </p>
-                                    </div>
-                                    <Plus className="w-5 h-5 text-gray-400 group-hover:text-[#B1D2C3] transition-colors ml-2 shrink-0" />
-                                </div>
-                            </button>
-                        ))
-                    )}
-                </div>
-
-                <div className="p-6 border-t border-white/10 bg-[#0a0a0a]/50">
+        <Modal
+            isOpen={isOpen}
+            onClose={onClose}
+            title="Add to Playlist"
+            backdropClassName="bg-black/80"
+            className="max-w-md w-full max-h-[80vh] flex flex-col overflow-hidden rounded-xl border border-white/10 bg-[#121212] shadow-2xl"
+            contentClassName="flex-1 min-h-0 overflow-y-auto space-y-2"
+            footer={
+                <div className="w-full rounded-lg bg-[#0a0a0a]/50 p-4 border border-white/5">
                     <p className="text-sm text-gray-400 mb-3 font-medium">
                         Create New Playlist
                     </p>
@@ -179,6 +108,7 @@ export function PlaylistSelector({
                             className="flex-1 px-4 py-3 bg-white/5 border border-white/10 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-[#B1D2C3] focus:bg-white/10 transition-all"
                         />
                         <button
+                            type="button"
                             onClick={handleCreatePlaylist}
                             disabled={
                                 !newPlaylistName.trim() ||
@@ -207,7 +137,53 @@ export function PlaylistSelector({
                         </span>
                     </label>
                 </div>
-            </div>
-        </div>
+            }
+        >
+            {isSaving ? (
+                <div className="mb-2 flex items-center gap-3 rounded-lg border border-white/10 bg-black/30 px-4 py-3 text-sm text-gray-300">
+                    <GradientSpinner size="sm" />
+                    <span>{loadingMessage || "Adding..."}</span>
+                </div>
+            ) : null}
+
+            {isLoading ? (
+                <div className="flex items-center justify-center py-12">
+                    <GradientSpinner size="md" />
+                </div>
+            ) : playlists.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 text-center">
+                    <Music2 className="w-12 h-12 text-gray-600 mb-3" />
+                    <p className="text-gray-400">No playlists yet</p>
+                    <p className="text-gray-500 text-sm mt-1">
+                        Create one below to get started
+                    </p>
+                </div>
+            ) : (
+                playlists.map((playlist) => (
+                    <button
+                        key={playlist.id}
+                        type="button"
+                        onClick={() => handleSelectPlaylist(playlist.id)}
+                        className="w-full text-left px-4 py-4 rounded-lg bg-white/5 hover:bg-white/10 transition-all border border-white/5 hover:border-white/10 group"
+                        disabled={isSaving}
+                    >
+                        <div className="flex items-center justify-between">
+                            <div className="flex-1 min-w-0">
+                                <p className="text-white font-semibold truncate group-hover:text-[#B1D2C3] transition-colors">
+                                    {playlist.name}
+                                </p>
+                                <p className="text-xs text-gray-400 mt-1">
+                                    {playlist.trackCount || 0}{" "}
+                                    {playlist.trackCount === 1
+                                        ? "track"
+                                        : "tracks"}
+                                </p>
+                            </div>
+                            <Plus className="w-5 h-5 text-gray-400 group-hover:text-[#B1D2C3] transition-colors ml-2 shrink-0" />
+                        </div>
+                    </button>
+                ))
+            )}
+        </Modal>
     );
 }

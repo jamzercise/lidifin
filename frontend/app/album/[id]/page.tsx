@@ -2,11 +2,14 @@
 
 import { use, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import { useAudioState, useAudioPlayback, useAudioControls } from "@/lib/audio-context";
 import { AlbumPageSkeleton } from "@/features/album/components/AlbumPageSkeleton";
 import { useImageColor } from "@/hooks/useImageColor";
 import { api } from "@/lib/api";
+import { toast } from "sonner";
 import { PlaylistSelector } from "@/components/ui/PlaylistSelector";
+import { queryKeys } from "@/hooks/useQueries";
 import { useDownloadContext } from "@/lib/download-context";
 import { useFavorites } from "@/hooks/useFavorites";
 
@@ -29,8 +32,10 @@ interface AlbumPageProps {
 }
 
 export default function AlbumPage({ params }: AlbumPageProps) {
-    const { id } = use(params);
+    const { id: rawRouteId } = use(params);
+    const id = decodeURIComponent(rawRouteId);
     const router = useRouter();
+    const queryClient = useQueryClient();
     // Use split hooks to avoid re-renders from currentTime updates
     const { currentTrack } = useAudioState();
     const { isPlaying } = useAudioPlayback();
@@ -41,6 +46,7 @@ export default function AlbumPage({ params }: AlbumPageProps) {
     const [pendingTrackIds, setPendingTrackIds] = useState<string[]>([]);
     const [, setIsBulkAdd] = useState(false);
     const [, setIsAddingToPlaylist] = useState(false);
+    const [saveForLaterBusy, setSaveForLaterBusy] = useState(false);
 
     // Custom hooks
     const { album, source, loading, reloadAlbum } = useAlbumData(id);
@@ -66,6 +72,50 @@ export default function AlbumPage({ params }: AlbumPageProps) {
 
     // Extract colors
     const { colors } = useImageColor(colorExtractionUrl);
+
+    const rgMbidForSave = album?.rgMbid || album?.mbid || "";
+    const showSaveForLater =
+        !!album &&
+        album.owned !== true &&
+        !!rgMbidForSave &&
+        !rgMbidForSave.startsWith("temp-");
+
+    const handleToggleSaveForLater = async () => {
+        if (!album || !showSaveForLater) return;
+        setSaveForLaterBusy(true);
+        try {
+            if (album.savedForLater) {
+                await api.unsaveDiscoveryAlbum(rgMbidForSave);
+                toast.success("Removed from saved");
+            } else {
+                await api.saveDiscoveryAlbum({
+                    rgMbid: rgMbidForSave,
+                    artistName: album.artist?.name ?? "Unknown Artist",
+                    albumTitle: album.title,
+                    coverUrl: album.coverUrl ?? album.coverArt ?? null,
+                    artistMbid: album.artist?.mbid ?? null,
+                    source: "album-page",
+                });
+                toast.success("Saved for later");
+            }
+            await queryClient.invalidateQueries({ queryKey: queryKeys.album(id) });
+            await queryClient.invalidateQueries({
+                queryKey: ["discover", "saved-albums"],
+            });
+            await queryClient.invalidateQueries({
+                queryKey: ["artist", "enrichment"],
+            });
+        } catch (e) {
+            console.error(e);
+            toast.error(
+                album.savedForLater
+                    ? "Could not remove save"
+                    : "Could not save album"
+            );
+        } finally {
+            setSaveForLaterBusy(false);
+        }
+    };
 
     // Loading state - skeleton for faster perceived load
     if (loading) {
@@ -160,6 +210,10 @@ export default function AlbumPage({ params }: AlbumPageProps) {
                     isPlaying={isPlaying}
                     isPlayingThisAlbum={currentTrack?.album?.id === album.id}
                     onPause={pause}
+                    showSaveForLater={showSaveForLater}
+                    savedForLater={!!album.savedForLater}
+                    saveForLaterBusy={saveForLaterBusy}
+                    onToggleSaveForLater={handleToggleSaveForLater}
                 />
             </AlbumHero>
 

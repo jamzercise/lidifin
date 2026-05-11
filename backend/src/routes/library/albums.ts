@@ -14,6 +14,10 @@ import {
     albumWireShapeFromJellyfin,
     isCompilationAlbumFromArtists,
 } from "./albumDetailHelpers";
+import {
+    isDiscoveryAlbumSaved,
+    unsaveDiscoveryAlbum,
+} from "../../services/savedDiscoveryAlbumService";
 import { getCachedPrismaAlbumListIds } from "../../services/libraryListCache";
 import { redisClient } from "../../utils/redis";
 import {
@@ -24,6 +28,38 @@ import {
     resolveIdForJellyfin,
     JELLYFIN_UNREACHABLE_MESSAGE,
 } from "./_helpers";
+
+function isTempDiscoveryRgMbid(rg: string | undefined | null): boolean {
+    return !rg || rg.startsWith("temp-");
+}
+
+async function attachAlbumSavedDiscoveryState(
+    userId: string | undefined,
+    payload: Record<string, unknown> & { owned?: boolean; rgMbid?: string }
+): Promise<Record<string, unknown>> {
+    if (!userId) {
+        return { ...payload, savedForLater: false };
+    }
+    const owned = payload.owned === true;
+    const rg = payload.rgMbid;
+    if (owned || isTempDiscoveryRgMbid(rg)) {
+        return { ...payload, savedForLater: false };
+    }
+    const savedForLater = await isDiscoveryAlbumSaved(userId, rg!);
+    return { ...payload, savedForLater };
+}
+
+async function pruneSavedDiscoveryWhenAcquired(
+    userId: string | undefined,
+    rgMbid: string | undefined
+): Promise<void> {
+    if (!userId || isTempDiscoveryRgMbid(rgMbid)) return;
+    try {
+        await unsaveDiscoveryAlbum(userId, rgMbid!);
+    } catch {
+        /* non-fatal */
+    }
+}
 
 const router = Router();
 
@@ -324,8 +360,13 @@ router.get("/albums/:id", async (req, res) => {
             ) {
                 return res.status(404).json({ error: "Album not found" });
             }
+            const wire = albumWireShapeFromJellyfin(cfg, albumItem, tracks);
+            await pruneSavedDiscoveryWhenAcquired(req.user?.id, wire.rgMbid);
             return res.json(
-                albumWireShapeFromJellyfin(cfg, albumItem, tracks)
+                await attachAlbumSavedDiscoveryState(req.user?.id, {
+                    ...wire,
+                    owned: true,
+                })
             );
         }
 
@@ -417,9 +458,16 @@ router.get("/albums/:id", async (req, res) => {
                 cfg,
                 resolvedJfId
             );
+            const wire = albumWireShapeFromJellyfin(cfg, albumItem, tracks, {
+                rgMbidFromUrl: idParam,
+            });
+            const rg = wire.rgMbid ?? idParam;
+            await pruneSavedDiscoveryWhenAcquired(req.user?.id, rg);
             return res.json(
-                albumWireShapeFromJellyfin(cfg, albumItem, tracks, {
-                    rgMbidFromUrl: idParam,
+                await attachAlbumSavedDiscoveryState(req.user?.id, {
+                    ...wire,
+                    owned: true,
+                    rgMbid: rg,
                 })
             );
         }
@@ -458,14 +506,17 @@ router.get("/albums/:id", async (req, res) => {
             artist: primaryArtist,
         }));
 
-        return res.json({
+        const payload = {
             ...album,
             artist: primaryArtist,
             albumArtists,
             tracks,
             owned: false,
             coverArt: album.coverUrl,
-        });
+        };
+        return res.json(
+            await attachAlbumSavedDiscoveryState(req.user?.id, payload)
+        );
     } catch (error) {
         logger.error("Get album error:", error);
         res.status(500).json({ error: "Failed to fetch album" });

@@ -17,6 +17,7 @@ declare module "./client" {
             playcount?: number;
             similarArtists: Array<{ id: string; name: string; mbid: string | null; url?: string; image: string | null }>;
             discoveryAlbums: ApiData[];
+            savedRgMbids: string[];
             topTracks: Array<{ id: string; title: string; duration: number; artist?: { id: string; name: string }; album?: { id: string; title: string; coverArt: string | null } }>;
         }>;
         getAlbums(params?: { artistId?: string; limit?: number; offset?: number; filter?: "owned" | "discovery" | "all"; sortBy?: string }): Promise<{ albums: ApiData[]; total: number; offset: number; limit: number }>;

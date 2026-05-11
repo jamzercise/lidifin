@@ -40,6 +40,7 @@ import {
     topTracksFromJellyfin,
     transformJellyfinAlbums,
 } from "./artistDetailHelpers";
+import { pickSavedRgMbids } from "../../services/savedDiscoveryAlbumService";
 
 const router = Router();
 
@@ -345,6 +346,7 @@ router.post("/backfill-genres", async (req, res) => {
 // re-introduce the PREVIEW-tag bug.
 router.get("/artists/:id/enrichment", async (req, res) => {
     try {
+        const userId = req.user!.id;
         const idParam = decodeURIComponent(req.params.id);
         if (!(await isJellyfinMusicSource())) {
             return res.status(404).json({ error: "Enrichment only available for Jellyfin artists" });
@@ -413,6 +415,7 @@ router.get("/artists/:id/enrichment", async (req, res) => {
                 playcount: undefined,
                 similarArtists: [],
                 discoveryAlbums: [],
+                savedRgMbids: [],
             });
         }
 
@@ -451,6 +454,13 @@ router.get("/artists/:id/enrichment", async (req, res) => {
                 tracks: [],
             }));
 
+        const discoveryRgMbids = discoveryAlbums
+            .map((d) => d.rgMbid)
+            .filter((x): x is string => typeof x === "string" && x.length > 0);
+        const savedRgMbids = Array.from(
+            await pickSavedRgMbids(userId, discoveryRgMbids)
+        );
+
         return res.json({
             bio: enrichment.bio,
             image: enrichment.image ?? coverArt ?? null,
@@ -459,6 +469,7 @@ router.get("/artists/:id/enrichment", async (req, res) => {
             playcount: enrichment.playcount,
             similarArtists: enrichment.similarArtists ?? [],
             discoveryAlbums,
+            savedRgMbids,
         });
     } catch (err: any) {
         logger.error("[Library] Artist enrichment error:", err);

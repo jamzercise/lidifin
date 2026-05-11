@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { Search, Loader2, Music2, Link2, X, ChevronRight, Info } from "lucide-react";
 import { api } from "@/lib/api";
+import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/lib/toast-context";
 
 // Types
@@ -509,126 +510,104 @@ export default function BrowsePlaylistsPage() {
                     )}
             </div>
 
-            {/* URL Import Modal - Modern Spotify-style */}
-            {showUrlModal && (
-                <div
-                    className="fixed inset-0 bg-black/80  flex items-center justify-center z-50 p-4 animate-in fade-in duration-200"
-                    onClick={() => setShowUrlModal(false)}
-                >
-                    <div
-                        className="bg-[#0d0d0d] rounded-2xl max-w-lg w-full shadow-2xl border border-white/[0.03] animate-in zoom-in-95 duration-200"
-                        onClick={(e) => e.stopPropagation()}
-                    >
-                        {/* Header with gradient accent */}
-                        <div className="relative px-6 pt-6 pb-4">
-                            <button
-                                onClick={() => setShowUrlModal(false)}
-                                className="absolute top-4 right-4 p-2 hover:bg-white/10 rounded-full transition-colors group"
-                            >
-                                <X className="w-5 h-5 text-white/40 group-hover:text-white transition-colors" />
-                            </button>
-
-                            <div className="flex items-center gap-3 mb-2">
-                                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#B1D2C3] to-[#AD47FF] flex items-center justify-center">
-                                    <Link2 className="w-5 h-5 text-white" />
-                                </div>
-                                <h3 className="text-xl font-bold text-white">
-                                    Import Playlist
-                                </h3>
-                            </div>
-                            <p className="text-sm text-white/40 ml-[52px]">
-                                Paste a link to get started
-                            </p>
-                        </div>
-
-                        {/* Supported platforms */}
-                        <div className="px-6 pb-4">
-                            <div className="flex items-center gap-3 p-3 bg-white/[0.03] rounded-xl border border-white/[0.03]">
-                                <div className="flex items-center gap-2 px-3 py-1.5 bg-[#1DB954]/10 rounded-full">
-                                    <svg
-                                        viewBox="0 0 24 24"
-                                        className="w-4 h-4 text-[#1DB954]"
-                                        fill="currentColor"
-                                    >
-                                        <path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z" />
-                                    </svg>
-                                    <span className="text-xs font-medium text-[#1DB954]">
-                                        Spotify
-                                    </span>
-                                </div>
-                                <div className="flex items-center gap-2 px-3 py-1.5 bg-[#AD47FF]/10 rounded-full">
-                                    <DeezerIcon className="w-4 h-4 text-[#AD47FF]" />
-                                    <span className="text-xs font-medium text-[#AD47FF]">
-                                        Deezer
-                                    </span>
-                                </div>
-                                <span className="text-xs text-white/30 ml-auto">
-                                    Supported
-                                </span>
-                            </div>
-                        </div>
-
-                        {/* Input area */}
-                        <div className="px-6 pb-6">
-                            <div className="relative">
-                                <input
-                                    type="text"
-                                    value={urlInput}
-                                    onChange={(e) =>
-                                        setUrlInput(e.target.value)
-                                    }
-                                    placeholder="Paste playlist URL here..."
-                                    className="w-full bg-black/40 border border-white/[0.06] rounded-xl px-4 py-4 text-white placeholder:text-white/30 focus:outline-none focus:border-[#B1D2C3]/40 focus:ring-1 focus:ring-[#B1D2C3]/20 transition-all text-sm"
-                                    onKeyDown={(e) =>
-                                        e.key === "Enter" && handleUrlSubmit()
-                                    }
-                                    autoFocus
-                                />
-                                {urlInput && (
-                                    <button
-                                        onClick={() => setUrlInput("")}
-                                        className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 hover:bg-white/10 rounded-full transition-colors"
-                                    >
-                                        <X className="w-4 h-4 text-white/40" />
-                                    </button>
-                                )}
-                            </div>
-
-                            <p className="text-xs text-white/30 mt-2 ml-1">
-                                Example:
-                                https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M
-                            </p>
-                        </div>
-
-                        {/* Actions */}
-                        <div className="px-6 pb-6 flex gap-3">
-                            <button
-                                onClick={() => setShowUrlModal(false)}
-                                className="flex-1 py-3.5 rounded-full bg-white/[0.03] border border-white/[0.06] text-white font-medium hover:bg-white/[0.06] transition-colors"
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                onClick={handleUrlSubmit}
-                                disabled={isParsing || !urlInput.trim()}
-                                className="flex-1 py-3.5 rounded-full bg-[#B1D2C3] text-black font-semibold hover:bg-[#9bc4b3] disabled:opacity-40 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2 shadow-lg shadow-[#B1D2C3]/20"
-                            >
-                                {isParsing ? (
-                                    <>
-                                        <Loader2 className="w-4 h-4 animate-spin" />
-                                        <span>Importing...</span>
-                                    </>
-                                ) : (
-                                    <>
-                                        <ChevronRight className="w-4 h-4" />
-                                        <span>Continue</span>
-                                    </>
-                                )}
-                            </button>
-                        </div>
+            <Modal
+                isOpen={showUrlModal}
+                onClose={() => setShowUrlModal(false)}
+                title="Import Playlist"
+                titleLeading={
+                    <div className="w-10 h-10 shrink-0 rounded-xl bg-gradient-to-br from-[#B1D2C3] to-[#AD47FF] flex items-center justify-center">
+                        <Link2 className="w-5 h-5 text-white" aria-hidden />
                     </div>
+                }
+                subtitle={
+                    <span className="text-white/40">Paste a link to get started</span>
+                }
+                backdropClassName="bg-black/80"
+                className="max-w-lg w-full rounded-2xl border border-white/[0.03] bg-[#0d0d0d] shadow-2xl"
+                contentClassName="space-y-4"
+                footer={
+                    <div className="flex w-full gap-3">
+                        <button
+                            type="button"
+                            onClick={() => setShowUrlModal(false)}
+                            className="flex-1 py-3.5 rounded-full bg-white/[0.03] border border-white/[0.06] text-white font-medium hover:bg-white/[0.06] transition-colors"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="button"
+                            onClick={handleUrlSubmit}
+                            disabled={isParsing || !urlInput.trim()}
+                            className="flex-1 py-3.5 rounded-full bg-[#B1D2C3] text-black font-semibold hover:bg-[#9bc4b3] disabled:opacity-40 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2 shadow-lg shadow-[#B1D2C3]/20"
+                        >
+                            {isParsing ? (
+                                <>
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                    <span>Importing...</span>
+                                </>
+                            ) : (
+                                <>
+                                    <ChevronRight className="w-4 h-4" />
+                                    <span>Continue</span>
+                                </>
+                            )}
+                        </button>
+                    </div>
+                }
+            >
+                <div className="flex items-center gap-3 rounded-xl border border-white/[0.03] bg-white/[0.03] p-3">
+                    <div className="flex items-center gap-2 rounded-full bg-[#1DB954]/10 px-3 py-1.5">
+                        <svg
+                            viewBox="0 0 24 24"
+                            className="w-4 h-4 text-[#1DB954]"
+                            fill="currentColor"
+                            aria-hidden
+                        >
+                            <path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z" />
+                        </svg>
+                        <span className="text-xs font-medium text-[#1DB954]">
+                            Spotify
+                        </span>
+                    </div>
+                    <div className="flex items-center gap-2 rounded-full bg-[#AD47FF]/10 px-3 py-1.5">
+                        <DeezerIcon className="w-4 h-4 text-[#AD47FF]" />
+                        <span className="text-xs font-medium text-[#AD47FF]">
+                            Deezer
+                        </span>
+                    </div>
+                    <span className="ml-auto text-xs text-white/30">Supported</span>
                 </div>
-            )}
+
+                <div className="relative">
+                    <input
+                        type="text"
+                        value={urlInput}
+                        onChange={(e) => setUrlInput(e.target.value)}
+                        placeholder="Paste playlist URL here..."
+                        className={`w-full rounded-xl border border-white/[0.06] bg-black/40 py-4 text-sm text-white placeholder:text-white/30 transition-all focus:border-[#B1D2C3]/40 focus:outline-none focus:ring-1 focus:ring-[#B1D2C3]/20 ${
+                            urlInput ? "pl-4 pr-12" : "px-4"
+                        }`}
+                        onKeyDown={(e) =>
+                            e.key === "Enter" && handleUrlSubmit()
+                        }
+                        autoFocus
+                    />
+                    {urlInput ? (
+                        <button
+                            type="button"
+                            onClick={() => setUrlInput("")}
+                            aria-label="Clear URL"
+                            className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full p-1.5 text-white/40 transition-colors hover:bg-white/10 hover:text-white/70"
+                        >
+                            <X className="h-4 w-4" aria-hidden />
+                        </button>
+                    ) : null}
+                </div>
+
+                <p className="text-xs text-white/30">
+                    Example: https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M
+                </p>
+            </Modal>
         </div>
     );
 }

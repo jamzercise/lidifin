@@ -7,6 +7,7 @@ import { api } from "@/lib/api";
 import { useAudioControls } from "@/lib/audio-controls-context";
 import { Track } from "@/lib/audio-state-context";
 import { CachedImage } from "@/components/ui/CachedImage";
+import { Modal } from "@/components/ui/Modal";
 import { formatTime } from "@/utils/formatTime";
 import { cn } from "@/utils/cn";
 import { toast } from "sonner";
@@ -357,44 +358,48 @@ export default function SongAlchemyPage() {
                 </div>
             )}
 
-            {showSaveDialog && (
-                <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
-                    <div
-                        className="bg-[#1a1a1a] rounded-xl p-6 w-full max-w-sm border border-white/10"
-                        onClick={(e) => e.stopPropagation()}
-                    >
-                        <h3 className="text-lg font-semibold text-white mb-2">
-                            Save to Playlist
-                        </h3>
-                        <input
-                            type="text"
-                            value={playlistName}
-                            onChange={(e) => setPlaylistName(e.target.value)}
-                            placeholder="Playlist name"
-                            className="w-full px-4 py-2 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-500 mb-4"
-                            autoFocus
-                        />
-                        <div className="flex gap-2">
-                            <button
-                                onClick={() => {
-                                    setShowSaveDialog(false);
-                                    setPlaylistName("");
-                                }}
-                                className="flex-1 py-2 rounded-lg bg-white/10 text-white hover:bg-white/20"
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                onClick={handleSaveToPlaylist}
-                                disabled={!playlistName.trim() || saving}
-                                className="flex-1 py-2 rounded-lg bg-purple-500 text-white hover:bg-purple-600 disabled:opacity-50"
-                            >
-                                {saving ? "Saving..." : "Save"}
-                            </button>
-                        </div>
+            <Modal
+                isOpen={showSaveDialog}
+                onClose={() => {
+                    setShowSaveDialog(false);
+                    setPlaylistName("");
+                }}
+                title="Save to Playlist"
+                backdropClassName="bg-black/80"
+                className="max-w-sm w-full rounded-xl border border-white/10 bg-[#1a1a1a]"
+                contentClassName="space-y-4"
+                footer={
+                    <div className="flex w-full gap-2">
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setShowSaveDialog(false);
+                                setPlaylistName("");
+                            }}
+                            className="flex-1 py-2 rounded-lg bg-white/10 text-white hover:bg-white/20"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="button"
+                            onClick={handleSaveToPlaylist}
+                            disabled={!playlistName.trim() || saving}
+                            className="flex-1 py-2 rounded-lg bg-purple-500 text-white hover:bg-purple-600 disabled:opacity-50"
+                        >
+                            {saving ? "Saving..." : "Save"}
+                        </button>
                     </div>
-                </div>
-            )}
+                }
+            >
+                <input
+                    type="text"
+                    value={playlistName}
+                    onChange={(e) => setPlaylistName(e.target.value)}
+                    placeholder="Playlist name"
+                    className="w-full px-4 py-2 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-500"
+                    autoFocus
+                />
+            </Modal>
         </div>
     );
 }

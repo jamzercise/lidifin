@@ -6,6 +6,7 @@ import { registerConfigRoutes } from "./discover/config";
 import { registerClearLibraryRoute } from "./discover/clearLibrary";
 import { registerExclusionsRoutes } from "./discover/exclusions";
 import { registerCleanupRoutes } from "./discover/cleanup";
+import { registerSavedAlbumsRoutes } from "./discover/savedAlbums";
 
 /**
  * Discover Weekly routes.
@@ -23,6 +24,7 @@ const router = Router();
 
 router.use(requireAuthOrToken);
 
+registerSavedAlbumsRoutes(router);
 registerJobsRoutes(router);
 registerFeedbackRoutes(router);
 registerConfigRoutes(router);

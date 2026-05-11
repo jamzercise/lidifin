@@ -1,4 +1,4 @@
-import { Play, Pause, Shuffle, Download, ListPlus } from "lucide-react";
+import { Play, Pause, Shuffle, Download, ListPlus, Bookmark, BookmarkCheck, Loader2 } from "lucide-react";
 import { cn } from "@/utils/cn";
 import type { Album } from "../types";
 import type { AlbumSource } from "../types";
@@ -18,6 +18,10 @@ interface AlbumActionBarProps {
     isPlaying?: boolean;
     isPlayingThisAlbum?: boolean;
     onPause?: () => void;
+    showSaveForLater?: boolean;
+    savedForLater?: boolean;
+    saveForLaterBusy?: boolean;
+    onToggleSaveForLater?: () => void;
 }
 
 export function AlbumActionBar({
@@ -32,6 +36,10 @@ export function AlbumActionBar({
     isPlaying = false,
     isPlayingThisAlbum = false,
     onPause,
+    showSaveForLater = false,
+    savedForLater = false,
+    saveForLaterBusy = false,
+    onToggleSaveForLater,
 }: AlbumActionBarProps) {
     const isOwned = album.owned !== undefined ? album.owned : source === "library";
     const showDownload = !isOwned && (album.mbid || album.rgMbid);
@@ -80,6 +88,35 @@ export function AlbumActionBar({
                         <ListPlus className="w-5 h-5" />
                     </button>
                 </>
+            )}
+
+            {showSaveForLater && onToggleSaveForLater && (
+                <button
+                    type="button"
+                    onClick={onToggleSaveForLater}
+                    disabled={saveForLaterBusy}
+                    className={cn(
+                        "flex items-center gap-2 px-5 py-2.5 rounded-full font-medium transition-all border",
+                        savedForLater
+                            ? "border-[#B1D2C3] bg-[#B1D2C3]/15 text-[#B1D2C3]"
+                            : "border-white/20 text-white/80 hover:border-white/40 hover:text-white",
+                        saveForLaterBusy && "opacity-50 cursor-wait"
+                    )}
+                    aria-label={
+                        savedForLater
+                            ? "Remove from saved albums"
+                            : "Save album for later"
+                    }
+                >
+                    {saveForLaterBusy ? (
+                        <Loader2 className="w-4 h-4 animate-spin shrink-0" aria-hidden />
+                    ) : savedForLater ? (
+                        <BookmarkCheck className="w-4 h-4 shrink-0" aria-hidden />
+                    ) : (
+                        <Bookmark className="w-4 h-4 shrink-0" aria-hidden />
+                    )}
+                    <span>{savedForLater ? "Saved" : "Save for later"}</span>
+                </button>
             )}
 
             {/* Download Album Button - prominent for unowned */}

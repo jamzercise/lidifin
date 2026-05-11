@@ -81,4 +81,7 @@ export const queryKeys = {
     browseAll: () => ["browse", "all"] as const,
     browseFeatured: (limit?: number) => ["browse", "featured", limit] as const,
     browseRadios: (limit?: number) => ["browse", "radios", limit] as const,
+
+    savedDiscoveryAlbums: (params?: { limit?: number; offset?: number }) =>
+        ["discover", "saved-albums", params] as const,
 };

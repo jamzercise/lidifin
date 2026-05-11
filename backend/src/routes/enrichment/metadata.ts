@@ -1,6 +1,9 @@
 import type { Router } from "express";
 import { logger } from "../../utils/logger";
 import { redisClient } from "../../utils/redis";
+import { resolvePrismaArtistIdForMetadataWrite } from "./resolvePrismaArtistForMetadata";
+import { resolvePrismaAlbumIdForMetadataWrite } from "./resolvePrismaAlbumForMetadata";
+import { resolvePrismaTrackIdForMetadataWrite } from "./resolvePrismaTrackForMetadata";
 
 /** Manual metadata overrides + reset to canonical */
 export function registerEnrichmentMetadataRoutes(router: Router): void {
@@ -33,8 +36,16 @@ export function registerEnrichmentMetadataRoutes(router: Router): void {
             }
 
             const { prisma } = await import("../../utils/db");
+            const prismaArtistId =
+                await resolvePrismaArtistIdForMetadataWrite(req.params.id);
+            if (!prismaArtistId) {
+                return res.status(404).json({
+                    error: "Artist not found",
+                });
+            }
+
             const artist = await prisma.artist.update({
-                where: { id: req.params.id },
+                where: { id: prismaArtistId },
                 data: updateData,
                 include: {
                     albums: {
@@ -50,6 +61,7 @@ export function registerEnrichmentMetadataRoutes(router: Router): void {
 
             try {
                 await redisClient.del(`hero:${req.params.id}`);
+                await redisClient.del(`hero:${prismaArtistId}`);
             } catch (err) {
                 logger.warn("Failed to invalidate Redis cache:", err);
             }
@@ -92,8 +104,16 @@ export function registerEnrichmentMetadataRoutes(router: Router): void {
             }
 
             const { prisma } = await import("../../utils/db");
+            const prismaAlbumId =
+                await resolvePrismaAlbumIdForMetadataWrite(req.params.id);
+            if (!prismaAlbumId) {
+                return res.status(404).json({
+                    error: "Album not found",
+                });
+            }
+
             const album = await prisma.album.update({
-                where: { id: req.params.id },
+                where: { id: prismaAlbumId },
                 data: updateData,
                 include: {
                     artist: {
@@ -143,8 +163,16 @@ export function registerEnrichmentMetadataRoutes(router: Router): void {
             }
 
             const { prisma } = await import("../../utils/db");
+            const prismaTrackId =
+                await resolvePrismaTrackIdForMetadataWrite(req.params.id);
+            if (!prismaTrackId) {
+                return res.status(404).json({
+                    error: "Track not found",
+                });
+            }
+
             const track = await prisma.track.update({
-                where: { id: req.params.id },
+                where: { id: prismaTrackId },
                 data: updateData,
                 include: {
                     album: {
@@ -175,12 +203,9 @@ export function registerEnrichmentMetadataRoutes(router: Router): void {
         try {
             const { prisma } = await import("../../utils/db");
 
-            const existingArtist = await prisma.artist.findUnique({
-                where: { id: req.params.id },
-                select: { id: true },
-            });
-
-            if (!existingArtist) {
+            const prismaArtistId =
+                await resolvePrismaArtistIdForMetadataWrite(req.params.id);
+            if (!prismaArtistId) {
                 return res.status(404).json({
                     error: "Artist not found",
                     message: "The artist may have been deleted",
@@ -188,7 +213,7 @@ export function registerEnrichmentMetadataRoutes(router: Router): void {
             }
 
             const artist = await prisma.artist.update({
-                where: { id: req.params.id },
+                where: { id: prismaArtistId },
                 data: {
                     displayName: null,
                     userSummary: null,
@@ -210,6 +235,7 @@ export function registerEnrichmentMetadataRoutes(router: Router): void {
 
             try {
                 await redisClient.del(`hero:${req.params.id}`);
+                await redisClient.del(`hero:${prismaArtistId}`);
             } catch (err) {
                 logger.warn("Failed to invalidate Redis cache:", err);
             }
@@ -236,12 +262,9 @@ export function registerEnrichmentMetadataRoutes(router: Router): void {
         try {
             const { prisma } = await import("../../utils/db");
 
-            const existingAlbum = await prisma.album.findUnique({
-                where: { id: req.params.id },
-                select: { id: true },
-            });
-
-            if (!existingAlbum) {
+            const prismaAlbumId =
+                await resolvePrismaAlbumIdForMetadataWrite(req.params.id);
+            if (!prismaAlbumId) {
                 return res.status(404).json({
                     error: "Album not found",
                     message: "The album may have been deleted",
@@ -249,7 +272,7 @@ export function registerEnrichmentMetadataRoutes(router: Router): void {
             }
 
             const album = await prisma.album.update({
-                where: { id: req.params.id },
+                where: { id: prismaAlbumId },
                 data: {
                     displayTitle: null,
                     displayYear: null,
@@ -297,12 +320,9 @@ export function registerEnrichmentMetadataRoutes(router: Router): void {
         try {
             const { prisma } = await import("../../utils/db");
 
-            const existingTrack = await prisma.track.findUnique({
-                where: { id: req.params.id },
-                select: { id: true },
-            });
-
-            if (!existingTrack) {
+            const prismaTrackId =
+                await resolvePrismaTrackIdForMetadataWrite(req.params.id);
+            if (!prismaTrackId) {
                 return res.status(404).json({
                     error: "Track not found",
                     message: "The track may have been deleted",
@@ -310,7 +330,7 @@ export function registerEnrichmentMetadataRoutes(router: Router): void {
             }
 
             const track = await prisma.track.update({
-                where: { id: req.params.id },
+                where: { id: prismaTrackId },
                 data: {
                     displayTitle: null,
                     displayTrackNo: null,

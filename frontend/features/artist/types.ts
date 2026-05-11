@@ -46,6 +46,8 @@ export interface Album {
     userCoverUrl?: string | null;
     userGenres?: string[];
     hasUserOverrides?: boolean;
+    /** Arch-X.c: user bookmarked this release group (save for later). */
+    savedForLater?: boolean;
 }
 
 export interface Track {
