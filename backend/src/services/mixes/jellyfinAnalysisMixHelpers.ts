@@ -10,7 +10,7 @@ import {
     WEEKLY_TRACK_LIMIT,
 } from "./constants";
 import { getSeededRandom, randomSample } from "./helpers";
-import type { ProgrammaticMix } from "./types";
+import type { ProgrammaticMix, ProgrammaticMixType } from "./types";
 
 export type MixColorKey = Parameters<typeof getMixColor>[0];
 
@@ -86,7 +86,7 @@ export function mergeUniqueTrackIds(...lists: string[][]): string[] {
 
 export async function buildJellyfinProgrammaticMix(options: {
     id: string;
-    type: string;
+    type: ProgrammaticMixType;
     name: string;
     description: string;
     candidateIds: string[];
@@ -139,7 +139,7 @@ export async function buildJellyfinDailyVibeMix(options: {
     minPool?: number;
     today: string;
     id: string;
-    type: string;
+    type: ProgrammaticMixType;
     name: string;
     description: string;
     colorKey: MixColorKey;
@@ -170,7 +170,7 @@ export async function buildJellyfinWeeklyPoolMix(options: {
     candidateIds: string[];
     today: string;
     id: string;
-    type: string;
+    type: ProgrammaticMixType;
     name: string;
     description: string;
     colorKey: MixColorKey;
@@ -202,7 +202,7 @@ export async function buildJellyfinWeeklyPoolMix(options: {
 /** Chill / late-night style: daily vs weekly cap from pool size. */
 export async function buildJellyfinChillStyleMix(options: {
     id: string;
-    type: string;
+    type: ProgrammaticMixType;
     name: string;
     description: string;
     candidateIds: string[];

@@ -11,6 +11,7 @@ import { logger } from "../utils/logger";
 import { prisma } from "../utils/db";
 import { shuffleArray } from "../utils/shuffle";
 import { isJellyfinMusicSource, resolveTrackReferences } from "./jellyfin";
+import type { ProgrammaticMixType } from "./mixes/types";
 
 // Mood configuration with scoring rules
 // Primary = uses ML mood predictions (enhanced mode)
@@ -683,7 +684,7 @@ export class MoodBucketService {
      */
     async getUserMoodMix(userId: string): Promise<{
         id: string;
-        type: string;
+        type: ProgrammaticMixType;
         mood: string;
         name: string;
         description: string;

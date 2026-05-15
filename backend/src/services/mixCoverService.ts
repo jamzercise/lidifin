@@ -8,12 +8,16 @@
  */
 
 import Delaunator from "delaunator";
+import type { ProgrammaticMixType } from "./mixes/types";
 import { logger } from "../utils/logger";
 import { extractColorsFromImage } from "../utils/colorExtractor";
 
+/** Mix cover generation accepts programmatic mix types or a synthetic playlist label. */
+export type MixCoverKind = ProgrammaticMixType | "playlist";
+
 export interface MixCoverInput {
     id: string;
-    type: string;
+    type: MixCoverKind;
     name: string;
     color: string;
     coverUrls: string[];

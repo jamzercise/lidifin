@@ -722,7 +722,19 @@ export default function RadioPage() {
 
             {/* MoodMixer Modal */}
             {showMoodMixer && (
-                <Suspense fallback={<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"><Loader2 className="w-12 h-12 text-white animate-spin" /></div>}>
+                <Suspense
+                    fallback={
+                        <div
+                            className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"
+                            role="status"
+                            aria-live="polite"
+                            aria-busy="true"
+                        >
+                            <span className="sr-only">Loading mood mixer…</span>
+                            <Loader2 className="w-12 h-12 animate-spin text-white" aria-hidden />
+                        </div>
+                    }
+                >
                     <MoodMixer isOpen={showMoodMixer} onClose={() => setShowMoodMixer(false)} />
                 </Suspense>
             )}

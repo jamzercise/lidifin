@@ -71,7 +71,7 @@ export function registerJobsRoutes(router: Router): void {
         }
     });
 
-    // POST /discover/generate - Generate new Discover Weekly playlist (using Bull queue)
+    // POST /discover/generate — enqueue Discover Weekly work on the BullMQ discover queue
     router.post("/generate", async (req, res) => {
         try {
             const userId = req.user!.id;

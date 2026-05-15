@@ -11,7 +11,7 @@
  * This file preserves the public API used by routes/mixes.ts:
  *   - `programmaticPlaylistService.generateAllMixes(userId, forceRandom?)`
  *   - `programmaticPlaylistService.generateMoodOnDemand(userId, params)`
- *   - `ProgrammaticMix` type re-export
+ *   - `ProgrammaticMix` / `ProgrammaticMixType` type re-exports
  */
 
 import { generateAllMixes } from "./mixes/orchestrator";
@@ -19,9 +19,9 @@ import {
     generateMoodOnDemand,
     type MoodOnDemandParams,
 } from "./mixes/generators/moodOnDemand";
-import type { ProgrammaticMix } from "./mixes/types";
+import type { ProgrammaticMix, ProgrammaticMixType } from "./mixes/types";
 
-export type { ProgrammaticMix } from "./mixes/types";
+export type { ProgrammaticMix, ProgrammaticMixType };
 
 export const programmaticPlaylistService = {
     generateAllMixes(
