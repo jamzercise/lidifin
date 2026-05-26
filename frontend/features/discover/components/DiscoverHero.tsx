@@ -1,4 +1,5 @@
-import { Music2 } from "lucide-react";
+import Link from "next/link";
+import { Bookmark, Music2 } from "lucide-react";
 import { format } from "date-fns";
 import { DiscoverPlaylist, DiscoverConfig } from "../types";
 
@@ -72,6 +73,15 @@ export function DiscoverHero({ playlist, config }: DiscoverHeroProps) {
                                 </span>
                             </>
                         )}
+                    </div>
+                    <div className="mt-3">
+                        <Link
+                            href="/library/saved-albums"
+                            className="inline-flex items-center gap-2 text-sm font-medium text-purple-300/90 hover:text-purple-200 underline-offset-4 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-400/60 rounded-sm"
+                        >
+                            <Bookmark className="w-4 h-4 shrink-0" aria-hidden />
+                            Saved albums for later
+                        </Link>
                     </div>
                 </div>
             </div>

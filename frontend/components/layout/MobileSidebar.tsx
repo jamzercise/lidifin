@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Settings, RefreshCw, LogOut, Compass, X } from "lucide-react";
+import { Settings, RefreshCw, LogOut, Compass, X, Bookmark, Library } from "lucide-react";
 import { cn } from "@/utils/cn";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
@@ -112,6 +112,46 @@ export function MobileSidebar({ isOpen, onClose }: MobileSidebarProps) {
                         <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest px-3 mb-2">
                             Quick Links
                         </div>
+
+                        <Link
+                            href="/library"
+                            aria-current={
+                                pathname === "/library" ? "page" : undefined
+                            }
+                            aria-label="Library"
+                            className={cn(
+                                "flex items-center gap-3 px-3 py-3 rounded-lg transition-colors",
+                                pathname === "/library" ?
+                                    "bg-white/10 text-white"
+                                :   "text-gray-400 hover:text-white hover:bg-white/5",
+                            )}
+                        >
+                            <Library className="w-5 h-5" />
+                            <span className="text-[15px] font-medium">
+                                Library
+                            </span>
+                        </Link>
+
+                        <Link
+                            href="/library/saved-albums"
+                            aria-current={
+                                pathname === "/library/saved-albums" ?
+                                    "page"
+                                :   undefined
+                            }
+                            aria-label="Saved discovery albums"
+                            className={cn(
+                                "flex items-center gap-3 px-3 py-3 rounded-lg transition-colors",
+                                pathname === "/library/saved-albums" ?
+                                    "bg-white/10 text-white"
+                                :   "text-gray-400 hover:text-white hover:bg-white/5",
+                            )}
+                        >
+                            <Bookmark className="w-5 h-5" />
+                            <span className="text-[15px] font-medium">
+                                Saved albums
+                            </span>
+                        </Link>
 
                         <Link
                             href="/discover"

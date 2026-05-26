@@ -84,4 +84,8 @@ export const queryKeys = {
 
     savedDiscoveryAlbums: (params?: { limit?: number; offset?: number }) =>
         ["discover", "saved-albums", params] as const,
+
+    /** Paginated infinite list for `/library/saved-albums` */
+    savedDiscoveryAlbumsInfinite: (pageSize: number) =>
+        ["discover", "saved-albums", "paged", pageSize] as const,
 };
