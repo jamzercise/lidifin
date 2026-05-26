@@ -485,8 +485,12 @@ export default function DeezerPlaylistDetailPage() {
 
             {/* Preview indicator */}
             {playingTrackId && (
-                <div className="fixed bottom-24 left-1/2 -translate-x-1/2 px-4 py-2 bg-[#AD47FF] rounded-full text-black text-sm font-medium shadow-lg flex items-center gap-2 z-50">
-                    <div className="w-2 h-2 rounded-full bg-black animate-pulse" />
+                <div
+                    className="fixed bottom-24 left-1/2 -translate-x-1/2 px-4 py-2 bg-[#AD47FF] rounded-full text-black text-sm font-medium shadow-lg flex items-center gap-2 z-50"
+                    role="status"
+                    aria-live="polite"
+                >
+                    <div className="w-2 h-2 rounded-full bg-black animate-pulse" aria-hidden />
                     Playing 30s preview
                 </div>
             )}

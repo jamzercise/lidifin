@@ -943,6 +943,8 @@ If the frontend shows "socket hang up" or the API stops responding (e.g. after m
 
 ## Architecture
 
+**Architecture Decision Records (ADRs):** see [`adr/README.md`](adr/README.md) for Jellyfin-first library, analysis storage, Prisma role, Postgres logging (`log_min_duration_statement`), and ESLint jsx-a11y / live-region patterns ([ADR 0006](adr/0006-eslint-jsx-a11y-and-live-regions.md)).
+
 Lidify consists of several components working together:
 
 ```

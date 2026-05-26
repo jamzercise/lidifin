@@ -110,6 +110,11 @@ export function DownloadNotifications() {
     const shouldRender = (shouldShow && !dismissed) || isOpen;
     if (!shouldRender) return null;
 
+    const activeN = downloadStatus.activeDownloads.length;
+    const failedN = downloadStatus.failedDownloads.length;
+    const recentN = downloadStatus.recentDownloads.length;
+    const downloadLiveSummary = `Downloads: ${activeN} active, ${failedN} failed, ${recentN} recently completed.`;
+
     // Function to manually close modal (even if there are downloads)
     const handleClose = () => {
         setIsOpen(false);
@@ -166,7 +171,12 @@ export function DownloadNotifications() {
             <div
                 ref={containerRef}
                 className="fixed top-20 left-1/2 -translate-x-1/2 z-50 w-auto max-w-[90vw]"
+                role="region"
+                aria-label="Downloads"
             >
+                <p className="sr-only" aria-live="polite" aria-atomic="true">
+                    {downloadLiveSummary}
+                </p>
                 <div className="bg-[#1a1a1a]/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl overflow-hidden">
                     {/* Compact Header */}
                     <div className="flex items-center justify-between px-3 py-2 gap-3">
@@ -249,11 +259,16 @@ export function DownloadNotifications() {
         <div
             ref={containerRef}
             className="fixed bottom-24 right-4 z-50 w-96 max-w-[calc(100vw-2rem)]"
+            role="region"
+            aria-label="Downloads"
             style={{
                 transform: `translate(${position.x}px, ${position.y}px)`,
                 transition: isDragging ? "none" : "transform 0.2s ease-out",
             }}
         >
+            <p className="sr-only" aria-live="polite" aria-atomic="true">
+                {downloadLiveSummary}
+            </p>
             <div className="bg-[#1a1a1a] border border-white/10 rounded-lg shadow-2xl overflow-hidden">
                 {/* Header */}
                 <div

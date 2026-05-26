@@ -93,7 +93,7 @@ jobs:
               working-directory: frontend
               run: npm ci
 
-            - name: Run ESLint on frontend
+            - name: Run ESLint on frontend (includes jsx-a11y as warnings; see adr/0006)
               working-directory: frontend
               run: npm run lint
 
