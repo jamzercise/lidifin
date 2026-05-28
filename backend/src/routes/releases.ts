@@ -11,6 +11,7 @@ import { logger } from "../utils/logger";
 import { Router } from "express";
 import { requireAuth } from "../middleware/auth";
 import { lidarrService, CalendarRelease } from "../services/lidarr";
+import { simpleDownloadManager } from "../services/simpleDownloadManager";
 import { prisma } from "../utils/db";
 
 const router = Router();
@@ -237,12 +238,79 @@ router.post("/download/:albumMbid", async (req, res) => {
             return res.status(401).json({ error: "Authentication required" });
         }
 
-        logger.debug(`[Releases] Download requested for album: ${albumMbid}`);
+        if (!albumMbid) {
+            return res.status(400).json({ error: "albumMbid is required" });
+        }
 
-        // TODO: Implement downloadAlbum method on LidarrService
-        // For now, return not implemented error
-        res.status(501).json({
-            error: "Download feature not yet implemented for release radar"
+        if (!(await lidarrService.isEnabled())) {
+            return res.status(400).json({
+                error: "Lidarr is not configured. Connect Lidarr in Settings to download releases.",
+            });
+        }
+
+        // The radar UI has the full release on hand; prefer the posted
+        // metadata and fall back to a calendar lookup if it's missing.
+        let artistName: string | undefined = req.body?.artistName;
+        let albumTitle: string | undefined = req.body?.albumTitle;
+
+        if (!artistName || !albumTitle) {
+            const now = new Date();
+            const start = new Date(now);
+            start.setDate(start.getDate() - 365);
+            const end = new Date(now);
+            end.setDate(end.getDate() + 365);
+            const calendar = await lidarrService.getCalendar(start, end);
+            const match = calendar.find((r) => r.albumMbid === albumMbid);
+            artistName = artistName || match?.artistName;
+            albumTitle = albumTitle || match?.title;
+        }
+
+        if (!artistName || !albumTitle) {
+            return res.status(404).json({
+                error: "Could not resolve the release. Try refreshing the radar.",
+            });
+        }
+
+        logger.debug(
+            `[Releases] Download requested: ${artistName} - ${albumTitle} (${albumMbid})`
+        );
+
+        // Reuse the same job + Lidarr pipeline as every other album download.
+        const job = await prisma.downloadJob.create({
+            data: {
+                userId,
+                subject: `${albumTitle} by ${artistName}`,
+                type: "album",
+                targetMbid: albumMbid,
+                status: "pending",
+                metadata: {
+                    downloadType: "album",
+                    source: "release-radar",
+                    artistName,
+                    albumTitle,
+                },
+            },
+        });
+
+        const result = await simpleDownloadManager.startDownload(
+            job.id,
+            artistName,
+            albumTitle,
+            albumMbid,
+            userId
+        );
+
+        if (!result.success) {
+            return res.status(502).json({
+                error: result.error || "Failed to queue download in Lidarr",
+                jobId: job.id,
+            });
+        }
+
+        res.status(202).json({
+            success: true,
+            message: `Queued "${albumTitle}" for download`,
+            jobId: job.id,
         });
     } catch (error: any) {
         logger.error("[Releases] Download error:", error.message);

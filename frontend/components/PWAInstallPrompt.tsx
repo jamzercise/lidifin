@@ -84,7 +84,14 @@ export function PWAInstallPrompt() {
     if (!showPrompt) return null;
 
     return (
-        <div className="fixed bottom-20 left-4 right-4 md:left-auto md:right-4 md:w-80 z-50 animate-slide-up">
+        <div
+            className="fixed bottom-20 left-4 right-4 md:left-auto md:right-4 md:w-80 z-50 animate-slide-up"
+            role="region"
+            aria-label="Install Lidifin"
+        >
+            <p className="sr-only" role="status">
+                Install Lidifin prompt available.
+            </p>
             <div className="bg-[#1a1a1a] border border-[#333] rounded-xl p-4 shadow-2xl">
                 <button
                     onClick={handleDismiss}

@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { Calendar, Clock, Download, Music2, Disc, ArrowRight, CheckCircle2, Loader2 } from "lucide-react";
 import { cn } from "@/utils/cn";
 import { GradientSpinner } from "@/components/ui/GradientSpinner";
+import { useToast } from "@/lib/toast-context";
 import Link from "next/link";
 import Image from "next/image";
 
@@ -33,6 +34,7 @@ export default function ReleasesPage() {
     const [loading, setLoading] = useState(true);
     const [downloadingId, setDownloadingId] = useState<string | number | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const { toast } = useToast();
 
     const fetchReleases = async () => {
         try {
@@ -52,18 +54,34 @@ export default function ReleasesPage() {
         fetchReleases();
     }, []);
 
-    const handleDownload = async (albumMbid: string, releaseId: string | number) => {
+    const handleDownload = async (release: ReleaseItem) => {
         try {
-            setDownloadingId(releaseId);
-            const res = await fetch(`/api/releases/download/${albumMbid}`, {
-                method: "POST",
-            });
+            setDownloadingId(release.id);
+            const res = await fetch(
+                `/api/releases/download/${release.albumMbid}`,
+                {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        artistName: release.artistName,
+                        albumTitle: release.title,
+                        artistMbid: release.artistMbid,
+                    }),
+                }
+            );
+            const json = await res.json().catch(() => ({}));
             if (res.ok) {
+                toast.success(
+                    json.message || `Queued "${release.title}" for download`
+                );
                 // Refresh to show updated status
                 await fetchReleases();
+            } else {
+                toast.error(json.error || "Failed to start download");
             }
         } catch (err) {
             console.error("Download failed:", err);
+            toast.error("Failed to start download");
         } finally {
             setDownloadingId(null);
         }
@@ -206,7 +224,7 @@ function ReleaseCard({
 }: {
     release: ReleaseItem;
     formatDate: (date: string) => string;
-    onDownload: (albumMbid: string, releaseId: string | number) => void;
+    onDownload: (release: ReleaseItem) => void;
     isDownloading: boolean;
 }) {
     const isUpcoming = release.status === 'upcoming';
@@ -244,8 +262,9 @@ function ReleaseCard({
                 {/* Download Button Overlay */}
                 {release.canDownload && !hasIt && (
                     <button
-                        onClick={() => onDownload(release.albumMbid, release.id)}
+                        onClick={() => onDownload(release)}
                         disabled={isDownloading}
+                        aria-label={`Download ${release.title} by ${release.artistName}`}
                         className={cn(
                             "absolute inset-0 flex items-center justify-center",
                             "bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity",

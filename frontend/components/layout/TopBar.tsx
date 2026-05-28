@@ -17,6 +17,7 @@ import { cn } from "@/utils/cn";
 import { api } from "@/lib/api";
 import { useToast } from "@/lib/toast-context";
 import { useJobStatus } from "@/hooks/useJobStatus";
+import { useNotifications } from "@/hooks/useNotifications";
 import { useDownloadContext } from "@/lib/download-context";
 import { useIsMobile, useIsTablet } from "@/hooks/useMediaQuery";
 import { useAuth } from "@/lib/auth-context";
@@ -57,6 +58,9 @@ export function TopBar() {
             setScanJobId(null);
         },
     });
+
+    // Unread notification count (shared React Query cache; no extra requests)
+    const { unreadCount } = useNotifications();
 
     // Track download status from context (single source of truth)
     const { pendingDownloads, downloadStatus } = useDownloadContext();
@@ -244,11 +248,29 @@ export function TopBar() {
                             );
                         }}
                         className="w-12 h-12 flex items-center justify-center text-gray-400 hover:text-white transition-colors ml-2 flex-shrink-0 relative"
-                        aria-label="Notifications"
+                        aria-label={
+                            unreadCount > 0
+                                ? `Notifications, ${unreadCount} unread`
+                                : "Notifications"
+                        }
                         title="Notifications"
                     >
                         <Bell className="w-6 h-6" />
-                        {/* TODO: Add notification badge in Phase 3 */}
+                        {unreadCount > 0 ? (
+                            <span
+                                className="absolute top-1 right-1 min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full bg-[#AD47FF] text-white text-[10px] font-semibold leading-none"
+                                aria-hidden
+                            >
+                                {unreadCount > 99 ? "99+" : unreadCount}
+                            </span>
+                        ) : (
+                            hasActiveDownloads && (
+                                <span
+                                    className="absolute top-1.5 right-1.5 w-2.5 h-2.5 rounded-full bg-[#B1D2C3]"
+                                    aria-hidden
+                                />
+                            )
+                        )}
                     </button>
                 </>
             ) : (

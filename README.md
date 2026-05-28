@@ -504,6 +504,10 @@ openssl rand -base64 32
 
 The CLAP (Contrastive Language-Audio Pretraining) service generates embeddings for audio similarity search, powering the Vibe button's track matching feature.
 
+> **Which deployments is this for?** The CLAP and Essentia analyzers are **standalone services** for the **local-files** path — they read your mounted music and analyze it directly. They live under `services/audio-analyzer-clap/` and `services/audio-analyzer/` and run via `docker-compose.dev.yml` (or your own compose).
+>
+> The **published all-in-one image** (`jamzercise/lidifin:latest`) is **Jellyfin-first and does not bundle these analyzers**. In Jellyfin mode, audio analysis (mood/BPM/key + vibe) comes from Jellyfin's **AudioMuse AI** plugin and is stored in the `JellyfinTrackAnalysis` table — see [ADR 0002](adr/0002-jellyfin-track-analysis-storage.md).
+
 ### Requirements
 
 -   PostgreSQL with pgvector extension (included in `pgvector/pgvector:pg16` image)
@@ -537,7 +541,9 @@ The CLAP analyzer runs automatically alongside the main audio analyzer. The vibe
 
 ## GPU Acceleration
 
-GPU acceleration speeds up audio analysis (mood detection, BPM extraction, vibe embeddings). It is **optional** -- everything works on CPU, just slower.
+GPU acceleration speeds up audio analysis (mood detection, BPM extraction, vibe embeddings) in the **standalone analyzer services** (the local-files path). It is **optional** -- everything works on CPU, just slower.
+
+> **Not applicable to the Jellyfin-first all-in-one image.** `jamzercise/lidifin:latest` does not run the Essentia/CLAP analyzers, so GPU passthrough to `lidifin-player` has no effect on analysis. Apply the steps below to the host/compose that runs `services/audio-analyzer` and `services/audio-analyzer-clap`.
 
 ### Requirements
 
@@ -571,18 +577,11 @@ nvidia-container-runtime --version
 
 ### Enable GPU
 
-**All-in-One container:**
-```bash
-docker run -d --gpus all -p 31013:3030 -v /path/to/music:/music -v lidifin_data:/data jamzercise/lidifin:latest
-```
-
-**Docker Compose:**
-
-Add the `gpus` reservation to the `lidifin` service in your `compose.yaml`:
+Add the `gpus` reservation to the **analyzer services** that perform the heavy work (e.g. in `docker-compose.dev.yml` or your own compose):
 
 ```yaml
 services:
-    lidifin:
+    audio-analyzer:
         # ... your existing config ...
         deploy:
             resources:
@@ -591,6 +590,8 @@ services:
                         - driver: nvidia
                           count: 1
                           capabilities: [gpu]
+    # Repeat the same `deploy.resources.reservations` block for the
+    # audio-analyzer-clap service if you run CLAP vibe embeddings.
 ```
 
 Then restart: `docker compose up -d`
@@ -598,8 +599,8 @@ Then restart: `docker compose up -d`
 ### Verify GPU Detection
 
 ```bash
-# All-in-one container (MusiCNN and CLAP run inside lidifin-player)
-docker logs lidifin-player 2>&1 | grep -i gpu
+# Standalone analyzer services (local-files path)
+docker logs lidifin-player_audio_analyzer 2>&1 | grep -i gpu
 ```
 
 Expected: `TensorFlow GPU detected: ...` or `CUDA available: True`
@@ -981,8 +982,8 @@ Lidify consists of several components working together:
 | Backend             | API server (Express.js)                    | 3006         |
 | PostgreSQL          | Database (with pgvector)                   | 5432         |
 | Redis               | Caching and job queues                     | 6379         |
-| Audio Analyzer      | Mood, BPM, key detection (Essentia MusiCNN)| --           |
-| Audio Analyzer CLAP | Vibe similarity embeddings (LAION CLAP)    | --           |
+| Audio Analyzer      | Mood, BPM, key detection (Essentia MusiCNN) — *local-files only; not in the Jellyfin-first all-in-one image* | --           |
+| Audio Analyzer CLAP | Vibe similarity embeddings (LAION CLAP) — *local-files only; not in the Jellyfin-first all-in-one image* | --           |
 
 ---
 
