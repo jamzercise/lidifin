@@ -29,7 +29,10 @@ export function registerJobsRoutes(router: Router): void {
                 include: {
                     jobs: {
                         select: {
+                            id: true,
                             status: true,
+                            error: true,
+                            metadata: true,
                         },
                     },
                 },
@@ -56,6 +59,18 @@ export function registerJobsRoutes(router: Router): void {
                     ? Math.round(((completedJobs + failedJobs) / totalJobs) * 100)
                     : 0;
 
+            // Per-album rows so the UI can show live status during the batch
+            const albums = activeBatch.jobs.map((j) => {
+                const meta = j.metadata as any;
+                return {
+                    id: j.id,
+                    artist: meta?.artistName || "Unknown",
+                    album: meta?.albumTitle || "Unknown",
+                    status: j.status,
+                    error: j.error,
+                };
+            });
+
             res.json({
                 active: true,
                 status: activeBatch.status,
@@ -64,6 +79,7 @@ export function registerJobsRoutes(router: Router): void {
                 completed: completedJobs,
                 failed: failedJobs,
                 total: totalJobs,
+                albums,
             });
         } catch (error) {
             logger.error("Get batch status error:", error);
@@ -382,6 +398,7 @@ export function registerJobsRoutes(router: Router): void {
                         recommendedAlbums: latestBatch.jobs.map(j => {
                             const meta = j.metadata as any;
                             return {
+                                id: j.id,
                                 artist: meta?.artistName || "Unknown",
                                 album: meta?.albumTitle || "Unknown",
                                 status: j.status,
@@ -494,6 +511,53 @@ export function registerJobsRoutes(router: Router): void {
         } catch (error: any) {
             logger.error("Rebuild Discover Weekly error:", error);
             res.status(500).json({ error: "Failed to rebuild playlist" });
+        }
+    });
+
+    // POST /discover/cancel - Cancel the user's active generation batch
+    router.post("/cancel", async (req, res) => {
+        try {
+            const userId = req.user!.id;
+            const { discoverWeeklyService } = await import(
+                "../../services/discoverWeekly"
+            );
+            const result = await discoverWeeklyService.cancelActiveBatch(userId);
+            if (!result.success) {
+                return res.status(404).json({ error: result.error });
+            }
+            res.json({
+                message: "Generation cancelled",
+                cancelledJobs: result.cancelledJobs ?? 0,
+            });
+        } catch (error) {
+            logger.error("Cancel discovery batch error:", error);
+            res.status(500).json({ error: "Failed to cancel generation" });
+        }
+    });
+
+    // POST /discover/retry-album - Retry a single failed discovery album
+    router.post("/retry-album", async (req, res) => {
+        try {
+            const userId = req.user!.id;
+            const { jobId } = req.body as { jobId?: string };
+            if (!jobId) {
+                return res.status(400).json({ error: "jobId is required" });
+            }
+            const { discoverWeeklyService } = await import(
+                "../../services/discoverWeekly"
+            );
+            const result = await discoverWeeklyService.retryAlbumJob(
+                userId,
+                jobId
+            );
+            if (!result.success) {
+                const status = result.error?.includes("not found") ? 404 : 400;
+                return res.status(status).json({ error: result.error });
+            }
+            res.json({ message: "Retry started" });
+        } catch (error) {
+            logger.error("Retry discovery album error:", error);
+            res.status(500).json({ error: "Failed to retry album" });
         }
     });
 }

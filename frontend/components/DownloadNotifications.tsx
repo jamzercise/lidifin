@@ -463,6 +463,11 @@ function DownloadJobItem({
                         <span className="text-xs text-white/40 capitalize">
                             {job.type}
                         </span>
+                        {job.metadata?.downloadType === "discovery" && (
+                            <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-purple-500/15 text-purple-300">
+                                Discovery
+                            </span>
+                        )}
                     </div>
                     {job.error && (
                         <p className="text-xs text-red-400/80 mt-1 line-clamp-2">
@@ -557,6 +562,11 @@ function DownloadJobItemCompact({
             <div className="flex-shrink-0">{getStatusIcon()}</div>
             <div className="flex-1 min-w-0">
                 <p className="text-xs font-medium text-white truncate">
+                    {job.metadata?.downloadType === "discovery" && (
+                        <span className="text-[9px] font-semibold text-purple-300 mr-1">
+                            [Discovery]
+                        </span>
+                    )}
                     {job.subject}
                 </p>
                 {getStatusText() && (

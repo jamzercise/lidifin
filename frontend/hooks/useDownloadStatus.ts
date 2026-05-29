@@ -12,6 +12,8 @@ export interface DownloadJob {
     error?: string;
     metadata?: {
         statusText?: string;
+        /** "library" (manual) or "discovery" (Discover Weekly automation) */
+        downloadType?: "library" | "discovery";
         currentSource?: "lidarr" | "soulseek";
         lidarrAttempts?: number;
         soulseekAttempts?: number;
@@ -71,8 +73,9 @@ export function useDownloadStatus(
                 return;
             }
             try {
-                // Fetch recent download jobs (last 50)
-                const response = await api.getDownloads(50);
+                // Fetch recent download jobs (last 50), including Discover Weekly
+                // downloads so they surface in the global download UI too
+                const response = await api.getDownloads(50, true);
 
                 if (!mounted) return;
 

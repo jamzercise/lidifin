@@ -526,6 +526,131 @@ export class DiscoverWeeklyService {
     }
 
     /**
+     * Cancel the user's active discovery batch. Marks any still-running jobs as
+     * failed ("Cancelled by user") and closes the batch so the UI stops polling.
+     */
+    async cancelActiveBatch(
+        userId: string
+    ): Promise<{ success: boolean; error?: string; cancelledJobs?: number }> {
+        const batch = await prisma.discoveryBatch.findFirst({
+            where: { userId, status: { in: ["downloading", "scanning"] } },
+            orderBy: { createdAt: "desc" },
+        });
+
+        if (!batch) {
+            return { success: false, error: "No active generation to cancel" };
+        }
+
+        const result = await prisma.downloadJob.updateMany({
+            where: {
+                discoveryBatchId: batch.id,
+                status: { in: ["pending", "processing"] },
+            },
+            data: {
+                status: "failed",
+                error: "Cancelled by user",
+                completedAt: new Date(),
+            },
+        });
+
+        await prisma.discoveryBatch.update({
+            where: { id: batch.id },
+            data: {
+                status: "completed",
+                completedAt: new Date(),
+                errorMessage: "Cancelled by user",
+            },
+        });
+
+        await discoveryBatchLogger
+            .info(batch.id, `Batch cancelled by user (${result.count} job(s) stopped)`)
+            .catch(() => {});
+
+        return { success: true, cancelledJobs: result.count };
+    }
+
+    /**
+     * Retry a single failed discovery album by re-running acquisition for its
+     * existing DownloadJob. Reactivates the parent batch so completion tracking
+     * picks it back up.
+     */
+    async retryAlbumJob(
+        userId: string,
+        jobId: string
+    ): Promise<{ success: boolean; error?: string }> {
+        const job = await prisma.downloadJob.findFirst({
+            where: { id: jobId, userId },
+        });
+
+        if (!job) {
+            return { success: false, error: "Download job not found" };
+        }
+
+        const metadata = job.metadata as any;
+        if (metadata?.downloadType !== "discovery") {
+            return { success: false, error: "Not a discovery download" };
+        }
+        if (!metadata?.albumTitle || !metadata?.artistName) {
+            return { success: false, error: "Missing album metadata for retry" };
+        }
+
+        // Reset the job and reactivate the batch so it's tracked again
+        await prisma.downloadJob.update({
+            where: { id: job.id },
+            data: { status: "pending", error: null, completedAt: null },
+        });
+        if (job.discoveryBatchId) {
+            await prisma.discoveryBatch
+                .update({
+                    where: { id: job.discoveryBatchId },
+                    data: {
+                        status: "downloading",
+                        completedAt: null,
+                        errorMessage: null,
+                    },
+                })
+                .catch(() => {});
+        }
+
+        const result = await acquisitionService.acquireAlbum(
+            {
+                albumTitle: metadata.albumTitle,
+                artistName: metadata.artistName,
+                mbid: metadata.albumMbid,
+                lastfmUrl: undefined,
+            },
+            {
+                userId,
+                discoveryBatchId: job.discoveryBatchId ?? undefined,
+                existingJobId: job.id,
+            }
+        );
+
+        if (result.success) {
+            const newStatus =
+                result.source === "soulseek" ? "completed" : "processing";
+            await prisma.downloadJob.update({
+                where: { id: job.id },
+                data: {
+                    status: newStatus,
+                    completedAt: newStatus === "completed" ? new Date() : null,
+                },
+            });
+        } else {
+            await prisma.downloadJob.update({
+                where: { id: job.id },
+                data: {
+                    status: "failed",
+                    error: result.error,
+                    completedAt: new Date(),
+                },
+            });
+        }
+
+        return { success: result.success, error: result.error };
+    }
+
+    /**
      * Check for batches stuck in "downloading" or "scanning" status for too long
      * Called periodically from queue cleaner
      */

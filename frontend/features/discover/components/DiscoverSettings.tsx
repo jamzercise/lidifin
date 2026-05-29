@@ -1,11 +1,20 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { Card } from "@/components/ui/Card";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
-import { Trash2, Loader2 } from "lucide-react";
+import { Trash2, Loader2, X } from "lucide-react";
 import type { DiscoverConfig } from "../types";
+
+interface DiscoverExclusion {
+    id: string;
+    albumMbid: string;
+    artistName: string;
+    albumTitle: string;
+    lastSuggestedAt: string;
+    expiresAt: string;
+}
 
 interface DiscoverSettingsProps {
     config: DiscoverConfig | null;
@@ -20,6 +29,58 @@ export function DiscoverSettings({
 }: DiscoverSettingsProps) {
     const [isClearing, setIsClearing] = useState(false);
     const debounceRef = useRef<NodeJS.Timeout | null>(null);
+    const [exclusions, setExclusions] = useState<DiscoverExclusion[]>([]);
+    const [exclusionsLoading, setExclusionsLoading] = useState(true);
+    const [removingId, setRemovingId] = useState<string | null>(null);
+    const [clearingExclusions, setClearingExclusions] = useState(false);
+
+    const loadExclusions = useCallback(async () => {
+        try {
+            const res = await api.getDiscoverExclusions();
+            setExclusions(res.exclusions);
+        } catch {
+            // Non-critical; leave list empty
+        } finally {
+            setExclusionsLoading(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        loadExclusions();
+    }, [loadExclusions]);
+
+    async function handleRemoveExclusion(id: string) {
+        setRemovingId(id);
+        try {
+            await api.removeDiscoverExclusion(id);
+            setExclusions((prev) => prev.filter((e) => e.id !== id));
+            toast.success("Album can be recommended again");
+        } catch {
+            toast.error("Failed to remove exclusion");
+        } finally {
+            setRemovingId(null);
+        }
+    }
+
+    async function handleClearExclusions() {
+        if (clearingExclusions || exclusions.length === 0) return;
+        const confirmed = window.confirm(
+            `Clear all ${exclusions.length} exclusion(s)?\n\nThese albums will be eligible for recommendation again.`
+        );
+        if (!confirmed) return;
+        setClearingExclusions(true);
+        try {
+            const result = await api.clearDiscoverExclusions();
+            setExclusions([]);
+            toast.success(
+                `Cleared ${result.clearedCount} exclusion${result.clearedCount !== 1 ? "s" : ""}`
+            );
+        } catch {
+            toast.error("Failed to clear exclusions");
+        } finally {
+            setClearingExclusions(false);
+        }
+    }
 
     // Generic handler for config changes with debounce
     function handleConfigChange<K extends keyof DiscoverConfig>(key: K, value: DiscoverConfig[K]) {
@@ -148,6 +209,83 @@ export function DiscoverSettings({
                         <p className="text-xs text-gray-400 mt-2">
                             How long to wait before recommending the same album again. Set to 0 to disable.
                         </p>
+                    </div>
+
+                    {/* Excluded Albums */}
+                    <div className="pt-4 border-t border-white/10">
+                        <div className="flex items-center justify-between mb-2">
+                            <label className="block text-sm font-medium">
+                                Excluded Albums
+                                {exclusions.length > 0 && (
+                                    <span className="ml-2 text-xs text-gray-400">
+                                        ({exclusions.length})
+                                    </span>
+                                )}
+                            </label>
+                            {exclusions.length > 0 && (
+                                <button
+                                    onClick={handleClearExclusions}
+                                    disabled={clearingExclusions}
+                                    className="text-xs text-gray-400 hover:text-red-400 transition-colors disabled:opacity-50"
+                                >
+                                    {clearingExclusions ? "Clearing..." : "Clear all"}
+                                </button>
+                            )}
+                        </div>
+                        <p className="text-xs text-gray-400 mb-3">
+                            Albums recently recommended and temporarily excluded.
+                            Remove one to let it be suggested again.
+                        </p>
+                        {exclusionsLoading ? (
+                            <div className="flex items-center gap-2 text-xs text-gray-500 py-2">
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                Loading exclusions…
+                            </div>
+                        ) : exclusions.length === 0 ? (
+                            <p className="text-xs text-gray-500 py-2">
+                                No excluded albums.
+                            </p>
+                        ) : (
+                            <div className="max-h-48 overflow-y-auto space-y-1.5 pr-1">
+                                {exclusions.map((ex) => (
+                                    <div
+                                        key={ex.id}
+                                        className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/[0.03]"
+                                    >
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-sm text-white truncate">
+                                                {ex.albumTitle}
+                                            </p>
+                                            <p className="text-xs text-gray-500 truncate">
+                                                {ex.artistName}
+                                                {ex.expiresAt && (
+                                                    <>
+                                                        {" · until "}
+                                                        {new Date(
+                                                            ex.expiresAt
+                                                        ).toLocaleDateString()}
+                                                    </>
+                                                )}
+                                            </p>
+                                        </div>
+                                        <button
+                                            onClick={() =>
+                                                handleRemoveExclusion(ex.id)
+                                            }
+                                            disabled={removingId === ex.id}
+                                            aria-label={`Remove exclusion for ${ex.albumTitle}`}
+                                            className="p-1.5 rounded-full text-gray-400 hover:text-white hover:bg-white/10 transition-colors disabled:opacity-50 shrink-0"
+                                        >
+                                            {removingId === ex.id ? (
+                                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                            ) : (
+                                                <X className="w-3.5 h-3.5" />
+                                            )}
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                     </div>
 
                     {/* Clear Playlist */}

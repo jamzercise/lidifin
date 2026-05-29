@@ -39,6 +39,7 @@ export interface BatchContext {
   failedJobs: number;
   pendingJobs: number;
   recommendedAlbums: Array<{
+    id?: string;
     artist: string;
     album: string;
     status: string;

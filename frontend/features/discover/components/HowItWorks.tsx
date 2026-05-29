@@ -3,7 +3,12 @@
 import { Sparkles, ChevronRight } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 
-export function HowItWorks() {
+export function HowItWorks({ exclusionMonths }: { exclusionMonths?: number }) {
+    const months = exclusionMonths ?? 6;
+    const exclusionText =
+        months === 0
+            ? "Albums can be recommended again any week (exclusion disabled)"
+            : `Albums won't repeat for ${months} month${months === 1 ? "" : "s"}`;
     return (
         <Card className="p-6 bg-[#111]/50  border-white/5">
             <h3 className="text-lg font-bold mb-4 flex items-center gap-2 text-white">
@@ -35,13 +40,24 @@ export function HowItWorks() {
                 <div className="flex items-start gap-3">
                     <ChevronRight className="w-4 h-4 mt-0.5 text-purple-400/60 shrink-0" />
                     <p>
-                        Liked albums move to your library. Others removed at
-                        week end.
+                        Tap the <span className="text-purple-300">heart</span> to
+                        keep an album in your library — kept albums stay, the rest
+                        are removed at week end.
                     </p>
                 </div>
                 <div className="flex items-start gap-3">
                     <ChevronRight className="w-4 h-4 mt-0.5 text-purple-400/60 shrink-0" />
-                    <p>Albums won&apos;t repeat for 6 months</p>
+                    <p>
+                        Found an unavailable album you want later? Use{" "}
+                        <span className="text-purple-300">Save for later</span> on
+                        its album page to bookmark it on your{" "}
+                        <span className="text-purple-300">Saved albums</span> list
+                        until it becomes available.
+                    </p>
+                </div>
+                <div className="flex items-start gap-3">
+                    <ChevronRight className="w-4 h-4 mt-0.5 text-purple-400/60 shrink-0" />
+                    <p>{exclusionText}</p>
                 </div>
                 <div className="flex items-start gap-3">
                     <ChevronRight className="w-4 h-4 mt-0.5 text-purple-400/60 shrink-0" />

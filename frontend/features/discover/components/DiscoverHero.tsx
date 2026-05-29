@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Bookmark, Music2 } from "lucide-react";
+import { Bookmark, Music2, RefreshCw } from "lucide-react";
 import { format } from "date-fns";
 import { DiscoverPlaylist, DiscoverConfig } from "../types";
 
@@ -8,10 +8,24 @@ interface DiscoverHeroProps {
     config: DiscoverConfig | null;
 }
 
+// The backend cron regenerates enabled playlists every Sunday at 20:00.
+// Compute the next occurrence in the viewer's local time as an affordance.
+function nextSundayRefresh(from: Date = new Date()): Date {
+    const next = new Date(from);
+    const day = next.getDay(); // 0 = Sunday
+    let daysUntil = (7 - day) % 7;
+    if (day === 0 && next.getHours() >= 20) daysUntil = 7;
+    next.setDate(next.getDate() + daysUntil);
+    next.setHours(20, 0, 0, 0);
+    return next;
+}
+
 export function DiscoverHero({ playlist, config }: DiscoverHeroProps) {
     // Calculate total duration
     const totalDuration =
         playlist?.tracks?.reduce((sum, t) => sum + (t.duration || 0), 0) || 0;
+
+    const nextRefresh = nextSundayRefresh();
 
     const formatTotalDuration = (seconds: number) => {
         const hours = Math.floor(seconds / 3600);
@@ -74,6 +88,21 @@ export function DiscoverHero({ playlist, config }: DiscoverHeroProps) {
                             </>
                         )}
                     </div>
+                    {config && (
+                        <p className="flex items-center gap-1.5 text-xs text-white/50 mt-2">
+                            <RefreshCw className="w-3.5 h-3.5 shrink-0" aria-hidden />
+                            {config.enabled ? (
+                                <span>
+                                    Auto-refreshes Sundays · next{" "}
+                                    {format(nextRefresh, "MMM d")}
+                                </span>
+                            ) : (
+                                <span>
+                                    Auto-refresh off · generate manually anytime
+                                </span>
+                            )}
+                        </p>
+                    )}
                     <div className="mt-3">
                         <Link
                             href="/library/saved-albums"

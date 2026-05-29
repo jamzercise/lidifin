@@ -10,8 +10,10 @@ declare module "./client" {
             result?: { success: boolean; playlistName: string; songCount: number; error?: string };
         }>;
         getCurrentDiscoverWeekly(): Promise<{ weekStart: string; weekEnd: string; tracks: ApiData[]; unavailable: ApiData[]; totalCount: number; unavailableCount: number; batchContext?: BatchContext | null }>;
-        getDiscoverBatchStatus(): Promise<{ active: boolean; status: "downloading" | "scanning" | null; batchId?: string; progress?: number; completed?: number; failed?: number; total?: number }>;
+        getDiscoverBatchStatus(): Promise<{ active: boolean; status: "downloading" | "scanning" | null; batchId?: string; progress?: number; completed?: number; failed?: number; total?: number; albums?: Array<{ id?: string; artist: string; album: string; status: string; error: string | null }> }>;
         rebuildDiscoverWeekly(): Promise<{ message: string; batchId: string; completedJobs?: number }>;
+        cancelDiscoverGeneration(): Promise<{ message: string; cancelledJobs: number }>;
+        retryDiscoverAlbum(jobId: string): Promise<{ message: string }>;
         likeDiscoverAlbum(albumId: string): Promise<{ success: boolean }>;
         unlikeDiscoverAlbum(albumId: string): Promise<{ success: boolean }>;
         getDiscoverConfig(): Promise<{ id: string; userId: string; playlistSize: number; exclusionMonths: number; downloadRatio: number; enabled: boolean; lastGeneratedAt: string | null }>;
@@ -68,6 +70,17 @@ ApiClient.prototype.getCurrentDiscoverWeekly = async function (this: ApiClient) 
 
 ApiClient.prototype.getDiscoverBatchStatus = async function (this: ApiClient) {
     return this.request("/discover/batch-status");
+};
+
+ApiClient.prototype.cancelDiscoverGeneration = async function (this: ApiClient) {
+    return this.request("/discover/cancel", { method: "POST" });
+};
+
+ApiClient.prototype.retryDiscoverAlbum = async function (this: ApiClient, jobId: string) {
+    return this.request("/discover/retry-album", {
+        method: "POST",
+        body: JSON.stringify({ jobId }),
+    });
 };
 
 ApiClient.prototype.likeDiscoverAlbum = async function (this: ApiClient, albumId: string) {

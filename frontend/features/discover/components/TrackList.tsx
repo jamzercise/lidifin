@@ -1,9 +1,11 @@
 import { Play, Heart, Music } from "lucide-react";
 import Image from "next/image";
+import Link from "next/link";
 import { cn } from "@/utils/cn";
 import { DiscoverTrack } from "../types";
 import { api } from "@/lib/api";
 import { formatTime } from "@/utils/formatTime";
+import { toArtistRouteId } from "@/lib/route-ids";
 
 const tierColors: Record<string, string> = {
     high: "text-green-400",
@@ -56,6 +58,12 @@ export function TrackList({
             <div>
                 {tracks.map((track, index) => {
                     const isTrackPlaying = currentTrack?.id === track.id;
+                    const matchPct = Math.round((track.similarity || 0) * 100);
+                    const matchLabel = `${tierLabels[track.tier] || "Match"} · ${matchPct}% similar to your library`;
+                    const artistHref = `/artist/${encodeURIComponent(toArtistRouteId({ name: track.artist }))}`;
+                    const albumHref = track.albumId
+                        ? `/album/${encodeURIComponent(track.albumId)}`
+                        : null;
                     return (
                         <div
                             key={track.id}
@@ -120,26 +128,58 @@ export function TrackList({
                                     >
                                         {track.title}
                                     </p>
-                                    <p className="text-xs text-gray-400 truncate">
+                                    <Link
+                                        href={artistHref}
+                                        onClick={(e) => e.stopPropagation()}
+                                        className="text-xs text-gray-400 truncate hover:text-white hover:underline block w-fit max-w-full"
+                                    >
                                         {track.artist}
-                                    </p>
+                                    </Link>
+                                    {/* Why-recommended (mobile only — Match column is hidden) */}
+                                    <div className="md:hidden flex items-center gap-1.5 mt-0.5">
+                                        <span
+                                            className={cn(
+                                                "text-[10px] font-medium",
+                                                tierColors[track.tier]
+                                            )}
+                                        >
+                                            {tierLabels[track.tier]}
+                                        </span>
+                                        <span className="text-[10px] text-gray-500">
+                                            · {matchPct}% match
+                                        </span>
+                                    </div>
                                 </div>
                             </div>
 
                             {/* Album (hidden on mobile) */}
-                            <p className="hidden md:flex items-center text-sm text-gray-400 truncate">
-                                {track.album}
-                            </p>
+                            {albumHref ? (
+                                <Link
+                                    href={albumHref}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="hidden md:flex items-center text-sm text-gray-400 truncate hover:text-white hover:underline"
+                                >
+                                    {track.album}
+                                </Link>
+                            ) : (
+                                <p className="hidden md:flex items-center text-sm text-gray-400 truncate">
+                                    {track.album}
+                                </p>
+                            )}
 
-                            {/* Tier Badge (hidden on mobile) */}
-                            <div className="hidden md:flex items-center justify-center">
+                            {/* Tier Badge + similarity (hidden on mobile) */}
+                            <div className="hidden md:flex flex-col items-center justify-center gap-0.5">
                                 <span
+                                    title={matchLabel}
                                     className={cn(
                                         "px-2 py-0.5 rounded-full text-xs font-medium bg-white/5",
                                         tierColors[track.tier]
                                     )}
                                 >
                                     {tierLabels[track.tier]?.split(" ")[0]}
+                                </span>
+                                <span className="text-[10px] text-gray-500 tabular-nums">
+                                    {matchPct}% match
                                 </span>
                             </div>
 
@@ -158,8 +198,13 @@ export function TrackList({
                                     )}
                                     title={
                                         track.isLiked
-                                            ? "Unlike"
-                                            : "Keep in library"
+                                            ? "Kept in your library — click to remove"
+                                            : "Keep this album in your library (stays after week-end cleanup)"
+                                    }
+                                    aria-label={
+                                        track.isLiked
+                                            ? `Remove ${track.album} from your library`
+                                            : `Keep ${track.album} in your library`
                                     }
                                 >
                                     <Heart
