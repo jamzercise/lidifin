@@ -34,6 +34,22 @@ const DeezerIcon = ({ className }: { className?: string }) => (
     </svg>
 );
 
+// YouTube Music icon (official red #FF0000 per YouTube branding guidelines)
+const YouTubeMusicIcon = ({ className }: { className?: string }) => (
+    <svg
+        className={className}
+        viewBox="0 0 24 24"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+    >
+        <path
+            d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0z"
+            fill="#FF0000"
+        />
+        <path d="M10 8l6 4-6 4V8z" fill="white" />
+    </svg>
+);
+
 // Tab type (radios removed - now personal library content at /radio)
 type BrowseTab = "playlists" | "genres";
 
@@ -92,6 +108,15 @@ export default function BrowsePlaylistsPage() {
     useEffect(() => {
         fetchAllContent();
     }, [fetchAllContent]);
+
+    // Differentiate the browser tab from library browsing
+    useEffect(() => {
+        const previousTitle = document.title;
+        document.title = "Import Playlist - Lidifin";
+        return () => {
+            document.title = previousTitle;
+        };
+    }, []);
 
     // Search playlists
     const handleSearch = async (e?: React.FormEvent) => {
@@ -282,22 +307,20 @@ export default function BrowsePlaylistsPage() {
                     <div className="flex items-center gap-3 mb-1">
                         <DeezerIcon className="w-8 h-8 text-[#AD47FF]" />
                         <h1 className="text-3xl font-bold text-white">
-                            Browse
+                            Import Playlist
                         </h1>
-                        <span className="px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide rounded bg-[#B1D2C3]/20 text-[#B1D2C3] border border-[#B1D2C3]/30">
-                            Beta
-                        </span>
                     </div>
                     <p className="text-sm text-gray-400">
-                        Discover and import playlists from Deezer
+                        Import playlists from Deezer, Spotify, or YouTube Music
+                        into your library
                     </p>
                 </div>
 
-                {/* Beta Notice */}
+                {/* How it works */}
                 <div className="mb-6 flex items-start gap-3 px-4 py-3 rounded-lg bg-[#B1D2C3]/10 border border-[#B1D2C3]/20">
                     <Info className="w-5 h-5 text-[#B1D2C3] shrink-0 mt-0.5" />
                     <p className="text-sm text-gray-300">
-                        <span className="font-medium text-[#B1D2C3]">Beta feature:</span>{" "}
+                        <span className="font-medium text-[#B1D2C3]">How it works:</span>{" "}
                         Importing from Spotify and Deezer relies on matching tracks through Soulseek and your configured indexers.
                         Results may vary depending on track availability and metadata quality.
                     </p>
@@ -555,7 +578,7 @@ export default function BrowsePlaylistsPage() {
                     </div>
                 }
             >
-                <div className="flex items-center gap-3 rounded-xl border border-white/[0.03] bg-white/[0.03] p-3">
+                <div className="flex flex-wrap items-center gap-2 rounded-xl border border-white/[0.03] bg-white/[0.03] p-3">
                     <div className="flex items-center gap-2 rounded-full bg-[#1DB954]/10 px-3 py-1.5">
                         <svg
                             viewBox="0 0 24 24"
@@ -573,6 +596,12 @@ export default function BrowsePlaylistsPage() {
                         <DeezerIcon className="w-4 h-4 text-[#AD47FF]" />
                         <span className="text-xs font-medium text-[#AD47FF]">
                             Deezer
+                        </span>
+                    </div>
+                    <div className="flex items-center gap-2 rounded-full bg-[#FF0000]/10 px-3 py-1.5">
+                        <YouTubeMusicIcon className="w-4 h-4" />
+                        <span className="text-xs font-medium text-[#FF0000]">
+                            YouTube Music
                         </span>
                     </div>
                     <span className="ml-auto text-xs text-white/30">Supported</span>

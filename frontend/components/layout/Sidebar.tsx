@@ -23,7 +23,7 @@ const navigation = [
     { name: "Discovery", href: "/discover" },
     { name: "Audiobooks", href: "/audiobooks" },
     { name: "Podcasts", href: "/podcasts" },
-    { name: "Browse", href: "/browse/playlists", badge: "Beta" },
+    { name: "Import Playlist", href: "/browse/playlists" },
 ] as const;
 
 interface Playlist {
