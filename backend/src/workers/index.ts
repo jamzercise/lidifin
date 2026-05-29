@@ -434,6 +434,29 @@ async function runReconciliationCycle() {
             timeouts.push(setTimeout(runReconciliationCycle, 5 * 60 * 1000));
             return;
         }
+
+        // Recover stuck discovery batches (downloading/scanning that never
+        // reach a terminal state). Run this regardless of Lidarr config since
+        // discovery can also acquire via Soulseek. Previously this only ran in
+        // the queue cleaner, which auto-stops after a few idle cycles.
+        try {
+            const { discoverWeeklyService } = await import(
+                "../services/discoverWeekly"
+            );
+            const stuckBatches = await withTimeout(
+                () => discoverWeeklyService.checkStuckBatches(),
+                120000,
+                "checkStuckBatches"
+            );
+            if (stuckBatches && stuckBatches > 0) {
+                logger.debug(
+                    `Periodic cleanup: recovered ${stuckBatches} stuck discovery batch(es)`
+                );
+            }
+        } catch (err) {
+            logger.error("Periodic discovery batch recovery failed:", err);
+        }
+
         const { lidarrService } = await import("../services/lidarr");
         if (!(await lidarrService.isEnabled())) {
             logger.debug("Reconciliation skipped – Lidarr not configured");

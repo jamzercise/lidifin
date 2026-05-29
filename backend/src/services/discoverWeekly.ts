@@ -333,11 +333,17 @@ export class DiscoverWeeklyService {
                     );
     
                     const newStatus = result.source === "soulseek" ? "completed" : "processing";
+                    // NOTE: Do NOT write `lidarrRef` here. For the Lidarr path the
+                    // job's correlationId is already stored by startDownload, and
+                    // `lidarrRef` must stay null so the Lidarr "Grab" webhook can
+                    // adopt the job and populate it with the real download client
+                    // ID. Overwriting it with the correlationId previously made
+                    // discovery jobs invisible to webhook matching and left them
+                    // stuck in `processing` forever.
                     await prisma.downloadJob.update({
                         where: { id: job.id },
                         data: {
                             status: newStatus,
-                            lidarrRef: result.correlationId || null,
                             completedAt: newStatus === "completed" ? new Date() : null,
                         },
                     });
@@ -369,7 +375,8 @@ export class DiscoverWeeklyService {
             const results = await Promise.allSettled(acquisitionPromises);
     
             // Process results and update counters
-            results.forEach((settledResult, index) => {
+            for (let index = 0; index < results.length; index++) {
+                const settledResult = results[index];
                 if (settledResult.status === 'fulfilled') {
                     const { result } = settledResult.value;
                     if (result.success) {
@@ -381,9 +388,29 @@ export class DiscoverWeeklyService {
                     downloadsFailed++;
                     const job = jobs[index];
                     const metadata = job.metadata as any;
-                    logger.error(`[Discover] Failed to acquire ${metadata.albumTitle}: ${settledResult.reason}`);
+                    const reason =
+                        settledResult.reason instanceof Error
+                            ? settledResult.reason.message
+                            : String(settledResult.reason);
+                    logger.error(`[Discover] Failed to acquire ${metadata.albumTitle}: ${reason}`);
+                    // The acquire threw before reaching a status update — mark the
+                    // job failed so it can't get stuck in `pending` forever.
+                    await prisma.downloadJob
+                        .update({
+                            where: { id: job.id },
+                            data: {
+                                status: "failed",
+                                error: reason,
+                                completedAt: new Date(),
+                            },
+                        })
+                        .catch((e) =>
+                            logger.error(
+                                `[Discover] Could not mark job ${job.id} as failed: ${e}`
+                            )
+                        );
                 }
-            });
+            }
     
             // Log batch completion summary
             logger.info(`[Discover] Batch complete: ${downloadsStarted} succeeded, ${downloadsFailed} failed`);
