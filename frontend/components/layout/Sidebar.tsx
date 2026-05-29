@@ -303,7 +303,6 @@ export function Sidebar() {
             >
                 {navigation.map((item) => {
                     const isActive = pathname === item.href;
-                    const badge = "badge" in item ? item.badge : null;
 
                     return (
                         <Link
@@ -331,11 +330,6 @@ export function Sidebar() {
                                 >
                                     {item.name}
                                 </span>
-                                {badge && (
-                                    <span className="px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide rounded bg-[#B1D2C3]/20 text-[#B1D2C3] border border-[#B1D2C3]/30">
-                                        {badge}
-                                    </span>
-                                )}
                             </div>
                         </Link>
                     );
