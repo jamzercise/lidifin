@@ -55,6 +55,7 @@ export function registerConfigRoutes(router: Router): void {
                 exclusionMonths,
                 downloadRatio,
                 enabled,
+                acquisitionMode,
             } = req.body;
 
             // Validate playlist size
@@ -97,6 +98,17 @@ export function registerConfigRoutes(router: Router): void {
                 }
             }
 
+            // Validate acquisition mode
+            if (
+                acquisitionMode !== undefined &&
+                acquisitionMode !== "album" &&
+                acquisitionMode !== "track"
+            ) {
+                return res.status(400).json({
+                    error: 'Invalid acquisition mode. Must be "album" or "track".',
+                });
+            }
+
             const config = await prisma.userDiscoverConfig.upsert({
                 where: { userId },
                 create: {
@@ -106,6 +118,7 @@ export function registerConfigRoutes(router: Router): void {
                     exclusionMonths: exclusionMonths ?? 6,
                     downloadRatio: downloadRatio ?? 1.3,
                     enabled: enabled ?? true,
+                    ...(acquisitionMode !== undefined && { acquisitionMode }),
                 },
                 update: {
                     ...(playlistSize !== undefined && {
@@ -121,6 +134,7 @@ export function registerConfigRoutes(router: Router): void {
                         downloadRatio: parseFloat(downloadRatio),
                     }),
                     ...(enabled !== undefined && { enabled }),
+                    ...(acquisitionMode !== undefined && { acquisitionMode }),
                 },
             });
 

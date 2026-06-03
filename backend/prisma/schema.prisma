@@ -875,6 +875,9 @@ model UserDiscoverConfig {
   exclusionMonths  Int       @default(6)
   downloadRatio    Float     @default(1.3)
   enabled          Boolean   @default(true)
+  // "album" = recommend + download full albums (default);
+  // "track" = recommend individual songs, download as single tracks via Soulseek (ADR 0007)
+  acquisitionMode  String    @default("album")
   lastGeneratedAt  DateTime?
   user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

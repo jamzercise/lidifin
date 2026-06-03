@@ -46,6 +46,20 @@ interface RecommendedAlbum {
     tier?: "high" | "medium" | "explore" | "wildcard";
 }
 
+/**
+ * A single recommended song for track-first Discover mode (ADR 0007).
+ * albumTitle/trackMbid are best-effort hints used to improve Soulseek matching.
+ */
+interface RecommendedTrack {
+    artistName: string;
+    artistMbid?: string;
+    trackTitle: string;
+    albumTitle?: string;
+    trackMbid?: string;
+    similarity: number;
+    tier?: "high" | "medium" | "explore" | "wildcard";
+}
+
 // Tier distribution for variety in recommendations
 // This ensures each playlist has a mix of similarity levels
 const TIER_DISTRIBUTION = {
@@ -3235,6 +3249,220 @@ export class DiscoverWeeklyService {
         logger.debug(`\n[DISCOVERY] Final: ${recommendations.length} albums`);
         logger.debug(
             `   High: ${tierCounts.high}, Medium: ${tierCounts.medium}, Explore: ${tierCounts.explore}, Wildcard: ${tierCounts.wildcard}`
+        );
+
+        return recommendations.slice(0, targetCount);
+    }
+
+    /**
+     * Track-first recommendation engine (ADR 0007).
+     *
+     * Mirrors {@link findRecommendedAlbumsMultiStrategy} but yields individual
+     * songs instead of albums. Used when
+     * `UserDiscoverConfig.acquisitionMode === "track"`.
+     *
+     * Strategy:
+     *  - Tier similar artists by Last.fm match (high/medium/explore), prefer
+     *    NEW artists, and take a couple of their top tracks each
+     *    (`artist.getTopTracks`).
+     *  - Wildcard slots seed `track.getSimilar` off the user's seed artists'
+     *    top tracks to surface cross-artist "song radio" picks.
+     *
+     * Reuses the same `similarCache` and tier thresholds as album mode so the
+     * two modes stay tonally consistent.
+     */
+    async findRecommendedTracksMultiStrategy(
+        seeds: SeedArtist[],
+        similarCache: Map<string, any[]>,
+        targetCount: number,
+        userId: string
+    ): Promise<RecommendedTrack[]> {
+        const seenTracks = new Set<string>(); // `${artist}|${title}`
+        const perArtistCount = new Map<string, number>();
+        const recommendations: RecommendedTrack[] = [];
+
+        // Spread picks across artists rather than dumping one artist's discography
+        const MAX_PER_ARTIST = 2;
+
+        const trackKey = (artist: string, title: string) =>
+            `${artist.toLowerCase().trim()}|${title.toLowerCase().trim()}`;
+
+        // Last.fm returns artist as a string, { name }, or { '#text' } depending on method
+        const extractArtistName = (t: any): string => {
+            if (!t) return "";
+            if (typeof t.artist === "string") return t.artist;
+            return t.artist?.name || t.artist?.["#text"] || "";
+        };
+
+        const addTrack = (
+            artistName: string,
+            trackTitle: string,
+            opts: {
+                artistMbid?: string;
+                trackMbid?: string;
+                similarity: number;
+                tier: RecommendedTrack["tier"];
+            }
+        ): boolean => {
+            if (!artistName || !trackTitle) return false;
+            const key = trackKey(artistName, trackTitle);
+            if (seenTracks.has(key)) return false;
+            const aKey = artistName.toLowerCase().trim();
+            if ((perArtistCount.get(aKey) || 0) >= MAX_PER_ARTIST) return false;
+            seenTracks.add(key);
+            perArtistCount.set(aKey, (perArtistCount.get(aKey) || 0) + 1);
+            recommendations.push({
+                artistName,
+                artistMbid: opts.artistMbid,
+                trackTitle,
+                trackMbid: opts.trackMbid,
+                similarity: opts.similarity,
+                tier: opts.tier,
+            });
+            return true;
+        };
+
+        // Tier sizing — identical split to album mode
+        const wildcardCount = Math.max(
+            1,
+            Math.ceil(targetCount * TIER_DISTRIBUTION.wildcard)
+        );
+        const similarTarget = targetCount - wildcardCount;
+        const highCount = Math.ceil(
+            similarTarget * (TIER_DISTRIBUTION.high / 0.9)
+        );
+        const mediumCount = Math.ceil(
+            similarTarget * (TIER_DISTRIBUTION.medium / 0.9)
+        );
+        const exploreCount = similarTarget - highCount - mediumCount;
+
+        // Collect + tier similar artists (same thresholds as album mode)
+        const allSimilarArtists: any[] = [];
+        for (const seed of seeds) {
+            const similar = similarCache.get(seed.mbid || seed.name) || [];
+            allSimilarArtists.push(...similar);
+        }
+        const byTier = {
+            high: shuffleArray(
+                allSimilarArtists.filter((a) => (a.match || 0) >= 0.7)
+            ),
+            medium: shuffleArray(
+                allSimilarArtists.filter(
+                    (a) => (a.match || 0) >= 0.5 && (a.match || 0) < 0.7
+                )
+            ),
+            explore: shuffleArray(
+                allSimilarArtists.filter(
+                    (a) => (a.match || 0) >= 0.3 && (a.match || 0) < 0.5
+                )
+            ),
+        };
+
+        // Pull top tracks from NEW artists within a tier
+        const selectFromTier = async (
+            tier: any[],
+            count: number,
+            tierName: "high" | "medium" | "explore"
+        ): Promise<void> => {
+            const startLen = recommendations.length;
+            for (const artist of tier) {
+                if (recommendations.length - startLen >= count) break;
+                try {
+                    if (await this.isArtistInLibrary(artist.name, artist.mbid)) {
+                        continue;
+                    }
+                } catch {
+                    // ignore lookup errors, treat as not-in-library
+                }
+                let topTracks: any[] = [];
+                try {
+                    topTracks = await lastFmService.getArtistTopTracks(
+                        artist.mbid || "",
+                        artist.name,
+                        5
+                    );
+                } catch {
+                    continue;
+                }
+                let addedForArtist = 0;
+                for (const t of topTracks) {
+                    if (recommendations.length - startLen >= count) break;
+                    if (addedForArtist >= MAX_PER_ARTIST) break;
+                    const title = t?.name;
+                    if (!title) continue;
+                    if (
+                        addTrack(artist.name, title, {
+                            artistMbid: artist.mbid,
+                            trackMbid: t?.mbid || undefined,
+                            similarity: artist.match || 0,
+                            tier: tierName,
+                        })
+                    ) {
+                        addedForArtist++;
+                    }
+                }
+            }
+        };
+
+        await selectFromTier(byTier.high, highCount, "high");
+        await selectFromTier(byTier.medium, mediumCount, "medium");
+        await selectFromTier(byTier.explore, exploreCount, "explore");
+
+        // Wildcards: track.getSimilar seeded off the user's seed artists' top tracks
+        if (recommendations.length < targetCount) {
+            for (const seed of shuffleArray([...seeds])) {
+                if (recommendations.length >= targetCount) break;
+                let seedTop: any[] = [];
+                try {
+                    seedTop = await lastFmService.getArtistTopTracks(
+                        seed.mbid || "",
+                        seed.name,
+                        1
+                    );
+                } catch {
+                    continue;
+                }
+                const seedTrack = seedTop[0]?.name;
+                if (!seedTrack) continue;
+                let similar: any[] = [];
+                try {
+                    similar = await lastFmService.getSimilarTracks(
+                        seed.name,
+                        seedTrack,
+                        20
+                    );
+                } catch {
+                    continue;
+                }
+                for (const t of shuffleArray(similar)) {
+                    if (recommendations.length >= targetCount) break;
+                    const title = t?.name;
+                    const artistName = extractArtistName(t);
+                    if (!title || !artistName) continue;
+                    try {
+                        if (
+                            await this.isArtistInLibrary(
+                                artistName,
+                                t?.artist?.mbid
+                            )
+                        ) {
+                            continue;
+                        }
+                    } catch {
+                        // ignore lookup errors
+                    }
+                    addTrack(artistName, title, {
+                        artistMbid: t?.artist?.mbid || undefined,
+                        trackMbid: t?.mbid || undefined,
+                        similarity: parseFloat(t?.match) || 0,
+                        tier: "wildcard",
+                    });
+                }
+            }
+        }
+
+        logger.debug(
+            `[DISCOVERY] Track-first: ${recommendations.length} tracks (target ${targetCount})`
         );
 
         return recommendations.slice(0, targetCount);
