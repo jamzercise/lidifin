@@ -149,6 +149,49 @@ export function DiscoverSettings({
                 <div className="space-y-6">
                     <div>
                         <label className="block text-sm font-medium mb-2">
+                            Discovery mode
+                        </label>
+                        <div className="inline-flex rounded-lg bg-white/[0.06] p-1">
+                            {(
+                                [
+                                    { value: "album", label: "Full albums" },
+                                    { value: "track", label: "Individual songs" },
+                                ] as const
+                            ).map((opt) => {
+                                const active =
+                                    (config?.acquisitionMode ?? "album") ===
+                                    opt.value;
+                                return (
+                                    <button
+                                        key={opt.value}
+                                        type="button"
+                                        aria-pressed={active}
+                                        onClick={() =>
+                                            handleConfigChange(
+                                                "acquisitionMode",
+                                                opt.value
+                                            )
+                                        }
+                                        className={`px-4 py-1.5 text-sm rounded-md transition-colors ${
+                                            active
+                                                ? "bg-purple-500 text-white"
+                                                : "text-gray-300 hover:text-white"
+                                        }`}
+                                    >
+                                        {opt.label}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                        <p className="text-xs text-gray-400 mt-2">
+                            {(config?.acquisitionMode ?? "album") === "track"
+                                ? "Recommends and downloads individual songs via Soulseek — faster and higher hit-rate. Keeping a song grabs its full album."
+                                : "Recommends and downloads full albums, keeping one song per album in your playlist."}
+                        </p>
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-medium mb-2">
                             Playlist Size: {config?.playlistSize || 10} songs
                         </label>
                         <input
@@ -163,7 +206,9 @@ export function DiscoverSettings({
                             className="w-full h-2 bg-white/10 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-purple-500"
                         />
                         <p className="text-xs text-gray-400 mt-2">
-                            One song per album. Larger = more discovery.
+                            {(config?.acquisitionMode ?? "album") === "track"
+                                ? "Number of songs to discover. Larger = more discovery."
+                                : "One song per album. Larger = more discovery."}
                         </p>
                     </div>
 

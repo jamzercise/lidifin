@@ -62,5 +62,7 @@ export interface DiscoverConfig {
   exclusionMonths: number; // 0-12, months to exclude albums after download (0 = no exclusion)
   downloadRatio: number; // 1.0-2.0, multiplier for albums to request vs target songs
   enabled: boolean;
+  // "album" downloads full albums (default); "track" downloads individual songs (ADR 0007)
+  acquisitionMode: "album" | "track";
   lastGeneratedAt: string | null;
 }

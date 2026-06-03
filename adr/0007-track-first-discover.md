@@ -1,6 +1,6 @@
 # ADR 0007 — Track-first Discover acquisition (Soulseek singles instead of full albums)
 
-**Status:** Proposed (design spike — not yet implemented)
+**Status:** Accepted — implemented as an opt-in mode (Jun 2026). Backend type-checks clean; pending runtime verification on a live stack. Album mode remains the default. See `UserDiscoverConfig.acquisitionMode`, `DiscoveryBatch.mode`, `DiscoverWeeklyService.generateTrackPlaylist` / `findRecommendedTracksMultiStrategy`, and the "Discovery mode" toggle in `DiscoverSettings`.
 
 ## Context
 
