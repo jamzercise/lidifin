@@ -8,6 +8,7 @@ import { lidarrService } from "../services/lidarr";
 import { musicBrainzService } from "../services/musicbrainz";
 import { lastFmService } from "../services/lastfm";
 import { simpleDownloadManager } from "../services/simpleDownloadManager";
+import { acquisitionService } from "../services/acquisitionService";
 import crypto from "crypto";
 
 const router = Router();
@@ -833,15 +834,22 @@ router.post("/keep-track", async (req, res) => {
             data: { userKept: true },
         });
 
+        const { albumTitle, artistName, rgMbid } =
+            discoveryTrack.discoveryAlbum;
+        // Synthetic track-mode MBIDs (e.g. "track:artist:title") aren't real
+        // release-group MBIDs and can't drive an album upgrade.
+        const hasRealAlbumMbid =
+            !!rgMbid && !rgMbid.startsWith("track:") && rgMbid.length >= 8;
+
         // If Lidarr enabled, create job to download full album to permanent library
         const lidarrEnabled = await lidarrService.isEnabled();
-        if (lidarrEnabled) {
+        if (lidarrEnabled && hasRealAlbumMbid) {
             const job = await prisma.downloadJob.create({
                 data: {
                     userId,
-                    subject: `${discoveryTrack.discoveryAlbum.albumTitle} by ${discoveryTrack.discoveryAlbum.artistName}`,
+                    subject: `${albumTitle} by ${artistName}`,
                     type: "album",
-                    targetMbid: discoveryTrack.discoveryAlbum.rgMbid,
+                    targetMbid: rgMbid,
                     status: "pending",
                 },
             });
@@ -851,6 +859,29 @@ router.post("/keep-track", async (req, res) => {
                 message:
                     "Track marked as kept. Full album will be downloaded to permanent library.",
                 downloadJobId: job.id,
+            });
+        }
+
+        // Soulseek-primary path (ADR 0007 track-first mode): grab the full album
+        // on demand in the background so the request returns immediately.
+        if (hasRealAlbumMbid) {
+            acquisitionService
+                .acquireAlbum(
+                    { albumTitle, artistName, mbid: rgMbid },
+                    { userId }
+                )
+                .catch((e) =>
+                    logger.error(
+                        `[keep-track] background album upgrade failed for ${artistName} - ${albumTitle}: ${
+                            e instanceof Error ? e.message : e
+                        }`
+                    )
+                );
+
+            return res.json({
+                success: true,
+                message:
+                    "Track marked as kept. Downloading the full album in the background.",
             });
         }
 
