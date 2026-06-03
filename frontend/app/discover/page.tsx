@@ -210,7 +210,11 @@ export default function DiscoverWeeklyPage() {
             {/* Discover hub shelves — complementary discovery rails below the
                 Discover Weekly headline experience. */}
             <div className="px-4 md:px-8 pt-12 pb-32">
-                <DiscoverShelves />
+                <DiscoverShelves
+                    hiddenGems={playlist?.unavailable ?? []}
+                    currentPreview={currentPreview}
+                    onTogglePreview={handleTogglePreview}
+                />
             </div>
         </div>
     );

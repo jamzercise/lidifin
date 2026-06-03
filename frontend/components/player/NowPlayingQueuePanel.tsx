@@ -14,9 +14,11 @@ import {
     Heart,
     Mic2,
     Headphones,
+    Radio,
 } from "lucide-react";
 import { formatTime } from "@/utils/formatTime";
 import { cn } from "@/utils/cn";
+import { useSongRadio } from "@/hooks/useSongRadio";
 
 export function NowPlayingQueuePanel() {
     const { isOpen, closeQueue } = useQueuePanel();
@@ -34,6 +36,7 @@ export function NowPlayingQueuePanel() {
     } = useAudio();
 
     const { favoriteIds, addFavorite, removeFavorite } = useFavorites();
+    const { startRadio, startingId } = useSongRadio();
     const hasMedia = !!(currentTrack || currentPodcast || currentAudiobook);
     const upNextTracks = playbackType === "track" ? queue.slice(currentIndex + 1) : [];
     const currentEpisodeId =
@@ -159,6 +162,25 @@ export function NowPlayingQueuePanel() {
                                                 {currentTrack.artist?.name}
                                             </p>
                                         </div>
+                                        <button
+                                            type="button"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                startRadio({
+                                                    id: currentTrack.id,
+                                                    title: currentTrack.title,
+                                                    artist: currentTrack.artist,
+                                                    album: currentTrack.album,
+                                                    duration: currentTrack.duration,
+                                                });
+                                            }}
+                                            disabled={startingId === currentTrack.id}
+                                            className="p-1.5 rounded-md transition-colors flex-shrink-0 text-gray-400 hover:text-white disabled:opacity-50"
+                                            title="Start a song radio from this track"
+                                            aria-label="Start a song radio from this track"
+                                        >
+                                            <Radio className="w-4 h-4" />
+                                        </button>
                                         {currentTrack.id?.startsWith("jellyfin:") && (
                                             <button
                                                 type="button"

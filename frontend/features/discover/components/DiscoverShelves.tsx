@@ -14,16 +14,17 @@ import { ArtistsGrid } from "@/features/home/components/ArtistsGrid";
 import { SectionHeader } from "@/features/home/components/SectionHeader";
 import { NewReleasesShelf } from "./NewReleasesShelf";
 import { ExploreByMoodShelf } from "./ExploreByMoodShelf";
+import { HiddenGemsShelf } from "./HiddenGemsShelf";
+import type { UnavailableAlbum } from "../types";
 
-type ShelfFilter = "all" | "releases" | "mood" | "artists" | "playlists";
+type ShelfFilter = "all" | "releases" | "mood" | "gems" | "artists" | "playlists";
 
-const FILTERS: Array<{ id: ShelfFilter; label: string }> = [
-    { id: "all", label: "All" },
-    { id: "releases", label: "New releases" },
-    { id: "mood", label: "Mood" },
-    { id: "artists", label: "Artists" },
-    { id: "playlists", label: "Playlists" },
-];
+interface DiscoverShelvesProps {
+    /** Recommended albums not in the library (with previews), for "Hidden gems". */
+    hiddenGems?: UnavailableAlbum[];
+    currentPreview?: string | null;
+    onTogglePreview?: (albumId: string, previewUrl: string) => void;
+}
 
 /**
  * The "More ways to discover" region of the Discover hub. Discover Weekly is the
@@ -35,7 +36,11 @@ const FILTERS: Array<{ id: ShelfFilter; label: string }> = [
  * so it stays cheap to render and easy to extend with future sources (e.g.
  * hidden gems / song radio in E3, YouTube Music recommendations later).
  */
-export function DiscoverShelves() {
+export function DiscoverShelves({
+    hiddenGems = [],
+    currentPreview = null,
+    onTogglePreview,
+}: DiscoverShelvesProps) {
     const [filter, setFilter] = useState<ShelfFilter>("all");
 
     const { data: becauseData } = useBecauseYouListenedQuery(3);
@@ -45,6 +50,17 @@ export function DiscoverShelves() {
     const becauseSections = becauseData?.sections ?? [];
     const recommendedArtists = recommendedData?.artists ?? [];
     const featuredPlaylists = browseData?.playlists ?? [];
+
+    const filters: Array<{ id: ShelfFilter; label: string }> = [
+        { id: "all", label: "All" },
+        { id: "releases", label: "New releases" },
+        { id: "mood", label: "Mood" },
+        ...(hiddenGems.length > 0
+            ? [{ id: "gems" as const, label: "Hidden gems" }]
+            : []),
+        { id: "artists", label: "Artists" },
+        { id: "playlists", label: "Playlists" },
+    ];
 
     const show = (id: ShelfFilter) => filter === "all" || filter === id;
 
@@ -58,7 +74,7 @@ export function DiscoverShelves() {
                     </h2>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                    {FILTERS.map((f) => (
+                    {filters.map((f) => (
                         <button
                             key={f.id}
                             onClick={() => setFilter(f.id)}
@@ -79,6 +95,14 @@ export function DiscoverShelves() {
             {show("releases") && <NewReleasesShelf />}
 
             {show("mood") && <ExploreByMoodShelf />}
+
+            {show("gems") && onTogglePreview && (
+                <HiddenGemsShelf
+                    gems={hiddenGems}
+                    currentPreview={currentPreview}
+                    onTogglePreview={onTogglePreview}
+                />
+            )}
 
             {show("artists") && becauseSections.length > 0 && (
                 <BecauseYouListenedTo sections={becauseSections} />

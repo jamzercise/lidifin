@@ -6,12 +6,13 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { PlaylistSelector } from "@/components/ui/PlaylistSelector";
 import { GradientSpinner } from "@/components/ui/GradientSpinner";
 import { CachedImage } from "@/components/ui/CachedImage";
-import { AudioLines, Heart, ListPlus, Plus, Trash2, Play, Sparkles } from "lucide-react";
+import { AudioLines, Heart, ListPlus, Plus, Trash2, Play, Sparkles, Radio } from "lucide-react";
 import { cn } from "@/utils/cn";
 import { formatTime } from "@/utils/formatTime";
 import { api } from "@/lib/api";
 import { useAudioState } from "@/lib/audio-state-context";
 import { FindSimilarModal } from "@/components/AudioMuse/FindSimilarModal";
+import { useSongRadio } from "@/hooks/useSongRadio";
 
 interface TracksListProps {
     tracks: Track[];
@@ -37,6 +38,8 @@ interface TrackRowProps {
     onAddToQueue: (track: Track) => void;
     onShowAddToPlaylist: (trackId: string) => void;
     onFindSimilar?: (trackId: string, trackTitle: string, artistName?: string) => void;
+    onStartRadio?: (track: Track) => void;
+    isStartingRadio?: boolean;
     onDelete: (trackId: string, trackTitle: string) => void;
     favoriteIds?: Set<string>;
     onToggleFavorite?: (trackId: string, isFavorite: boolean) => void;
@@ -52,6 +55,8 @@ const TrackRow = memo(
         onAddToQueue,
         onShowAddToPlaylist,
         onFindSimilar,
+        onStartRadio,
+        isStartingRadio,
         onDelete,
         favoriteIds,
         onToggleFavorite,
@@ -171,6 +176,20 @@ const TrackRow = memo(
                             <Sparkles className="w-4 h-4" />
                         </button>
                     )}
+                    {isJellyfin && onStartRadio && (
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                onStartRadio(track);
+                            }}
+                            disabled={isStartingRadio}
+                            className="w-8 h-8 rounded-full flex items-center justify-center text-gray-400 hover:text-white hover:bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-50"
+                            title="Start song radio"
+                            aria-label="Start a song radio from this track"
+                        >
+                            <Radio className="w-4 h-4" />
+                        </button>
+                    )}
                     <button
                         onClick={(e) => {
                             e.stopPropagation();
@@ -208,7 +227,9 @@ const TrackRow = memo(
             prevProps.favoriteIds?.has(prevProps.track.id) ===
                 nextProps.favoriteIds?.has(nextProps.track.id) &&
             prevProps.hideDelete === nextProps.hideDelete &&
-            prevProps.onFindSimilar === nextProps.onFindSimilar
+            prevProps.onFindSimilar === nextProps.onFindSimilar &&
+            prevProps.onStartRadio === nextProps.onStartRadio &&
+            prevProps.isStartingRadio === nextProps.isStartingRadio
         );
     },
 );
@@ -226,6 +247,7 @@ export function TracksList({
     showFindSimilar = true,
 }: TracksListProps) {
     const { currentTrack } = useAudioState();
+    const { startRadio, startingId } = useSongRadio();
     const currentTrackId = currentTrack?.id;
     const [showPlaylistSelector, setShowPlaylistSelector] = useState(false);
     const [selectedTrackId, setSelectedTrackId] = useState<string | null>(null);
@@ -255,6 +277,27 @@ export function TracksList({
             setFindSimilarTrack({ id: trackId, title: trackTitle, artist: artistName });
         },
         [],
+    );
+
+    const handleStartRadio = useCallback(
+        (track: Track) => {
+            startRadio({
+                id: track.id,
+                title: track.displayTitle ?? track.title,
+                artist: track.album?.artist
+                    ? { name: track.album.artist.name, id: track.album.artist.id }
+                    : undefined,
+                album: track.album
+                    ? {
+                          title: track.album.title,
+                          id: track.album.id,
+                          coverArt: track.album.coverArt,
+                      }
+                    : undefined,
+                duration: track.duration,
+            });
+        },
+        [startRadio],
     );
 
     if (isLoading) {
@@ -298,6 +341,8 @@ export function TracksList({
                             onAddToQueue={onAddToQueue}
                             onShowAddToPlaylist={handleShowAddToPlaylist}
                             onFindSimilar={showFindSimilar ? handleFindSimilar : undefined}
+                            onStartRadio={handleStartRadio}
+                            isStartingRadio={startingId === track.id}
                             onDelete={onDelete}
                             favoriteIds={favoriteIds}
                             onToggleFavorite={onToggleFavorite}
