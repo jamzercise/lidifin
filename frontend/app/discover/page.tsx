@@ -15,6 +15,7 @@ import { TrackList } from "@/features/discover/components/TrackList";
 import { TrackFilters, type TrackSort } from "@/features/discover/components/TrackFilters";
 import { UnavailableAlbums } from "@/features/discover/components/UnavailableAlbums";
 import { HowItWorks } from "@/features/discover/components/HowItWorks";
+import { DiscoverShelves } from "@/features/discover/components/DiscoverShelves";
 import type { BatchContext } from "@/features/discover/types";
 import type { BatchStatus } from "@/features/discover/hooks/useDiscoverData";
 
@@ -111,7 +112,7 @@ export default function DiscoverWeeklyPage() {
             )}
 
             {/* Track Listing */}
-            <div className="px-4 md:px-8 pb-32">
+            <div className="px-4 md:px-8">
                 {playlist && playlist.tracks.length > 0 ? (
                         <div className="space-y-6">
                             {isGenerating && (
@@ -204,6 +205,12 @@ export default function DiscoverWeeklyPage() {
                             </button>
                         </div>
                     )}
+            </div>
+
+            {/* Discover hub shelves — complementary discovery rails below the
+                Discover Weekly headline experience. */}
+            <div className="px-4 md:px-8 pt-12 pb-32">
+                <DiscoverShelves />
             </div>
         </div>
     );
