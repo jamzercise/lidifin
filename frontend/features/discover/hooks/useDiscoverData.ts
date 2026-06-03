@@ -15,6 +15,7 @@ export interface BatchStatus {
   active: boolean;
   status: "downloading" | "scanning" | null;
   batchId?: string;
+  mode?: "album" | "track";
   progress?: number;
   completed?: number;
   failed?: number;

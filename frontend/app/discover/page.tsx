@@ -321,6 +321,9 @@ function BatchContextView({
             ? batchStatus.albums
             : batchContext.recommendedAlbums;
     const totalAlbums = batchStatus?.total ?? batchContext.totalJobs;
+    // Track-first batches recommend individual songs, not albums
+    const batchMode = batchStatus?.mode ?? batchContext.mode ?? "album";
+    const itemNoun = batchMode === "track" ? "Songs" : "Albums";
     const hasSomeCompleted = batchContext.completedJobs > 0;
     const allFailed = batchContext.failedJobs === batchContext.totalJobs;
 
@@ -372,7 +375,7 @@ function BatchContextView({
                                 : batchContext.errorMessage
                                     ? batchContext.errorMessage
                                     : hasSomeCompleted
-                                        ? `${batchContext.completedJobs} album(s) downloaded but the tracks couldn't be matched to your library. Try rebuilding the playlist.`
+                                        ? `${batchContext.completedJobs} ${itemNoun.toLowerCase()} downloaded but the tracks couldn't be matched to your library. Try rebuilding the playlist.`
                                         : `${batchContext.failedJobs} of ${batchContext.totalJobs} downloads failed. You can try generating again.`
                             }
                         </p>
@@ -467,7 +470,7 @@ function BatchContextView({
             {liveAlbums.length > 0 && (
                 <div>
                     <h4 className="text-sm font-medium text-white/70 uppercase tracking-wider mb-4">
-                        Recommended Albums ({totalAlbums})
+                        Recommended {itemNoun} ({totalAlbums})
                     </h4>
                     <div className="space-y-2">
                         {liveAlbums.map((album, i) => {

@@ -31,6 +31,7 @@ export interface UnavailableAlbum {
 export interface BatchContext {
   batchId: string;
   status: string;
+  mode?: "album" | "track";
   errorMessage: string | null;
   createdAt: string;
   completedAt: string | null;

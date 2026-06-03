@@ -59,13 +59,14 @@ export function registerJobsRoutes(router: Router): void {
                     ? Math.round(((completedJobs + failedJobs) / totalJobs) * 100)
                     : 0;
 
-            // Per-album rows so the UI can show live status during the batch
+            // Per-item rows so the UI can show live status during the batch.
+            // Track-first jobs carry trackTitle instead of albumTitle.
             const albums = activeBatch.jobs.map((j) => {
                 const meta = j.metadata as any;
                 return {
                     id: j.id,
                     artist: meta?.artistName || "Unknown",
-                    album: meta?.albumTitle || "Unknown",
+                    album: meta?.albumTitle || meta?.trackTitle || "Unknown",
                     status: j.status,
                     error: j.error,
                 };
@@ -75,6 +76,7 @@ export function registerJobsRoutes(router: Router): void {
                 active: true,
                 status: activeBatch.status,
                 batchId: activeBatch.id,
+                mode: activeBatch.mode,
                 progress,
                 completed: completedJobs,
                 failed: failedJobs,
@@ -388,6 +390,7 @@ export function registerJobsRoutes(router: Router): void {
                     batchContext = {
                         batchId: latestBatch.id,
                         status: latestBatch.status,
+                        mode: latestBatch.mode,
                         errorMessage: latestBatch.errorMessage,
                         createdAt: latestBatch.createdAt,
                         completedAt: latestBatch.completedAt,
@@ -400,7 +403,7 @@ export function registerJobsRoutes(router: Router): void {
                             return {
                                 id: j.id,
                                 artist: meta?.artistName || "Unknown",
-                                album: meta?.albumTitle || "Unknown",
+                                album: meta?.albumTitle || meta?.trackTitle || "Unknown",
                                 status: j.status,
                                 error: j.error,
                             };
