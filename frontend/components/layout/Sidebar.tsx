@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, useEffect, useRef } from "react";
-import { Plus, Settings, RefreshCw, Play } from "lucide-react";
+import { Plus, Settings, RefreshCw, Play, ChevronDown } from "lucide-react";
 import { cn } from "@/utils/cn";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
@@ -14,16 +14,34 @@ import { useToast } from "@/lib/toast-context";
 import Image from "next/image";
 import { MobileSidebar } from "./MobileSidebar";
 
-const navigation = [
-    { name: "Library", href: "/library" },
-    { name: "Favorites", href: "/favorites" },
-    { name: "Saved albums", href: "/library/saved-albums" },
-    // { name: "Vibe", href: "/vibe" }, // Hidden until UI refinement complete
-    { name: "Radio", href: "/radio" },
-    { name: "Discovery", href: "/discover" },
-    { name: "Audiobooks", href: "/audiobooks" },
-    { name: "Podcasts", href: "/podcasts" },
-    { name: "Import Playlist", href: "/browse/playlists" },
+// Grouped navigation by user intent. Home lives in the TopBar, so it's not
+// duplicated here. Section labels render as small uppercase headers.
+const navSections = [
+    {
+        label: "Music",
+        items: [
+            { name: "Library", href: "/library" },
+            { name: "Favorites", href: "/favorites" },
+        ],
+    },
+    {
+        label: "Discover",
+        items: [
+            { name: "Discover", href: "/discover" },
+            { name: "Radio", href: "/radio" },
+            { name: "New Releases", href: "/releases" },
+            { name: "Import Playlist", href: "/browse/playlists" },
+            { name: "Saved albums", href: "/library/saved-albums" },
+            // { name: "Vibe", href: "/vibe" }, // Resurfaces via the Discover hub (Initiative E)
+        ],
+    },
+    {
+        label: "Shows & Books",
+        items: [
+            { name: "Audiobooks", href: "/audiobooks" },
+            { name: "Podcasts", href: "/podcasts" },
+        ],
+    },
 ] as const;
 
 interface Playlist {
@@ -49,6 +67,7 @@ export function Sidebar() {
     const [playlists, setPlaylists] = useState<Playlist[]>([]);
     const [isLoadingPlaylists, setIsLoadingPlaylists] = useState(false);
     const [isSyncing, setIsSyncing] = useState(false);
+    const [playlistsExpanded, setPlaylistsExpanded] = useState(true);
     const hasLoadedPlaylists = useRef(false);
 
     // Handle library sync - no toast, notification bar handles feedback
@@ -295,45 +314,52 @@ export function Sidebar() {
             {/* Navigation */}
             <nav
                 className={cn(
-                    "pt-6 space-y-1",
+                    "pt-6 space-y-5",
                     isMobileOrTablet ? "px-6" : "px-3",
                 )}
                 role="navigation"
                 aria-label="Main navigation"
             >
-                {navigation.map((item) => {
-                    const isActive = pathname === item.href;
+                {navSections.map((section) => (
+                    <div key={section.label} className="space-y-1">
+                        <p className="px-4 text-[10px] font-black text-gray-500 uppercase tracking-[0.15em] mb-2">
+                            {section.label}
+                        </p>
+                        {section.items.map((item) => {
+                            const isActive = pathname === item.href;
 
-                    return (
-                        <Link
-                            key={item.name}
-                            href={item.href}
-                            prefetch={false}
-                            aria-current={isActive ? "page" : undefined}
-                            className={cn(
-                                "block rounded-lg transition-all duration-200 group relative overflow-hidden",
-                                isMobileOrTablet ? "px-4 py-3.5" : "px-4 py-3",
-                                isActive ?
-                                    "bg-white/10 text-white"
-                                :   "text-gray-400 hover:text-white hover:bg-white/5 active:bg-white/[0.07]",
-                            )}
-                        >
-                            <div className="relative z-10 flex items-center gap-2">
-                                <span
+                            return (
+                                <Link
+                                    key={item.name}
+                                    href={item.href}
+                                    prefetch={false}
+                                    aria-current={isActive ? "page" : undefined}
                                     className={cn(
-                                        "font-semibold transition-all duration-200",
-                                        isMobileOrTablet ? "text-base" : (
-                                            "text-sm"
-                                        ),
-                                        isActive && "text-white",
+                                        "block rounded-lg transition-all duration-200 group relative overflow-hidden",
+                                        isMobileOrTablet ? "px-4 py-3.5" : "px-4 py-3",
+                                        isActive ?
+                                            "bg-white/10 text-white"
+                                        :   "text-gray-400 hover:text-white hover:bg-white/5 active:bg-white/[0.07]",
                                     )}
                                 >
-                                    {item.name}
-                                </span>
-                            </div>
-                        </Link>
-                    );
-                })}
+                                    <div className="relative z-10 flex items-center gap-2">
+                                        <span
+                                            className={cn(
+                                                "font-semibold transition-all duration-200",
+                                                isMobileOrTablet ? "text-base" : (
+                                                    "text-sm"
+                                                ),
+                                                isActive && "text-white",
+                                            )}
+                                        >
+                                            {item.name}
+                                        </span>
+                                    </div>
+                                </Link>
+                            );
+                        })}
+                    </div>
+                ))}
             </nav>
 
             {/* Playlists Section */}
@@ -344,16 +370,36 @@ export function Sidebar() {
                         isMobileOrTablet ? "px-6" : "px-4",
                     )}
                 >
-                    <Link
-                        href="/playlists"
-                        prefetch={false}
-                        className="relative group/link"
-                    >
-                        <span className="text-[10px] font-black text-gray-500 group-hover/link:text-transparent group-hover/link:bg-clip-text group-hover/link:bg-gradient-to-r group-hover/link:from-purple-400 group-hover/link:to-pink-400 transition-all duration-300 uppercase tracking-[0.15em]">
-                            Your playlists
-                        </span>
-                        <div className="absolute -bottom-0.5 left-0 right-0 h-px bg-gradient-to-r from-purple-500/0 via-purple-500/50 to-purple-500/0 opacity-0 group-hover/link:opacity-100 transition-opacity duration-300" />
-                    </Link>
+                    <div className="flex items-center gap-1.5 min-w-0">
+                        <button
+                            type="button"
+                            onClick={() => setPlaylistsExpanded((v) => !v)}
+                            aria-expanded={playlistsExpanded}
+                            aria-label={
+                                playlistsExpanded
+                                    ? "Collapse your playlists"
+                                    : "Expand your playlists"
+                            }
+                            className="text-gray-500 hover:text-white transition-colors shrink-0"
+                        >
+                            <ChevronDown
+                                className={cn(
+                                    "w-3.5 h-3.5 transition-transform duration-200",
+                                    !playlistsExpanded && "-rotate-90",
+                                )}
+                            />
+                        </button>
+                        <Link
+                            href="/playlists"
+                            prefetch={false}
+                            className="relative group/link"
+                        >
+                            <span className="text-[10px] font-black text-gray-500 group-hover/link:text-transparent group-hover/link:bg-clip-text group-hover/link:bg-gradient-to-r group-hover/link:from-purple-400 group-hover/link:to-pink-400 transition-all duration-300 uppercase tracking-[0.15em]">
+                                Your playlists
+                            </span>
+                            <div className="absolute -bottom-0.5 left-0 right-0 h-px bg-gradient-to-r from-purple-500/0 via-purple-500/50 to-purple-500/0 opacity-0 group-hover/link:opacity-100 transition-opacity duration-300" />
+                        </Link>
+                    </div>
                     <Link
                         href="/playlists"
                         prefetch={false}
@@ -368,6 +414,7 @@ export function Sidebar() {
                     className={cn(
                         "flex-1 overflow-y-auto space-y-1 scrollbar-thin scrollbar-thumb-[#1c1c1c] scrollbar-track-transparent",
                         isMobileOrTablet ? "px-6" : "px-3",
+                        !playlistsExpanded && "hidden",
                     )}
                 >
                     {isLoadingPlaylists ?

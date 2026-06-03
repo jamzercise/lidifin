@@ -3,7 +3,22 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Settings, RefreshCw, LogOut, Compass, X, Bookmark, Library } from "lucide-react";
+import {
+    Settings,
+    RefreshCw,
+    LogOut,
+    Compass,
+    X,
+    Bookmark,
+    Library,
+    Heart,
+    Radio,
+    Disc3,
+    ListPlus,
+    BookOpen,
+    Podcast,
+    type LucideIcon,
+} from "lucide-react";
 import { cn } from "@/utils/cn";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
@@ -14,6 +29,37 @@ interface MobileSidebarProps {
     isOpen: boolean;
     onClose: () => void;
 }
+
+// Grouped nav mirroring the desktop sidebar (Initiative C).
+const mobileSections: Array<{
+    label: string;
+    items: Array<{ name: string; href: string; icon: LucideIcon }>;
+}> = [
+    {
+        label: "Music",
+        items: [
+            { name: "Library", href: "/library", icon: Library },
+            { name: "Favorites", href: "/favorites", icon: Heart },
+        ],
+    },
+    {
+        label: "Discover",
+        items: [
+            { name: "Discover", href: "/discover", icon: Compass },
+            { name: "Radio", href: "/radio", icon: Radio },
+            { name: "New Releases", href: "/releases", icon: Disc3 },
+            { name: "Import Playlist", href: "/browse/playlists", icon: ListPlus },
+            { name: "Saved albums", href: "/library/saved-albums", icon: Bookmark },
+        ],
+    },
+    {
+        label: "Shows & Books",
+        items: [
+            { name: "Audiobooks", href: "/audiobooks", icon: BookOpen },
+            { name: "Podcasts", href: "/podcasts", icon: Podcast },
+        ],
+    },
+];
 
 export function MobileSidebar({ isOpen, onClose }: MobileSidebarProps) {
     const pathname = usePathname();
@@ -107,73 +153,37 @@ export function MobileSidebar({ isOpen, onClose }: MobileSidebarProps) {
                     role="navigation"
                     aria-label="Mobile menu"
                 >
-                    {/* Quick Links Section */}
-                    <div className="px-3 mb-6">
-                        <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest px-3 mb-2">
-                            Quick Links
+                    {/* Grouped navigation (mirrors desktop sidebar) */}
+                    {mobileSections.map((section) => (
+                        <div key={section.label} className="px-3 mb-6">
+                            <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest px-3 mb-2">
+                                {section.label}
+                            </div>
+                            {section.items.map((item) => {
+                                const Icon = item.icon;
+                                const isActive = pathname === item.href;
+                                return (
+                                    <Link
+                                        key={item.href}
+                                        href={item.href}
+                                        aria-current={isActive ? "page" : undefined}
+                                        aria-label={item.name}
+                                        className={cn(
+                                            "flex items-center gap-3 px-3 py-3 rounded-lg transition-colors",
+                                            isActive ?
+                                                "bg-white/10 text-white"
+                                            :   "text-gray-400 hover:text-white hover:bg-white/5",
+                                        )}
+                                    >
+                                        <Icon className="w-5 h-5" />
+                                        <span className="text-[15px] font-medium">
+                                            {item.name}
+                                        </span>
+                                    </Link>
+                                );
+                            })}
                         </div>
-
-                        <Link
-                            href="/library"
-                            aria-current={
-                                pathname === "/library" ? "page" : undefined
-                            }
-                            aria-label="Library"
-                            className={cn(
-                                "flex items-center gap-3 px-3 py-3 rounded-lg transition-colors",
-                                pathname === "/library" ?
-                                    "bg-white/10 text-white"
-                                :   "text-gray-400 hover:text-white hover:bg-white/5",
-                            )}
-                        >
-                            <Library className="w-5 h-5" />
-                            <span className="text-[15px] font-medium">
-                                Library
-                            </span>
-                        </Link>
-
-                        <Link
-                            href="/library/saved-albums"
-                            aria-current={
-                                pathname === "/library/saved-albums" ?
-                                    "page"
-                                :   undefined
-                            }
-                            aria-label="Saved discovery albums"
-                            className={cn(
-                                "flex items-center gap-3 px-3 py-3 rounded-lg transition-colors",
-                                pathname === "/library/saved-albums" ?
-                                    "bg-white/10 text-white"
-                                :   "text-gray-400 hover:text-white hover:bg-white/5",
-                            )}
-                        >
-                            <Bookmark className="w-5 h-5" />
-                            <span className="text-[15px] font-medium">
-                                Saved albums
-                            </span>
-                        </Link>
-
-                        <Link
-                            href="/discover"
-                            aria-current={
-                                pathname === "/discover" ? "page" : undefined
-                            }
-                            aria-label="Discover"
-                            className={cn(
-                                "flex items-center gap-3 px-3 py-3 rounded-lg transition-colors",
-                                pathname === "/discover" ?
-                                    "bg-white/10 text-white"
-                                :   "text-gray-400 hover:text-white hover:bg-white/5",
-                            )}
-                        >
-                            <Compass className="w-5 h-5" />
-                            <span className="text-[15px] font-medium">
-                                Discover
-                            </span>
-                        </Link>
-
-                        {/* Radio moved to bottom bar */}
-                    </div>
+                    ))}
 
                     {/* Actions Section */}
                     <div className="px-3">
