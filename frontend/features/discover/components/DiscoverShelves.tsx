@@ -6,38 +6,44 @@ import { cn } from "@/utils/cn";
 import {
     useBecauseYouListenedQuery,
     useBrowseAllQuery,
+    useRecommendationsQuery,
 } from "@/hooks/useQueries";
 import { BecauseYouListenedTo } from "@/features/home/components/BecauseYouListenedTo";
 import { FeaturedPlaylistsGrid } from "@/features/home/components/FeaturedPlaylistsGrid";
+import { ArtistsGrid } from "@/features/home/components/ArtistsGrid";
 import { SectionHeader } from "@/features/home/components/SectionHeader";
 import { NewReleasesShelf } from "./NewReleasesShelf";
+import { ExploreByMoodShelf } from "./ExploreByMoodShelf";
 
-type ShelfFilter = "all" | "releases" | "artists" | "playlists";
+type ShelfFilter = "all" | "releases" | "mood" | "artists" | "playlists";
 
 const FILTERS: Array<{ id: ShelfFilter; label: string }> = [
     { id: "all", label: "All" },
     { id: "releases", label: "New releases" },
-    { id: "artists", label: "From your taste" },
+    { id: "mood", label: "Mood" },
+    { id: "artists", label: "Artists" },
     { id: "playlists", label: "Playlists" },
 ];
 
 /**
  * The "More ways to discover" region of the Discover hub. Discover Weekly is the
  * headline experience above; this surfaces complementary discovery rails
- * (release radar, taste-based artist recommendations, featured playlists) in a
- * single scroll so they stop hiding on separate pages.
+ * (release radar, mood explorer, taste-based + recommended artists, featured
+ * playlists) in a single scroll so they stop hiding on separate pages.
  *
  * Built as a thin composition over existing, cached query hooks and home rails
- * so it stays cheap to render and easy to extend with future sources (e.g. mood
- * mixes in E2, YouTube Music recommendations later).
+ * so it stays cheap to render and easy to extend with future sources (e.g.
+ * hidden gems / song radio in E3, YouTube Music recommendations later).
  */
 export function DiscoverShelves() {
     const [filter, setFilter] = useState<ShelfFilter>("all");
 
     const { data: becauseData } = useBecauseYouListenedQuery(3);
+    const { data: recommendedData } = useRecommendationsQuery(12);
     const { data: browseData } = useBrowseAllQuery();
 
     const becauseSections = becauseData?.sections ?? [];
+    const recommendedArtists = recommendedData?.artists ?? [];
     const featuredPlaylists = browseData?.playlists ?? [];
 
     const show = (id: ShelfFilter) => filter === "all" || filter === id;
@@ -72,8 +78,17 @@ export function DiscoverShelves() {
 
             {show("releases") && <NewReleasesShelf />}
 
+            {show("mood") && <ExploreByMoodShelf />}
+
             {show("artists") && becauseSections.length > 0 && (
                 <BecauseYouListenedTo sections={becauseSections} />
+            )}
+
+            {show("artists") && recommendedArtists.length > 0 && (
+                <section>
+                    <SectionHeader title="Artists for you" />
+                    <ArtistsGrid artists={recommendedArtists} />
+                </section>
             )}
 
             {show("playlists") && featuredPlaylists.length > 0 && (

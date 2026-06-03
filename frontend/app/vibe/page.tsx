@@ -829,6 +829,20 @@ function VibePageContent() {
         init();
     }, [hasInitialized]);
 
+    // Deep-link support: /vibe?q=<query> auto-runs a vibe search on mount so the
+    // Discover hub's "Explore by mood" tiles land on a ready result set.
+    // Reads window.location directly (not useSearchParams) to avoid forcing a
+    // Suspense boundary on this client page at build time.
+    useEffect(() => {
+        const q = new URLSearchParams(window.location.search).get("q");
+        if (q) {
+            setInputValue(q);
+            handleVibeSearch(q);
+        }
+        // Mount-only: intentionally run once with the initial query.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
     const handleSearch = (e: React.FormEvent) => {
         e.preventDefault();
         if (inputValue.trim()) {
