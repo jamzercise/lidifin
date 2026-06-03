@@ -912,6 +912,8 @@ model DiscoveryBatch {
   weekStart       DateTime
   targetSongCount Int
   status          String        @default("downloading")
+  // "album" (default) or "track" — drives acquisition + playlist assembly (ADR 0007)
+  mode            String        @default("album")
   totalAlbums     Int           @default(0)
   completedAlbums Int           @default(0)
   failedAlbums    Int           @default(0)

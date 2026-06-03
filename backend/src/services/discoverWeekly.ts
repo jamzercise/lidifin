@@ -169,6 +169,21 @@ export class DiscoverWeeklyService {
                 );
             }
 
+            // ADR 0007: track-first mode downloads individual songs instead of
+            // full albums. Branch here once seeds + similar artists are ready so
+            // the album path below stays completely unchanged.
+            if (config.acquisitionMode === "track") {
+                return await this.generateTrackPlaylist({
+                    userId,
+                    weekStart,
+                    settings,
+                    targetCount,
+                    downloadRatio,
+                    seeds,
+                    similarArtistsMap,
+                });
+            }
+
             // Step 3: Find recommended albums using multi-strategy discovery
             // REQUEST MORE ALBUMS than target to account for download failures
             // User configurable ratio (default 1.3x) to control bandwidth usage
@@ -465,6 +480,221 @@ export class DiscoverWeeklyService {
             discoveryLogger.end(false, error.message);
             throw error;
         }
+    }
+
+    /**
+     * Track-first generation path (ADR 0007).
+     *
+     * Recommends individual songs, creates one `type: "track"` DownloadJob per
+     * song, and acquires them all via a single Soulseek batch. Downloaded files
+     * land on disk synchronously, so jobs are marked completed/failed up-front
+     * and {@link checkBatchCompletion} kicks off the scan → buildFinalPlaylist
+     * chain (which branches on `batch.mode`).
+     */
+    private async generateTrackPlaylist(params: {
+        userId: string;
+        weekStart: Date;
+        settings: any;
+        targetCount: number;
+        downloadRatio: number;
+        seeds: SeedArtist[];
+        similarArtistsMap: Map<string, any[]>;
+    }) {
+        const {
+            userId,
+            weekStart,
+            settings,
+            targetCount,
+            downloadRatio,
+            seeds,
+            similarArtistsMap,
+        } = params;
+
+        const tracksToRequest = Math.ceil(targetCount * downloadRatio);
+        discoveryLogger.section("STEP 3: TRACK RECOMMENDATIONS (Track-First)");
+        discoveryLogger.info(
+            `Requesting ${tracksToRequest} tracks (${downloadRatio}x target of ${targetCount})`
+        );
+
+        const recommended = await this.findRecommendedTracksMultiStrategy(
+            seeds,
+            similarArtistsMap,
+            tracksToRequest,
+            userId
+        );
+
+        if (recommended.length === 0) {
+            discoveryLogger.error("No track recommendations found");
+            discoveryLogger.end(false, "No track recommendations found");
+            throw new Error("No recommendations found");
+        }
+
+        discoveryLogger.success(
+            `${recommended.length} tracks recommended for download`
+        );
+        discoveryLogger.list(
+            recommended.map(
+                (r) =>
+                    `${r.artistName} - ${r.trackTitle} (${(
+                        r.similarity * 100
+                    ).toFixed(0)}%)`
+            )
+        );
+
+        const musicPath = settings?.musicPath || appConfig.music.musicPath;
+
+        // Step 4: create batch + one DownloadJob per recommended track
+        discoveryLogger.section("STEP 4: CREATE BATCH & TRACK JOBS");
+        const batch = await prisma.$transaction(async (tx) => {
+            const newBatch = await tx.discoveryBatch.create({
+                data: {
+                    userId,
+                    weekStart,
+                    mode: "track",
+                    targetSongCount: targetCount,
+                    status: "downloading",
+                    totalAlbums: recommended.length,
+                    completedAlbums: 0,
+                    failedAlbums: 0,
+                    logs: [
+                        {
+                            timestamp: new Date().toISOString(),
+                            level: "info",
+                            message: `Started with ${recommended.length} tracks to download (track-first mode)`,
+                        },
+                    ] as any,
+                },
+            });
+
+            for (const track of recommended) {
+                const similarity =
+                    typeof track.similarity === "number" &&
+                    !isNaN(track.similarity)
+                        ? track.similarity
+                        : 0.5;
+                // Last.fm rarely returns track MBIDs; synthesize a stable, unique
+                // targetMbid so the (required) column stays populated + distinct.
+                const targetMbid =
+                    track.trackMbid ||
+                    `track:${track.artistName}:${track.trackTitle}`
+                        .toLowerCase()
+                        .slice(0, 180);
+
+                await tx.downloadJob.create({
+                    data: {
+                        userId,
+                        subject: `${track.artistName} - ${track.trackTitle}`,
+                        type: "track",
+                        targetMbid,
+                        status: "pending",
+                        discoveryBatchId: newBatch.id,
+                        metadata: {
+                            downloadType: "discovery",
+                            mode: "track",
+                            rootFolderPath: musicPath,
+                            artistName: track.artistName,
+                            artistMbid: track.artistMbid,
+                            trackTitle: track.trackTitle,
+                            albumTitle: track.albumTitle,
+                            trackMbid: track.trackMbid,
+                            similarity,
+                            tier: track.tier,
+                        },
+                    },
+                });
+            }
+            return newBatch;
+        });
+        discoveryLogger.success(
+            `Created batch ${batch.id} with ${recommended.length} track jobs`
+        );
+
+        // Step 5: acquire every track through a single Soulseek batch
+        discoveryLogger.section("STEP 5: DOWNLOAD TRACKS (Soulseek)");
+        const jobs = await prisma.downloadJob.findMany({
+            where: { discoveryBatchId: batch.id },
+        });
+
+        const requests = jobs.map((job) => {
+            const m = job.metadata as any;
+            return {
+                trackTitle: m.trackTitle as string,
+                artistName: m.artistName as string,
+                albumTitle: (m.albumTitle as string) || undefined,
+            };
+        });
+
+        let downloadsStarted = 0;
+        let downloadsFailed = 0;
+
+        try {
+            // results map 1:1 to requests (same order as jobs)
+            const results = await acquisitionService.acquireTracks(requests, {
+                userId,
+                discoveryBatchId: batch.id,
+            });
+
+            for (let i = 0; i < jobs.length; i++) {
+                const job = jobs[i];
+                const result = results[i];
+                if (result?.success) {
+                    downloadsStarted++;
+                    await prisma.downloadJob.update({
+                        where: { id: job.id },
+                        data: { status: "completed", completedAt: new Date() },
+                    });
+                } else {
+                    downloadsFailed++;
+                    await prisma.downloadJob.update({
+                        where: { id: job.id },
+                        data: {
+                            status: "failed",
+                            error: result?.error || "Track download failed",
+                            completedAt: new Date(),
+                        },
+                    });
+                }
+            }
+        } catch (err: any) {
+            discoveryLogger.error(
+                `Track batch download failed: ${err.message}`
+            );
+            await prisma.downloadJob.updateMany({
+                where: { discoveryBatchId: batch.id, status: "pending" },
+                data: {
+                    status: "failed",
+                    error: err.message,
+                    completedAt: new Date(),
+                },
+            });
+            downloadsFailed = jobs.length;
+        }
+
+        logger.info(
+            `[Discover] Track batch complete: ${downloadsStarted} succeeded, ${downloadsFailed} failed`
+        );
+
+        // Scan imported files and assemble the playlist (mode-aware build)
+        await this.checkBatchCompletion(batch.id);
+
+        discoveryLogger.section("GENERATION COMPLETE");
+        discoveryLogger.table({
+            "Tracks Downloaded": downloadsStarted,
+            "Tracks Failed": downloadsFailed,
+            "Total Tracks": recommended.length,
+            "Batch ID": batch.id,
+        });
+        discoveryLogger.end(
+            true,
+            `${downloadsStarted}/${recommended.length} tracks downloaded`
+        );
+
+        return {
+            success: true,
+            playlistName: `Discover Weekly (Week of ${weekStart.toLocaleDateString()})`,
+            songCount: 0,
+            batchId: batch.id,
+        };
     }
 
     /**
@@ -853,8 +1083,10 @@ export class DiscoverWeeklyService {
 
         // All jobs finished - use transaction to update batch and create unavailable records
         await prisma.$transaction(async (tx) => {
-            // Create UnavailableAlbum records for failed downloads
-            for (const job of failedJobs) {
+            // Create UnavailableAlbum records for failed downloads.
+            // Skip in track-first mode: failed track jobs have synthetic MBIDs
+            // and no album, so they'd pollute the "Hidden gems" shelf.
+            for (const job of batch.mode === "track" ? [] : failedJobs) {
                 const metadata = job.metadata as any;
                 try {
                     await tx.unavailableAlbum.upsert({
@@ -971,6 +1203,68 @@ export class DiscoverWeeklyService {
             `Building playlist from ${completedJobs.length} completed downloads`
         );
 
+        // Find tracks for completed jobs. Track-first mode (ADR 0007) matches
+        // individual songs by title+artist; album mode matches whole albums.
+        let allTracks: any[] = [];
+
+        if (batch.mode === "track") {
+            for (const job of completedJobs) {
+                const m = job.metadata as any;
+                const artistName = (m?.artistName || "").trim();
+                const trackTitle = (m?.trackTitle || "").trim();
+                if (!artistName || !trackTitle) continue;
+
+                let tracks = await prisma.track.findMany({
+                    where: {
+                        title: { equals: trackTitle, mode: "insensitive" },
+                        album: {
+                            artist: {
+                                name: {
+                                    equals: artistName,
+                                    mode: "insensitive",
+                                },
+                            },
+                        },
+                    },
+                    include: { album: { include: { artist: true } } },
+                    take: 1,
+                });
+
+                // Fuzzy fallback: partial title + first artist token
+                if (tracks.length === 0) {
+                    tracks = await prisma.track.findMany({
+                        where: {
+                            title: {
+                                contains: trackTitle,
+                                mode: "insensitive",
+                            },
+                            album: {
+                                artist: {
+                                    name: {
+                                        contains: artistName.split(" ")[0],
+                                        mode: "insensitive",
+                                    },
+                                },
+                            },
+                        },
+                        include: { album: { include: { artist: true } } },
+                        take: 1,
+                    });
+                }
+
+                if (tracks.length > 0) {
+                    logger.debug(
+                        `     [TRACK] Matched "${trackTitle}" by "${artistName}"`
+                    );
+                    allTracks.push(...tracks);
+                } else {
+                    logger.debug(
+                        `     [MISS] No library track for "${trackTitle}" by "${artistName}"`
+                    );
+                }
+            }
+        } else {
+
         // Build search criteria from completed jobs - use MBID (primary) + artist/album name (fallback)
         const searchCriteria = completedJobs
             .map((j) => {
@@ -995,7 +1289,6 @@ export class DiscoverWeeklyService {
         }
 
         // Find tracks - try MBID first (most accurate), then fall back to name matching
-        let allTracks: any[] = [];
         for (const criteria of searchCriteria) {
             let tracks: any[] = [];
 
@@ -1101,6 +1394,7 @@ export class DiscoverWeeklyService {
 
             allTracks.push(...tracks);
         }
+        } // end album-mode matching
 
         // Remove duplicates (same track ID)
         const uniqueTracks = Array.from(
@@ -1129,22 +1423,25 @@ export class DiscoverWeeklyService {
             return;
         }
 
-        // Group tracks by album ID and pick ONE random track per album
-        const tracksByAlbum = new Map<string, typeof allTracks>();
-        for (const track of allTracks) {
-            const albumId = track.album.id;
-            if (!tracksByAlbum.has(albumId)) {
-                tracksByAlbum.set(albumId, []);
+        // Album mode collapses to one random track per album for variety.
+        // Track-first mode keeps every matched song (that IS the recommendation).
+        let onePerAlbum: typeof allTracks = [];
+        if (batch.mode === "track") {
+            onePerAlbum = [...allTracks];
+        } else {
+            const tracksByAlbum = new Map<string, typeof allTracks>();
+            for (const track of allTracks) {
+                const albumId = track.album.id;
+                if (!tracksByAlbum.has(albumId)) {
+                    tracksByAlbum.set(albumId, []);
+                }
+                tracksByAlbum.get(albumId)!.push(track);
             }
-            tracksByAlbum.get(albumId)!.push(track);
-        }
-
-        // Select 1 random track from each album
-        const onePerAlbum: typeof allTracks = [];
-        for (const [albumId, tracks] of tracksByAlbum) {
-            const randomTrack =
-                tracks[Math.floor(Math.random() * tracks.length)];
-            onePerAlbum.push(randomTrack);
+            for (const [, tracks] of tracksByAlbum) {
+                const randomTrack =
+                    tracks[Math.floor(Math.random() * tracks.length)];
+                onePerAlbum.push(randomTrack);
+            }
         }
 
         const availableAlbums = onePerAlbum.length;
@@ -1363,15 +1660,26 @@ export class DiscoverWeeklyService {
                             const jobAlbum = (metadata?.albumTitle || "")
                                 .toLowerCase()
                                 .trim();
+                            const jobTrack = (metadata?.trackTitle || "")
+                                .toLowerCase()
+                                .trim();
                             const trackArtist = track.album.artist.name
                                 .toLowerCase()
                                 .trim();
                             const trackAlbum = track.album.title
                                 .toLowerCase()
                                 .trim();
+                            const trackTitle = (track.title || "")
+                                .toLowerCase()
+                                .trim();
+                            // Album jobs match on artist+album; track-first jobs
+                            // (no albumTitle) match on artist+track title.
                             return (
-                                jobArtist === trackArtist &&
-                                jobAlbum === trackAlbum
+                                (jobArtist === trackArtist &&
+                                    jobAlbum === trackAlbum) ||
+                                (!!jobTrack &&
+                                    jobArtist === trackArtist &&
+                                    jobTrack === trackTitle)
                             );
                         });
 
@@ -1589,6 +1897,13 @@ export class DiscoverWeeklyService {
         let batchesChecked = 0;
 
         for (const batch of completedBatches) {
+            // Track-first batches (ADR 0007) are assembled entirely by
+            // buildFinalPlaylist via title+artist matching; album-centric
+            // reconciliation doesn't apply.
+            if (batch.mode === "track") {
+                continue;
+            }
+
             logger.debug(`   Checking batch ${batch.id}...`);
             batchesChecked++;
 
