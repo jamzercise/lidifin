@@ -56,6 +56,8 @@ class SoulseekService {
     private lastFailedAttempt = 0;
     private readonly RECONNECT_COOLDOWN = 30000; // 30 seconds between reconnect attempts
     private readonly FAILED_RECONNECT_COOLDOWN = 5000; // 5 seconds after failed attempt
+    private readonly LOGIN_TIMEOUT = 15000; // slsk-client defaults to 2s; slsknet often needs longer
+    private readonly CONNECT_MAX_ATTEMPTS = 3; // login handshake is flaky — retry with backoff
     private readonly DOWNLOAD_TIMEOUT_INITIAL = 60000; // 1 minute for first attempt
     private readonly DOWNLOAD_TIMEOUT_RETRY = 30000; // 30 seconds for retries
     private readonly MAX_DOWNLOAD_RETRIES = 5; // Try up to 5 different users (more retries with shorter timeouts)
@@ -128,7 +130,12 @@ class SoulseekService {
     }
 
     /**
-     * Connect to Soulseek network
+     * Connect to Soulseek network.
+     *
+     * slsk-client defaults the login handshake timeout to just 2s, which the
+     * slsknet central server regularly exceeds (login can take several seconds
+     * under load) — surfacing as `timeout login`. We pass a generous timeout
+     * and retry a few times with backoff since the handshake is flaky.
      */
     async connect(): Promise<void> {
         const settings = await getSystemSettings();
@@ -137,15 +144,57 @@ class SoulseekService {
             throw new Error("Soulseek credentials not configured");
         }
 
-        sessionLog("SOULSEEK", `Connecting as ${settings.soulseekUsername}...`);
+        let lastErr: Error | null = null;
+        for (
+            let attempt = 1;
+            attempt <= this.CONNECT_MAX_ATTEMPTS;
+            attempt++
+        ) {
+            try {
+                await this.connectOnce(
+                    settings.soulseekUsername,
+                    settings.soulseekPassword,
+                    attempt
+                );
+                return;
+            } catch (err: any) {
+                lastErr = err instanceof Error ? err : new Error(String(err));
+                sessionLog(
+                    "SOULSEEK",
+                    `Connect attempt ${attempt}/${this.CONNECT_MAX_ATTEMPTS} failed: ${lastErr.message}`,
+                    "WARN"
+                );
+                if (attempt < this.CONNECT_MAX_ATTEMPTS) {
+                    // Linear backoff: 2s, 4s, ...
+                    await new Promise((r) => setTimeout(r, 2000 * attempt));
+                }
+            }
+        }
+        throw lastErr ?? new Error("Soulseek connection failed");
+    }
+
+    /**
+     * Single connection attempt against the slsknet server.
+     */
+    private connectOnce(
+        user: string,
+        pass: string,
+        attempt: number
+    ): Promise<void> {
+        sessionLog(
+            "SOULSEEK",
+            `Connecting as ${user} (attempt ${attempt}, login timeout ${this.LOGIN_TIMEOUT}ms)...`
+        );
 
         return new Promise((resolve, reject) => {
             slsk.connect(
                 {
-                    user: settings.soulseekUsername,
-                    pass: settings.soulseekPassword,
+                    user,
+                    pass,
                     host: "server.slsknet.org",
                     port: 2242,
+                    // Override slsk-client's too-tight 2s default
+                    timeout: this.LOGIN_TIMEOUT,
                 },
                 (err: Error | null, client: SlskClient) => {
                     if (err) {

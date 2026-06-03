@@ -757,7 +757,15 @@ router.post("/test-soulseek", async (req, res) => {
 
             await new Promise<void>((resolve, reject) => {
                 slsk.connect(
-                    { user: username, pass: password },
+                    {
+                        user: username,
+                        pass: password,
+                        host: "server.slsknet.org",
+                        port: 2242,
+                        // slsk-client defaults to a 2s login timeout, which the
+                        // slsknet server regularly exceeds; match the service.
+                        timeout: 15000,
+                    },
                     (err: Error | null, client: any) => {
                         if (err) {
                             logger.debug(
