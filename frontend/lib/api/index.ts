@@ -3,6 +3,7 @@ import "./library";
 import "./playlists";
 import "./podcasts";
 import "./discover";
+import "./releases";
 import "./audiobooks";
 import "./player";
 import "./settings";

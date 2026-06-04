@@ -563,4 +563,29 @@ export function registerJobsRoutes(router: Router): void {
             res.status(500).json({ error: "Failed to retry album" });
         }
     });
+
+    // POST /discover/dismiss-failed - Clear failed/exhausted jobs from the queue
+    router.post("/dismiss-failed", async (req, res) => {
+        try {
+            const userId = req.user!.id;
+            const { batchId } = req.body as { batchId?: string };
+            const { discoverWeeklyService } = await import(
+                "../../services/discoverWeekly"
+            );
+            const result = await discoverWeeklyService.dismissFailedJobs(
+                userId,
+                batchId
+            );
+            if (!result.success) {
+                return res.status(404).json({ error: result.error });
+            }
+            res.json({
+                message: "Failed downloads cleared",
+                dismissed: result.dismissed ?? 0,
+            });
+        } catch (error) {
+            logger.error("Dismiss failed discovery jobs error:", error);
+            res.status(500).json({ error: "Failed to clear downloads" });
+        }
+    });
 }

@@ -4,6 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { Disc } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
+import { api } from "@/lib/api";
 import { cn } from "@/utils/cn";
 import {
     HorizontalCarousel,
@@ -37,11 +38,7 @@ export function NewReleasesShelf() {
     const { data, isLoading } = useQuery({
         queryKey: ["discover", "releases-radar"],
         queryFn: async (): Promise<ReleaseRadarData> => {
-            const res = await fetch(
-                "/api/releases/radar?daysBack=30&daysAhead=90"
-            );
-            if (!res.ok) throw new Error("Failed to fetch releases");
-            return res.json();
+            return api.getReleaseRadar({ daysBack: 30, daysAhead: 90 });
         },
         staleTime: 10 * 60 * 1000,
     });

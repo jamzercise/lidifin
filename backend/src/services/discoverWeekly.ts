@@ -895,6 +895,74 @@ export class DiscoverWeeklyService {
     }
 
     /**
+     * Remove failed/exhausted download jobs from the user's most recent batch so
+     * they stop lingering in the Discover UI queue. Only clears terminal-failure
+     * jobs; pending/processing/completed jobs are left untouched. If the batch is
+     * still active and no in-flight jobs remain afterward, mark it completed so
+     * the queue UI clears out instead of spinning forever.
+     */
+    async dismissFailedJobs(
+        userId: string,
+        batchId?: string
+    ): Promise<{ success: boolean; error?: string; dismissed?: number }> {
+        const batch = batchId
+            ? await prisma.discoveryBatch.findFirst({
+                  where: { id: batchId, userId },
+                  include: { jobs: true },
+              })
+            : await prisma.discoveryBatch.findFirst({
+                  where: { userId },
+                  orderBy: { createdAt: "desc" },
+                  include: { jobs: true },
+              });
+
+        if (!batch) {
+            return { success: false, error: "No discovery batch found" };
+        }
+
+        const failedJobIds = batch.jobs
+            .filter((j) => j.status === "failed" || j.status === "exhausted")
+            .map((j) => j.id);
+
+        if (failedJobIds.length === 0) {
+            return { success: true, dismissed: 0 };
+        }
+
+        const result = await prisma.downloadJob.deleteMany({
+            where: { id: { in: failedJobIds }, userId },
+        });
+
+        // If the batch is still "active" but nothing is in flight anymore,
+        // close it out so the live queue stops showing as in-progress.
+        const remaining = batch.jobs.filter(
+            (j) => !failedJobIds.includes(j.id)
+        );
+        const stillRunning = remaining.some(
+            (j) => j.status === "pending" || j.status === "processing"
+        );
+        if (
+            !stillRunning &&
+            (batch.status === "downloading" || batch.status === "scanning")
+        ) {
+            await prisma.discoveryBatch
+                .update({
+                    where: { id: batch.id },
+                    data: { status: "completed", completedAt: new Date() },
+                })
+                .catch(() => {});
+        }
+
+        await discoveryBatchLogger
+            .info(
+                batch.id,
+                `Dismissed ${result.count} failed job(s) from queue (user action)`
+            )
+            .catch(() => {});
+
+        return { success: true, dismissed: result.count };
+    }
+
+    /**
      * Check for batches stuck in "downloading" or "scanning" status for too long
      * Called periodically from queue cleaner
      */

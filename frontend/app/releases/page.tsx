@@ -5,6 +5,7 @@ import { Calendar, Clock, Download, Music2, Disc, ArrowRight, CheckCircle2, Load
 import { cn } from "@/utils/cn";
 import { GradientSpinner } from "@/components/ui/GradientSpinner";
 import { useToast } from "@/lib/toast-context";
+import { api } from "@/lib/api";
 import Link from "next/link";
 import Image from "next/image";
 
@@ -39,10 +40,9 @@ export default function ReleasesPage() {
     const fetchReleases = async () => {
         try {
             setLoading(true);
-            const res = await fetch("/api/releases/radar?daysBack=30&daysAhead=90");
-            if (!res.ok) throw new Error("Failed to fetch releases");
-            const json = await res.json();
+            const json = await api.getReleaseRadar({ daysBack: 30, daysAhead: 90 });
             setData(json);
+            setError(null);
         } catch (err: unknown) {
             setError(err instanceof Error ? err.message : "Failed to fetch releases");
         } finally {
@@ -57,31 +57,21 @@ export default function ReleasesPage() {
     const handleDownload = async (release: ReleaseItem) => {
         try {
             setDownloadingId(release.id);
-            const res = await fetch(
-                `/api/releases/download/${release.albumMbid}`,
-                {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        artistName: release.artistName,
-                        albumTitle: release.title,
-                        artistMbid: release.artistMbid,
-                    }),
-                }
+            const json = await api.downloadRelease(release.albumMbid, {
+                artistName: release.artistName,
+                albumTitle: release.title,
+                artistMbid: release.artistMbid,
+            });
+            toast.success(
+                json.message || `Queued "${release.title}" for download`
             );
-            const json = await res.json().catch(() => ({}));
-            if (res.ok) {
-                toast.success(
-                    json.message || `Queued "${release.title}" for download`
-                );
-                // Refresh to show updated status
-                await fetchReleases();
-            } else {
-                toast.error(json.error || "Failed to start download");
-            }
+            // Refresh to show updated status
+            await fetchReleases();
         } catch (err) {
             console.error("Download failed:", err);
-            toast.error("Failed to start download");
+            const message =
+                err instanceof Error ? err.message : "Failed to start download";
+            toast.error(message);
         } finally {
             setDownloadingId(null);
         }

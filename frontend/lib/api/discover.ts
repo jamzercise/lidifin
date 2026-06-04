@@ -14,6 +14,7 @@ declare module "./client" {
         rebuildDiscoverWeekly(): Promise<{ message: string; batchId: string; completedJobs?: number }>;
         cancelDiscoverGeneration(): Promise<{ message: string; cancelledJobs: number }>;
         retryDiscoverAlbum(jobId: string): Promise<{ message: string }>;
+        dismissFailedDiscoverJobs(batchId?: string): Promise<{ message: string; dismissed: number }>;
         likeDiscoverAlbum(albumId: string): Promise<{ success: boolean }>;
         unlikeDiscoverAlbum(albumId: string): Promise<{ success: boolean }>;
         getDiscoverConfig(): Promise<{ id: string; userId: string; playlistSize: number; exclusionMonths: number; downloadRatio: number; enabled: boolean; acquisitionMode: "album" | "track"; lastGeneratedAt: string | null }>;
@@ -80,6 +81,13 @@ ApiClient.prototype.retryDiscoverAlbum = async function (this: ApiClient, jobId:
     return this.request("/discover/retry-album", {
         method: "POST",
         body: JSON.stringify({ jobId }),
+    });
+};
+
+ApiClient.prototype.dismissFailedDiscoverJobs = async function (this: ApiClient, batchId?: string) {
+    return this.request("/discover/dismiss-failed", {
+        method: "POST",
+        body: JSON.stringify(batchId ? { batchId } : {}),
     });
 };
 

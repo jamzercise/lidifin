@@ -1,8 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { RefreshCw, Music2, RotateCcw, CheckCircle2, XCircle, Clock, AlertTriangle } from "lucide-react";
+import { RefreshCw, Music2, RotateCcw, CheckCircle2, XCircle, Clock, AlertTriangle, ChevronDown, Trash2 } from "lucide-react";
 import { cn } from "@/utils/cn";
+import { api } from "@/lib/api";
 import { GradientSpinner } from "@/components/ui/GradientSpinner";
 import { useAudioState, useAudioPlayback } from "@/lib/audio-context";
 import { useDiscoverData } from "@/features/discover/hooks/useDiscoverData";
@@ -87,6 +88,11 @@ export default function DiscoverWeeklyPage() {
 
     const batchContext = playlist?.batchContext;
 
+    const handleDismissFailed = async () => {
+        await api.dismissFailedDiscoverJobs(batchContext?.batchId);
+        await Promise.all([reloadData(), refreshBatchStatus()]);
+    };
+
     return (
         <div className="min-h-screen">
             <DiscoverHero playlist={playlist} config={config} />
@@ -164,6 +170,7 @@ export default function DiscoverWeeklyPage() {
                             onGenerate={handleGenerate}
                             onCancel={handleCancel}
                             onRetryAlbum={handleRetryAlbum}
+                            onDismissFailed={handleDismissFailed}
                             batchStatus={batchStatus}
                         />
                     ) : (
@@ -255,6 +262,7 @@ function BatchContextView({
     onGenerate,
     onCancel,
     onRetryAlbum,
+    onDismissFailed,
     batchStatus,
 }: {
     batchContext: BatchContext;
@@ -263,11 +271,14 @@ function BatchContextView({
     onGenerate: () => void;
     onCancel: () => void;
     onRetryAlbum: (jobId: string) => void;
+    onDismissFailed: () => Promise<void>;
     batchStatus: BatchStatus | null;
 }) {
     const [isRebuilding, setIsRebuilding] = useState(false);
     const [isCancelling, setIsCancelling] = useState(false);
     const [retryingId, setRetryingId] = useState<string | null>(null);
+    const [isListOpen, setIsListOpen] = useState(true);
+    const [isClearing, setIsClearing] = useState(false);
 
     const handleRebuildClick = async () => {
         setIsRebuilding(true);
@@ -293,6 +304,15 @@ function BatchContextView({
             await onRetryAlbum(jobId);
         } finally {
             setTimeout(() => setRetryingId(null), 3000);
+        }
+    };
+
+    const handleClearFailedClick = async () => {
+        setIsClearing(true);
+        try {
+            await onDismissFailed();
+        } finally {
+            setIsClearing(false);
         }
     };
 
@@ -326,6 +346,9 @@ function BatchContextView({
     const itemNoun = batchMode === "track" ? "Songs" : "Albums";
     const hasSomeCompleted = batchContext.completedJobs > 0;
     const allFailed = batchContext.failedJobs === batchContext.totalJobs;
+    const failedCount = liveAlbums.filter(
+        (a) => a.status === "failed" || a.status === "exhausted"
+    ).length;
 
     return (
         <div className="max-w-2xl mx-auto py-12 space-y-8">
@@ -469,9 +492,43 @@ function BatchContextView({
             {/* Recommended Albums List */}
             {liveAlbums.length > 0 && (
                 <div>
-                    <h4 className="text-sm font-medium text-white/70 uppercase tracking-wider mb-4">
-                        Recommended {itemNoun} ({totalAlbums})
-                    </h4>
+                    <div className="flex items-center justify-between gap-3 mb-4">
+                        <button
+                            type="button"
+                            onClick={() => setIsListOpen((v) => !v)}
+                            aria-expanded={isListOpen}
+                            className="group flex items-center gap-2 text-sm font-medium text-white/70 hover:text-white uppercase tracking-wider transition-colors"
+                        >
+                            <ChevronDown
+                                className={cn(
+                                    "w-4 h-4 transition-transform",
+                                    isListOpen ? "rotate-0" : "-rotate-90"
+                                )}
+                            />
+                            Recommended {itemNoun} ({totalAlbums})
+                        </button>
+                        {failedCount > 0 && (
+                            <button
+                                type="button"
+                                onClick={handleClearFailedClick}
+                                disabled={isClearing}
+                                className={cn(
+                                    "flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full shrink-0 transition-all",
+                                    isClearing
+                                        ? "bg-white/5 cursor-not-allowed opacity-50 text-gray-400"
+                                        : "bg-white/5 hover:bg-red-500/10 border border-white/10 hover:border-red-500/30 text-gray-300 hover:text-red-300"
+                                )}
+                            >
+                                {isClearing ? (
+                                    <GradientSpinner size="sm" />
+                                ) : (
+                                    <Trash2 className="w-3 h-3" />
+                                )}
+                                Clear failed ({failedCount})
+                            </button>
+                        )}
+                    </div>
+                    {isListOpen && (
                     <div className="space-y-2">
                         {liveAlbums.map((album, i) => {
                             const isFailed =
@@ -541,6 +598,7 @@ function BatchContextView({
                             );
                         })}
                     </div>
+                    )}
                 </div>
             )}
         </div>
