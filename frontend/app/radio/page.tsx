@@ -462,15 +462,14 @@ export default function RadioPage() {
 
                 {/* Header */}
                 <div className="mb-8">
-                    <div className="flex items-center gap-3 mb-2">
-                        <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-brand to-amber-600 flex items-center justify-center">
-                            <Radio className="w-6 h-6 text-black" />
-                        </div>
-                        <div>
-                            <h1 className="text-3xl font-bold text-white">Radio Stations</h1>
-                            <p className="text-white/60">Continuous shuffle from your library</p>
-                        </div>
+                    <div className="flex items-center gap-2 mb-1">
+                        <Radio className="w-4 h-4 text-brand" />
+                        <span className="text-xs font-medium uppercase tracking-wider text-brand">
+                            Radio
+                        </span>
                     </div>
+                    <h1 className="text-3xl font-bold text-white">Stations For You</h1>
+                    <p className="text-white/60">Continuous shuffle from your library</p>
                 </div>
 
                 {/* Quick Start Section */}

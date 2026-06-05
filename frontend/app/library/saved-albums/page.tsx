@@ -6,10 +6,11 @@ import {
     useMutation,
     useInfiniteQuery,
 } from "@tanstack/react-query";
-import { ArrowLeft, Disc3, RefreshCw } from "lucide-react";
+import { ArrowLeft, Disc3, RefreshCw, Bookmark } from "lucide-react";
 import { api } from "@/lib/api";
 import { queryKeys } from "@/hooks/useQueries";
 import { PlayableCard } from "@/components/ui/PlayableCard";
+import { PageHero } from "@/components/ui/PageHero";
 import { GradientSpinner } from "@/components/ui/GradientSpinner";
 import { toast } from "sonner";
 
@@ -59,7 +60,14 @@ export default function SavedDiscoveryAlbumsPage() {
 
     return (
         <div className="min-h-screen bg-[#0a0a0a] text-white pb-24">
-            <div className="max-w-6xl mx-auto px-4 pt-8">
+            <PageHero
+                accent="rose"
+                eyebrow="Your Collection"
+                icon={<Bookmark className="w-6 h-6" />}
+                title="Saved Albums"
+                subtitle="Bookmarked discovery release groups (MusicBrainz) — separate from your Jellyfin library and favorites. Open a tile for details, previews, or download."
+            />
+            <div className="max-w-6xl mx-auto px-4 pt-6">
                 <Link
                     href="/library"
                     className="inline-flex items-center gap-2 text-sm text-gray-400 hover:text-white mb-6"
@@ -67,13 +75,6 @@ export default function SavedDiscoveryAlbumsPage() {
                     <ArrowLeft className="w-4 h-4" aria-hidden />
                     Back to Library
                 </Link>
-
-                <h1 className="text-2xl font-bold mb-1">Saved albums</h1>
-                <p className="text-sm text-gray-400 mb-6 max-w-2xl">
-                    Bookmarked discovery release groups (MusicBrainz)—separate from
-                    your Jellyfin library and favorites. Open a tile for details,
-                    previews, or download.
-                </p>
 
                 {!isError && albums.length > 0 && total > 0 && (
                     <p className="text-xs text-gray-500 mb-4" aria-live="polite">

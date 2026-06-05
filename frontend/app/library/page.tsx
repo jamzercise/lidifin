@@ -21,7 +21,7 @@ import { LibraryTabs } from "@/features/library/components/LibraryTabs";
 import { ArtistsGrid } from "@/features/library/components/ArtistsGrid";
 import { AlbumsGrid } from "@/features/library/components/AlbumsGrid";
 import { TracksList } from "@/features/library/components/TracksList";
-import { Shuffle, ListFilter, RefreshCw } from "lucide-react";
+import { Shuffle, ListFilter, RefreshCw, Library as LibraryIcon } from "lucide-react";
 
 export default function LibraryPage() {
     const router = useRouter();
@@ -367,7 +367,11 @@ export default function LibraryPage() {
 
     return (
         <div className="min-h-screen relative">
-            <LibraryHeader />
+            <LibraryHeader
+                eyebrow="Your Library"
+                icon={<LibraryIcon className="w-4 h-4" />}
+                title="Library"
+            />
 
             <div className="relative px-4 md:px-8 pb-24">
                 {/* Tabs and Controls Row */}

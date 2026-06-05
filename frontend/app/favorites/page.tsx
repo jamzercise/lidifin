@@ -114,8 +114,11 @@ export default function FavoritesPage() {
         <div className="min-h-screen">
             <div className="relative flex items-start justify-end">
                 <LibraryHeader
+                    eyebrow="Your Music"
+                    icon={<Heart className="w-4 h-4" />}
                     title="Favorites"
                     subtitle="Jellyfin favorites — play or remove from list"
+                    accent="rose"
                     showSync={false}
                 />
                 <button

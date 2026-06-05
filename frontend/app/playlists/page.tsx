@@ -9,8 +9,9 @@ import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/hooks/useQueries";
 import { useAuth } from "@/lib/auth-context";
 import { useAudioControls } from "@/lib/audio-context";
-import { Play, Music, Eye, EyeOff, Pencil } from "lucide-react";
+import { Play, Music, Eye, EyeOff, Pencil, ListMusic } from "lucide-react";
 import { GradientSpinner } from "@/components/ui/GradientSpinner";
+import { PageHero } from "@/components/ui/PageHero";
 import { api } from "@/lib/api";
 import { cn } from "@/utils/cn";
 
@@ -454,33 +455,16 @@ export default function PlaylistsPage() {
 
     return (
         <div className="min-h-screen relative">
-            {/* Quick gradient fade - yellow to purple */}
-            <div className="absolute inset-0 pointer-events-none">
-                <div
-                    className="absolute inset-0 bg-gradient-to-b from-[#B1D2C3]/15 via-purple-900/10 to-transparent"
-                    style={{ height: "35vh" }}
-                />
-                <div
-                    className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,var(--tw-gradient-stops))] from-[#B1D2C3]/8 via-transparent to-transparent"
-                    style={{ height: "25vh" }}
-                />
-            </div>
-
-            {/* Header */}
-            <div className="relative px-6 pt-6 pb-4">
-                <div className="flex items-center justify-between">
-                    <div>
-                        <h1 className="text-2xl font-bold text-white">
-                            Playlists
-                        </h1>
-                        <p className="text-sm text-gray-400 mt-0.5">
-                            {visiblePlaylists.length}{" "}
-                            {visiblePlaylists.length === 1
-                                ? "playlist"
-                                : "playlists"}
-                        </p>
-                    </div>
-
+            <PageHero
+                variant="compact"
+                accent="brand"
+                eyebrow="Your Music"
+                icon={<ListMusic className="w-4 h-4" />}
+                title="Playlists"
+                subtitle={`${visiblePlaylists.length} ${
+                    visiblePlaylists.length === 1 ? "playlist" : "playlists"
+                }`}
+                actions={
                     <div className="flex items-center gap-2">
                         {/* Browse Public Playlists */}
                         <Link
@@ -507,8 +491,8 @@ export default function PlaylistsPage() {
                             </button>
                         )}
                     </div>
-                </div>
-            </div>
+                }
+            />
 
             {/* Content */}
             <div className="relative px-4 pb-24">

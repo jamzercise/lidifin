@@ -206,6 +206,12 @@ export default function PodcastsPage() {
             {/* Hero Section */}
             <div className="relative">
                 <div className="px-4 md:px-8 py-6">
+                    <div className="flex items-center gap-2 mb-1">
+                        <Mic2 className="w-4 h-4 text-brand" />
+                        <span className="text-xs font-medium uppercase tracking-wider text-brand">
+                            Shows
+                        </span>
+                    </div>
                     <h1 className="text-2xl font-bold text-white mb-4">
                         Podcasts
                     </h1>

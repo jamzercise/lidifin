@@ -419,9 +419,17 @@ export default function AudiobooksPage() {
             {/* Hero Section */}
             <div className="relative">
                 <div className="px-4 md:px-8 py-6 flex items-center justify-between gap-4">
-                    <h1 className="text-2xl font-bold text-white">
-                        Audiobooks
-                    </h1>
+                    <div>
+                        <div className="flex items-center gap-2 mb-1">
+                            <Book className="w-4 h-4 text-brand" />
+                            <span className="text-xs font-medium uppercase tracking-wider text-brand">
+                                Shows & Books
+                            </span>
+                        </div>
+                        <h1 className="text-2xl font-bold text-white">
+                            Audiobooks
+                        </h1>
+                    </div>
                     <button
                         type="button"
                         onClick={handleSyncAudiobooks}
