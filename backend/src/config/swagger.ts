@@ -8,7 +8,7 @@ const options: swaggerJsdoc.Options = {
             title: "Lidifin API",
             version: "1.0.0",
             description:
-                "Self-hosted music streaming server with Discover Weekly and full-text search",
+                "Self-hosted music streaming server with Discover Weekly and full-text search. All documented paths are relative to /api. Username/password with JWT access + refresh tokens is the primary mobile authentication flow.",
             contact: {
                 name: "Lidifin",
                 url: "https://github.com/jamzercise/lidifin",
@@ -16,12 +16,19 @@ const options: swaggerJsdoc.Options = {
         },
         servers: [
             {
-                url: `http://localhost:${config.port}`,
-                description: "Development server",
+                url: `http://localhost:${config.port}/api`,
+                description: "Development API base path",
             },
         ],
         components: {
             securitySchemes: {
+                bearerAuth: {
+                    type: "http",
+                    scheme: "bearer",
+                    bearerFormat: "JWT",
+                    description:
+                        "Primary mobile authentication. Obtain with POST /auth/login and refresh with POST /auth/refresh.",
+                },
                 sessionAuth: {
                     type: "apiKey",
                     in: "cookie",
@@ -32,7 +39,15 @@ const options: swaggerJsdoc.Options = {
                     type: "apiKey",
                     in: "header",
                     name: "X-API-Key",
-                    description: "API key authentication (mobile apps)",
+                    description:
+                        "Secondary device authentication for paired clients. Prefer bearerAuth for primary username/password login.",
+                },
+                streamTokenAuth: {
+                    type: "apiKey",
+                    in: "query",
+                    name: "token",
+                    description:
+                        "Optional query-token auth for media URLs when attaching a Bearer header is inconvenient.",
                 },
             },
             schemas: {
@@ -91,13 +106,46 @@ const options: swaggerJsdoc.Options = {
                     type: "object",
                     properties: {
                         error: { type: "string" },
+                        message: { type: "string" },
+                        details: {},
+                    },
+                },
+                AuthTokens: {
+                    type: "object",
+                    required: ["token", "refreshToken", "user"],
+                    properties: {
+                        token: {
+                            type: "string",
+                            description: "Short-lived JWT access token",
+                        },
+                        refreshToken: {
+                            type: "string",
+                            description: "Longer-lived JWT refresh token",
+                        },
+                        user: {
+                            $ref: "#/components/schemas/User",
+                        },
+                    },
+                },
+                Requires2FA: {
+                    type: "object",
+                    required: ["requires2FA", "message"],
+                    properties: {
+                        requires2FA: {
+                            type: "boolean",
+                            example: true,
+                        },
+                        message: {
+                            type: "string",
+                            example: "2FA token required",
+                        },
                     },
                 },
             },
         },
-        security: [{ sessionAuth: [] }, { apiKeyAuth: [] }],
+        security: [{ bearerAuth: [] }, { apiKeyAuth: [] }, { sessionAuth: [] }],
     },
-    apis: ["./src/routes/*.ts", "./src/config/swaggerSchemas.ts"],
+    apis: ["./src/routes/**/*.ts", "./src/config/swaggerSchemas.ts"],
 };
 
 export const swaggerSpec = swaggerJsdoc(options);

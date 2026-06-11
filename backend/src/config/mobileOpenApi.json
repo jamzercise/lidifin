@@ -1,0 +1,1039 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Lidifin Mobile API",
+    "version": "1.0.0",
+    "description": "Dedicated mobile-facing API contract for native clients. All paths are relative to /api. Primary authentication is username/password via JWT access + refresh tokens."
+  },
+  "servers": [
+    {
+      "url": "/api",
+      "description": "Relative API base path"
+    }
+  ],
+  "tags": [
+    { "name": "Authentication" },
+    { "name": "API Keys" },
+    { "name": "Device Link" },
+    { "name": "Library" },
+    { "name": "Search" },
+    { "name": "Streaming" }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Primary mobile authentication. Obtain with POST /auth/login and refresh with POST /auth/refresh."
+      },
+      "apiKeyAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-API-Key",
+        "description": "Secondary device authentication for paired devices and integrations."
+      },
+      "streamTokenAuth": {
+        "type": "apiKey",
+        "in": "query",
+        "name": "token",
+        "description": "Optional query token for stream URLs when attaching Authorization headers is inconvenient."
+      },
+      "sessionAuth": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "connect.sid",
+        "description": "Web UI session authentication. Included for completeness."
+      }
+    },
+    "schemas": {
+      "User": {
+        "type": "object",
+        "required": ["id", "username", "role"],
+        "properties": {
+          "id": { "type": "string" },
+          "username": { "type": "string" },
+          "role": {
+            "type": "string",
+            "enum": ["user", "admin"]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "onboardingComplete": {
+            "type": "boolean"
+          }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": { "type": "string" },
+          "message": { "type": "string" },
+          "details": {}
+        }
+      },
+      "AuthTokens": {
+        "type": "object",
+        "required": ["token", "refreshToken", "user"],
+        "properties": {
+          "token": { "type": "string" },
+          "refreshToken": { "type": "string" },
+          "user": { "$ref": "#/components/schemas/User" }
+        }
+      },
+      "Requires2FA": {
+        "type": "object",
+        "required": ["requires2FA", "message"],
+        "properties": {
+          "requires2FA": { "type": "boolean", "example": true },
+          "message": { "type": "string", "example": "2FA token required" }
+        }
+      },
+      "ApiKey": {
+        "type": "object",
+        "required": ["id", "name", "createdAt"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "lastUsed": { "type": "string", "format": "date-time", "nullable": true }
+        }
+      },
+      "ArtistSummary": {
+        "type": "object",
+        "required": ["id", "name", "albumCount", "trackCount"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "mbid": { "type": "string", "nullable": true },
+          "heroUrl": { "type": "string", "nullable": true },
+          "coverArt": { "type": "string", "nullable": true },
+          "albumCount": { "type": "integer" },
+          "trackCount": { "type": "integer" }
+        }
+      },
+      "AlbumArtist": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "mbid": { "type": "string", "nullable": true }
+        }
+      },
+      "AlbumSummary": {
+        "type": "object",
+        "required": ["id", "title"],
+        "properties": {
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "coverArt": { "type": "string", "nullable": true },
+          "coverUrl": { "type": "string", "nullable": true },
+          "year": { "type": "integer", "nullable": true },
+          "rgMbid": { "type": "string", "nullable": true },
+          "artist": { "$ref": "#/components/schemas/AlbumArtist" }
+        }
+      },
+      "TrackArtist": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" }
+        }
+      },
+      "TrackAlbum": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "coverArt": { "type": "string", "nullable": true },
+          "artist": { "$ref": "#/components/schemas/TrackArtist" }
+        }
+      },
+      "TrackSummary": {
+        "type": "object",
+        "required": ["id", "title", "duration"],
+        "properties": {
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "duration": { "type": "integer" },
+          "trackNo": { "type": "integer" },
+          "album": { "$ref": "#/components/schemas/TrackAlbum" }
+        }
+      },
+      "SearchResultArtist": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "mbid": { "type": "string", "nullable": true },
+          "heroUrl": { "type": "string", "nullable": true }
+        }
+      },
+      "SearchResultAlbum": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "artistId": { "type": "string" },
+          "year": { "type": "integer", "nullable": true },
+          "coverUrl": { "type": "string", "nullable": true },
+          "artist": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "name": { "type": "string" },
+              "mbid": { "type": "string", "nullable": true }
+            }
+          }
+        }
+      },
+      "SearchResultTrack": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "albumId": { "type": "string" },
+          "duration": { "type": "integer" },
+          "trackNo": { "type": "integer" },
+          "album": { "$ref": "#/components/schemas/SearchResultAlbum" }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/auth/login": {
+      "post": {
+        "tags": ["Authentication"],
+        "summary": "Login with username and password",
+        "description": "Primary mobile authentication flow. Returns JWT access and refresh tokens. If two-factor auth is enabled and no second factor is provided, the response indicates that 2FA is required.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["username", "password"],
+                "properties": {
+                  "username": { "type": "string" },
+                  "password": { "type": "string", "format": "password" },
+                  "token": {
+                    "type": "string",
+                    "description": "Optional TOTP or recovery code when 2FA is enabled"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Login successful, or second-factor confirmation required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    { "$ref": "#/components/schemas/AuthTokens" },
+                    { "$ref": "#/components/schemas/Requires2FA" }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request body",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid credentials",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/refresh": {
+      "post": {
+        "tags": ["Authentication"],
+        "summary": "Refresh an access token",
+        "description": "Exchanges a valid refresh token for a new access token and refresh token pair.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["refreshToken"],
+                "properties": {
+                  "refreshToken": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Tokens refreshed successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["token", "refreshToken"],
+                  "properties": {
+                    "token": { "type": "string" },
+                    "refreshToken": { "type": "string" }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing refresh token",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or expired refresh token",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/me": {
+      "get": {
+        "tags": ["Authentication"],
+        "summary": "Get current authenticated user",
+        "security": [
+          { "bearerAuth": [] },
+          { "apiKeyAuth": [] },
+          { "sessionAuth": [] }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current user information",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/User" }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api-keys": {
+      "post": {
+        "tags": ["API Keys"],
+        "summary": "Create a new API key",
+        "description": "Creates a long-lived API key for paired devices or integrations. This is not the primary mobile sign-in flow.",
+        "security": [
+          { "bearerAuth": [] },
+          { "sessionAuth": [] }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["deviceName"],
+                "properties": {
+                  "deviceName": { "type": "string", "example": "Pixel 9" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "API key created successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "apiKey": { "type": "string" },
+                    "name": { "type": "string" },
+                    "createdAt": { "type": "string", "format": "date-time" },
+                    "message": { "type": "string" }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": ["API Keys"],
+        "summary": "List API keys",
+        "security": [
+          { "bearerAuth": [] },
+          { "sessionAuth": [] }
+        ],
+        "responses": {
+          "200": {
+            "description": "API keys returned successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "apiKeys": {
+                      "type": "array",
+                      "items": { "$ref": "#/components/schemas/ApiKey" }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api-keys/{id}": {
+      "delete": {
+        "tags": ["API Keys"],
+        "summary": "Revoke an API key",
+        "security": [
+          { "bearerAuth": [] },
+          { "sessionAuth": [] }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "API key revoked successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": { "type": "string" }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "404": {
+            "description": "API key not found",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/device-link/generate": {
+      "post": {
+        "tags": ["Device Link"],
+        "summary": "Generate a short-lived device link code",
+        "description": "Optional secondary pairing flow for clients that should link to an already authenticated account.",
+        "security": [
+          { "bearerAuth": [] },
+          { "sessionAuth": [] }
+        ],
+        "responses": {
+          "200": {
+            "description": "Link code created successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "code": { "type": "string", "example": "AB12CD" },
+                    "expiresAt": { "type": "string", "format": "date-time" },
+                    "expiresIn": { "type": "integer", "example": 300 }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/device-link/verify": {
+      "post": {
+        "tags": ["Device Link"],
+        "summary": "Exchange a device link code for an API key",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["code"],
+                "properties": {
+                  "code": { "type": "string", "example": "AB12CD" },
+                  "deviceName": { "type": "string", "example": "Pixel 9" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Device linked successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "apiKey": { "type": "string" },
+                    "userId": { "type": "string" },
+                    "username": { "type": "string" }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid or expired code",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "404": {
+            "description": "Code not found",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/device-link/status/{code}": {
+      "get": {
+        "tags": ["Device Link"],
+        "summary": "Poll the status of a device link code",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "code",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current code status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": ["pending", "used", "expired"]
+                    },
+                    "expiresAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "usedAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "deviceName": { "type": "string" }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Code not found",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/device-link/devices": {
+      "get": {
+        "tags": ["Device Link"],
+        "summary": "List linked devices",
+        "security": [
+          { "bearerAuth": [] },
+          { "sessionAuth": [] }
+        ],
+        "responses": {
+          "200": {
+            "description": "Linked devices returned successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": { "$ref": "#/components/schemas/ApiKey" }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/device-link/devices/{id}": {
+      "delete": {
+        "tags": ["Device Link"],
+        "summary": "Revoke a linked device",
+        "security": [
+          { "bearerAuth": [] },
+          { "sessionAuth": [] }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Device revoked successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "404": {
+            "description": "Device not found",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/library/artists": {
+      "get": {
+        "tags": ["Library"],
+        "summary": "List library artists",
+        "security": [
+          { "bearerAuth": [] },
+          { "apiKeyAuth": [] },
+          { "sessionAuth": [] }
+        ],
+        "parameters": [
+          { "in": "query", "name": "query", "schema": { "type": "string" } },
+          { "in": "query", "name": "limit", "schema": { "type": "integer", "default": 50 } },
+          { "in": "query", "name": "offset", "schema": { "type": "integer", "default": 0 } },
+          { "in": "query", "name": "cursor", "schema": { "type": "string" } },
+          {
+            "in": "query",
+            "name": "filter",
+            "schema": {
+              "type": "string",
+              "enum": ["owned", "discovery", "all"],
+              "default": "owned"
+            }
+          },
+          { "in": "query", "name": "sortBy", "schema": { "type": "string", "default": "name" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Artists returned successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "artists": {
+                      "type": "array",
+                      "items": { "$ref": "#/components/schemas/ArtistSummary" }
+                    },
+                    "total": { "type": "integer" },
+                    "offset": { "type": "integer" },
+                    "limit": { "type": "integer" },
+                    "nextCursor": { "type": "string", "nullable": true }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "503": {
+            "description": "Upstream Jellyfin unavailable",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/library/albums": {
+      "get": {
+        "tags": ["Library"],
+        "summary": "List library albums",
+        "security": [
+          { "bearerAuth": [] },
+          { "apiKeyAuth": [] },
+          { "sessionAuth": [] }
+        ],
+        "parameters": [
+          { "in": "query", "name": "artistId", "schema": { "type": "string" } },
+          { "in": "query", "name": "limit", "schema": { "type": "integer", "default": 500 } },
+          { "in": "query", "name": "offset", "schema": { "type": "integer", "default": 0 } },
+          {
+            "in": "query",
+            "name": "filter",
+            "schema": {
+              "type": "string",
+              "enum": ["owned", "discovery", "all"],
+              "default": "owned"
+            }
+          },
+          { "in": "query", "name": "sortBy", "schema": { "type": "string", "default": "name" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Albums returned successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "albums": {
+                      "type": "array",
+                      "items": { "$ref": "#/components/schemas/AlbumSummary" }
+                    },
+                    "total": { "type": "integer" },
+                    "offset": { "type": "integer" },
+                    "limit": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "503": {
+            "description": "Upstream Jellyfin unavailable",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/library/tracks": {
+      "get": {
+        "tags": ["Library"],
+        "summary": "List library tracks",
+        "security": [
+          { "bearerAuth": [] },
+          { "apiKeyAuth": [] },
+          { "sessionAuth": [] }
+        ],
+        "parameters": [
+          { "in": "query", "name": "albumId", "schema": { "type": "string" } },
+          { "in": "query", "name": "limit", "schema": { "type": "integer", "default": 100 } },
+          { "in": "query", "name": "offset", "schema": { "type": "integer", "default": 0 } },
+          { "in": "query", "name": "sortBy", "schema": { "type": "string", "default": "name" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tracks returned successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "tracks": {
+                      "type": "array",
+                      "items": { "$ref": "#/components/schemas/TrackSummary" }
+                    },
+                    "total": { "type": "integer" },
+                    "offset": { "type": "integer" },
+                    "limit": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "503": {
+            "description": "Upstream Jellyfin unavailable",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/search": {
+      "get": {
+        "tags": ["Search"],
+        "summary": "Search the library",
+        "security": [
+          { "bearerAuth": [] },
+          { "apiKeyAuth": [] },
+          { "sessionAuth": [] }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "q",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "in": "query",
+            "name": "type",
+            "schema": {
+              "type": "string",
+              "enum": ["all", "artists", "albums", "tracks", "audiobooks", "podcasts", "episodes"],
+              "default": "all"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Search results returned successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "artists": {
+                      "type": "array",
+                      "items": { "$ref": "#/components/schemas/SearchResultArtist" }
+                    },
+                    "albums": {
+                      "type": "array",
+                      "items": { "$ref": "#/components/schemas/SearchResultAlbum" }
+                    },
+                    "tracks": {
+                      "type": "array",
+                      "items": { "$ref": "#/components/schemas/SearchResultTrack" }
+                    },
+                    "playlists": { "type": "array", "items": {} },
+                    "audiobooks": { "type": "array", "items": {} },
+                    "podcasts": { "type": "array", "items": {} },
+                    "episodes": { "type": "array", "items": {} }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing or invalid query",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/library/tracks/{id}/stream": {
+      "get": {
+        "tags": ["Streaming"],
+        "summary": "Stream a track",
+        "description": "Streams a native or Jellyfin-backed track. Supports HTTP Range requests for seeking. Bearer JWT is the primary mobile auth mechanism.",
+        "security": [
+          { "bearerAuth": [] },
+          { "apiKeyAuth": [] },
+          { "streamTokenAuth": [] },
+          { "sessionAuth": [] }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "Track ID. Can be a Prisma track ID or a jellyfin:-prefixed track ID."
+          },
+          {
+            "in": "query",
+            "name": "quality",
+            "schema": {
+              "type": "string",
+              "enum": ["original", "high", "medium", "low"]
+            }
+          },
+          {
+            "in": "query",
+            "name": "token",
+            "schema": { "type": "string" },
+            "description": "Optional JWT query token for streaming contexts"
+          },
+          {
+            "in": "header",
+            "name": "Range",
+            "schema": { "type": "string" },
+            "description": "Standard HTTP Range header for seek/resume requests"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Full stream response"
+          },
+          "206": {
+            "description": "Partial content response for Range requests"
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "404": {
+            "description": "Track not found",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "503": {
+            "description": "Upstream Jellyfin unavailable",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

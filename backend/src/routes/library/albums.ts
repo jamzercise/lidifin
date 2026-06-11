@@ -107,6 +107,102 @@ async function recordAlbumLookupSuccess(): Promise<void> {
     await redisClient.del(ALBUM_LOOKUP_CIRCUIT_FAILS_KEY).catch(() => {});
 }
 
+/**
+ * @openapi
+ * /library/albums:
+ *   get:
+ *     summary: List library albums
+ *     description: Mobile-supported album listing endpoint. Returns paginated albums from Prisma or Jellyfin depending on the active music source.
+ *     tags: [Library]
+ *     security:
+ *       - bearerAuth: []
+ *       - apiKeyAuth: []
+ *       - sessionAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: artistId
+ *         schema:
+ *           type: string
+ *         description: Restrict results to a single artist
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 500
+ *       - in: query
+ *         name: offset
+ *         schema:
+ *           type: integer
+ *           default: 0
+ *       - in: query
+ *         name: filter
+ *         schema:
+ *           type: string
+ *           enum: [owned, discovery, all]
+ *           default: owned
+ *       - in: query
+ *         name: sortBy
+ *         schema:
+ *           type: string
+ *           default: name
+ *     responses:
+ *       200:
+ *         description: Albums returned successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 albums:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: string
+ *                       title:
+ *                         type: string
+ *                       coverArt:
+ *                         type: string
+ *                         nullable: true
+ *                       coverUrl:
+ *                         type: string
+ *                         nullable: true
+ *                       year:
+ *                         type: integer
+ *                         nullable: true
+ *                       rgMbid:
+ *                         type: string
+ *                         nullable: true
+ *                       artist:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: string
+ *                           name:
+ *                             type: string
+ *                           mbid:
+ *                             type: string
+ *                             nullable: true
+ *                 total:
+ *                   type: integer
+ *                 offset:
+ *                   type: integer
+ *                 limit:
+ *                   type: integer
+ *       401:
+ *         description: Not authenticated
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       503:
+ *         description: Upstream Jellyfin unavailable
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 router.get("/albums", async (req, res) => {
     try {
         const {

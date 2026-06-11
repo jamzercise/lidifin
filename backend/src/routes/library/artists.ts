@@ -44,6 +44,101 @@ import { pickSavedRgMbids } from "../../services/savedDiscoveryAlbumService";
 
 const router = Router();
 
+/**
+ * @openapi
+ * /library/artists:
+ *   get:
+ *     summary: List library artists
+ *     description: Mobile-supported artist listing endpoint. Returns paginated artists from Prisma or Jellyfin depending on the active music source.
+ *     tags: [Library]
+ *     security:
+ *       - bearerAuth: []
+ *       - apiKeyAuth: []
+ *       - sessionAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: query
+ *         schema:
+ *           type: string
+ *         description: Optional case-insensitive artist search
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 50
+ *       - in: query
+ *         name: offset
+ *         schema:
+ *           type: integer
+ *           default: 0
+ *       - in: query
+ *         name: cursor
+ *         schema:
+ *           type: string
+ *         description: Optional cursor for cursor-based pagination
+ *       - in: query
+ *         name: filter
+ *         schema:
+ *           type: string
+ *           enum: [owned, discovery, all]
+ *           default: owned
+ *       - in: query
+ *         name: sortBy
+ *         schema:
+ *           type: string
+ *           default: name
+ *     responses:
+ *       200:
+ *         description: Artists returned successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 artists:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: string
+ *                       name:
+ *                         type: string
+ *                       mbid:
+ *                         type: string
+ *                         nullable: true
+ *                       heroUrl:
+ *                         type: string
+ *                         nullable: true
+ *                       coverArt:
+ *                         type: string
+ *                         nullable: true
+ *                       albumCount:
+ *                         type: integer
+ *                       trackCount:
+ *                         type: integer
+ *                 total:
+ *                   type: integer
+ *                 offset:
+ *                   type: integer
+ *                 limit:
+ *                   type: integer
+ *                 nextCursor:
+ *                   type: string
+ *                   nullable: true
+ *       401:
+ *         description: Not authenticated
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       503:
+ *         description: Upstream Jellyfin unavailable
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 router.get("/artists", async (req, res) => {
     try {
         const {

@@ -558,6 +558,60 @@ router.get("/cover-art-colors", imageLimiter, async (req, res) => {
     }
 });
 
+/**
+ * @openapi
+ * /library/tracks/{id}/stream:
+ *   get:
+ *     summary: Stream a track
+ *     description: Streams a native or Jellyfin-backed track. Supports HTTP Range requests for seeking. Bearer JWT is the primary mobile auth mechanism; API keys and `token` query auth are also accepted for media players that cannot easily attach headers.
+ *     tags: [Streaming]
+ *     security:
+ *       - bearerAuth: []
+ *       - apiKeyAuth: []
+ *       - streamTokenAuth: []
+ *       - sessionAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Track ID. Can be a Prisma track ID or a `jellyfin:`-prefixed track ID.
+ *       - in: query
+ *         name: quality
+ *         schema:
+ *           type: string
+ *           enum: [original, high, medium, low]
+ *         description: Requested playback quality
+ *       - in: query
+ *         name: token
+ *         schema:
+ *           type: string
+ *         description: Optional JWT token for streaming contexts that cannot send Authorization headers
+ *     responses:
+ *       200:
+ *         description: Full stream response
+ *       206:
+ *         description: Partial content response for Range requests
+ *       401:
+ *         description: Not authenticated
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       404:
+ *         description: Track not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       503:
+ *         description: Upstream Jellyfin unavailable
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 // GET /library/tracks/:id/stream
 router.get("/tracks/:id/stream", async (req, res) => {
     try {

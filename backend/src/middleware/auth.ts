@@ -193,6 +193,70 @@ export async function requireAuth(
     return res.status(401).json({ error: "Not authenticated" });
 }
 
+/**
+ * Require an interactive user login (session cookie or Bearer JWT).
+ * This intentionally excludes API-key auth so paired devices cannot mint
+ * new credentials or manage account-level settings.
+ */
+export async function requirePrimaryAuth(
+    req: Request,
+    res: Response,
+    next: NextFunction
+) {
+    // Check session-based auth first
+    if (req.session?.userId) {
+        try {
+            const user = await prisma.user.findUnique({
+                where: { id: req.session.userId },
+                select: { id: true, username: true, role: true },
+            });
+            if (user) {
+                req.user = user;
+                return next();
+            }
+        } catch (error) {
+            logger.error("Session auth error:", error);
+        }
+    }
+
+    // Then allow the standard Bearer access token flow.
+    const authHeader = req.headers.authorization;
+    const token = authHeader?.startsWith("Bearer ")
+        ? authHeader.substring(7)
+        : null;
+
+    if (token) {
+        try {
+            const decoded = jwt.verify(
+                token,
+                JWT_SECRET_VALIDATED
+            ) as unknown as JWTPayload;
+            const user = await prisma.user.findUnique({
+                where: { id: decoded.userId },
+                select: { id: true, username: true, role: true, tokenVersion: true },
+            });
+            if (user) {
+                if (
+                    decoded.tokenVersion === undefined ||
+                    decoded.tokenVersion !== user.tokenVersion
+                ) {
+                    return res.status(401).json({ error: "Not authenticated" });
+                }
+                req.user = {
+                    id: user.id,
+                    username: user.username,
+                    role: user.role,
+                };
+                return next();
+            }
+        } catch {
+            // Fall through to the generic auth error.
+        }
+    }
+
+    return res.status(401).json({ error: "Not authenticated" });
+}
+
 export async function requireAdmin(
     req: Request,
     res: Response,

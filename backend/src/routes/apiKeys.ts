@@ -1,13 +1,14 @@
 import { Router } from "express";
 import { logger } from "../utils/logger";
-import { requireAuth } from "../middleware/auth";
+import { requirePrimaryAuth } from "../middleware/auth";
 import { prisma } from "../utils/db";
 import crypto from "crypto";
 
 const router = Router();
 
-// All API key routes require authentication (session-based)
-router.use(requireAuth);
+// API key management should require an interactive login (session or Bearer
+// token), not another API key.
+router.use(requirePrimaryAuth);
 
 /**
  * @openapi
@@ -16,6 +17,7 @@ router.use(requireAuth);
  *     summary: Create a new API key for mobile/external authentication
  *     tags: [API Keys]
  *     security:
+ *       - bearerAuth: []
  *       - sessionAuth: []
  *     requestBody:
  *       required: true
@@ -113,6 +115,7 @@ router.post("/", async (req, res) => {
  *     summary: List all API keys for the current user
  *     tags: [API Keys]
  *     security:
+ *       - bearerAuth: []
  *       - sessionAuth: []
  *     responses:
  *       200:
@@ -164,6 +167,7 @@ router.get("/", async (req, res) => {
  *     summary: Revoke an API key
  *     tags: [API Keys]
  *     security:
+ *       - bearerAuth: []
  *       - sessionAuth: []
  *     parameters:
  *       - in: path

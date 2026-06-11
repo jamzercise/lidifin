@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { logger } from "../utils/logger";
-import { requireAuthOrToken } from "../middleware/auth";
+import { requirePrimaryAuth } from "../middleware/auth";
 import { prisma } from "../utils/db";
 import crypto from "crypto";
 
@@ -21,8 +21,42 @@ function generateApiKey(): string {
     return crypto.randomBytes(32).toString("hex");
 }
 
+/**
+ * @openapi
+ * /device-link/generate:
+ *   post:
+ *     summary: Generate a short-lived device link code
+ *     description: Secondary mobile pairing flow. Use bearerAuth or sessionAuth from an already signed-in user to mint a one-time code that another device can verify.
+ *     tags: [Device Link]
+ *     security:
+ *       - bearerAuth: []
+ *       - sessionAuth: []
+ *     responses:
+ *       200:
+ *         description: Device code created successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 code:
+ *                   type: string
+ *                   example: AB12CD
+ *                 expiresAt:
+ *                   type: string
+ *                   format: date-time
+ *                 expiresIn:
+ *                   type: integer
+ *                   example: 300
+ *       401:
+ *         description: Not authenticated
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 // POST /device-link/generate - Generate a new device link code (requires auth)
-router.post("/generate", requireAuthOrToken, async (req, res) => {
+router.post("/generate", requirePrimaryAuth, async (req, res) => {
     try {
         const userId = req.user!.id;
 
@@ -70,6 +104,57 @@ router.post("/generate", requireAuthOrToken, async (req, res) => {
     }
 });
 
+/**
+ * @openapi
+ * /device-link/verify:
+ *   post:
+ *     summary: Exchange a device link code for an API key
+ *     description: Optional paired-device flow for clients that should keep using an API key after the interactive login completes elsewhere.
+ *     tags: [Device Link]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - code
+ *             properties:
+ *               code:
+ *                 type: string
+ *                 example: AB12CD
+ *               deviceName:
+ *                 type: string
+ *                 example: Pixel 9
+ *     responses:
+ *       200:
+ *         description: Device linked successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 apiKey:
+ *                   type: string
+ *                 userId:
+ *                   type: string
+ *                 username:
+ *                   type: string
+ *       400:
+ *         description: Invalid, expired, or already used code
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       404:
+ *         description: Code not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 // POST /device-link/verify - Verify a code and get API key (no auth required)
 router.post("/verify", async (req, res) => {
     try {
@@ -129,6 +214,44 @@ router.post("/verify", async (req, res) => {
     }
 });
 
+/**
+ * @openapi
+ * /device-link/status/{code}:
+ *   get:
+ *     summary: Poll the status of a device link code
+ *     tags: [Device Link]
+ *     parameters:
+ *       - in: path
+ *         name: code
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Current status for the device link code
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                   enum: [pending, used, expired]
+ *                 expiresAt:
+ *                   type: string
+ *                   format: date-time
+ *                 usedAt:
+ *                   type: string
+ *                   format: date-time
+ *                 deviceName:
+ *                   type: string
+ *       404:
+ *         description: Code not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 // GET /device-link/status/:code - Poll for code usage status (no auth required)
 router.get("/status/:code", async (req, res) => {
     try {
@@ -167,8 +290,33 @@ router.get("/status/:code", async (req, res) => {
     }
 });
 
+/**
+ * @openapi
+ * /device-link/devices:
+ *   get:
+ *     summary: List linked devices for the current user
+ *     tags: [Device Link]
+ *     security:
+ *       - bearerAuth: []
+ *       - sessionAuth: []
+ *     responses:
+ *       200:
+ *         description: Linked devices
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/ApiKey'
+ *       401:
+ *         description: Not authenticated
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 // GET /device-link/devices - List linked devices (requires auth)
-router.get("/devices", requireAuthOrToken, async (req, res) => {
+router.get("/devices", requirePrimaryAuth, async (req, res) => {
     try {
         const userId = req.user!.id;
 
@@ -190,8 +338,39 @@ router.get("/devices", requireAuthOrToken, async (req, res) => {
     }
 });
 
+/**
+ * @openapi
+ * /device-link/devices/{id}:
+ *   delete:
+ *     summary: Revoke a linked device
+ *     tags: [Device Link]
+ *     security:
+ *       - bearerAuth: []
+ *       - sessionAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Device revoked successfully
+ *       401:
+ *         description: Not authenticated
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       404:
+ *         description: Device not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 // DELETE /device-link/devices/:id - Revoke a device (requires auth)
-router.delete("/devices/:id", requireAuthOrToken, async (req, res) => {
+router.delete("/devices/:id", requirePrimaryAuth, async (req, res) => {
     try {
         const userId = req.user!.id;
         const { id } = req.params;

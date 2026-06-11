@@ -2,6 +2,7 @@ import type { Express, Request, Response } from "express";
 import swaggerUi from "swagger-ui-express";
 import { config } from "../config";
 import { swaggerSpec } from "../config/swagger";
+import mobileOpenApiSpec from "../config/mobileOpenApi.json";
 import { errorHandler } from "../middleware/errorHandler";
 import { requireAuth } from "../middleware/auth";
 import { getRuntimeHealthSnapshot } from "./runtimeHealth";
@@ -119,9 +120,26 @@ export function registerRoutes(app: Express): void {
         })
     );
 
+    app.use(
+        "/api/docs/mobile",
+        ...docsMiddleware,
+        swaggerUi.serveFiles(mobileOpenApiSpec),
+        swaggerUi.setup(mobileOpenApiSpec, {
+            customCss: ".swagger-ui .topbar { display: none }",
+            customSiteTitle: "Lidifin Mobile API Documentation",
+        })
+    );
+
     app.get("/api/docs.json", ...docsMiddleware, (_req: Request, res: Response) => {
         res.json(swaggerSpec);
     });
+    app.get(
+        "/api/docs/mobile.json",
+        ...docsMiddleware,
+        (_req: Request, res: Response) => {
+            res.json(mobileOpenApiSpec);
+        }
+    );
 
     app.use(errorHandler);
 }

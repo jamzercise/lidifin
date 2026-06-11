@@ -31,6 +31,7 @@ const decrypt2FASecret = decrypt;
  * /auth/login:
  *   post:
  *     summary: Login with username and password
+ *     description: Primary mobile authentication flow. Returns JWT access and refresh tokens. If two-factor auth is enabled and no second factor is provided, the response indicates that 2FA is required.
  *     tags: [Authentication]
  *     requestBody:
  *       required: true
@@ -47,13 +48,24 @@ const decrypt2FASecret = decrypt;
  *               password:
  *                 type: string
  *                 format: password
+ *               token:
+ *                 type: string
+ *                 description: Optional TOTP or recovery code when 2FA is enabled
  *     responses:
  *       200:
- *         description: Login successful
+ *         description: Login successful, or second-factor confirmation required
  *         content:
  *           application/json:
  *             schema:
- *               $ref: '#/components/schemas/User'
+ *               oneOf:
+ *                 - $ref: '#/components/schemas/AuthTokens'
+ *                 - $ref: '#/components/schemas/Requires2FA'
+ *       400:
+ *         description: Invalid request body
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  *       401:
  *         description: Invalid credentials
  *         content:
@@ -175,6 +187,50 @@ router.post("/logout", (req, res) => {
     res.json({ message: "Logged out" });
 });
 
+/**
+ * @openapi
+ * /auth/refresh:
+ *   post:
+ *     summary: Refresh an access token
+ *     description: Exchanges a valid refresh token for a new access token and refresh token pair.
+ *     tags: [Authentication]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - refreshToken
+ *             properties:
+ *               refreshToken:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Tokens refreshed successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               required: [token, refreshToken]
+ *               properties:
+ *                 token:
+ *                   type: string
+ *                 refreshToken:
+ *                   type: string
+ *       400:
+ *         description: Missing refresh token
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       401:
+ *         description: Invalid or expired refresh token
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 // POST /auth/refresh - Refresh access token using refresh token
 router.post("/refresh", async (req, res) => {
     const { refreshToken } = req.body;
@@ -231,6 +287,8 @@ router.post("/refresh", async (req, res) => {
  *     summary: Get current authenticated user
  *     tags: [Authentication]
  *     security:
+ *       - bearerAuth: []
+ *       - apiKeyAuth: []
  *       - sessionAuth: []
  *     responses:
  *       200:

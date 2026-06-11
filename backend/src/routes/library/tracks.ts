@@ -20,6 +20,95 @@ import {
 
 const router = Router();
 
+/**
+ * @openapi
+ * /library/tracks:
+ *   get:
+ *     summary: List library tracks
+ *     description: Mobile-supported track listing endpoint. Supports album-scoped listings and paginated full-library listings.
+ *     tags: [Library]
+ *     security:
+ *       - bearerAuth: []
+ *       - apiKeyAuth: []
+ *       - sessionAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: albumId
+ *         schema:
+ *           type: string
+ *         description: Restrict results to tracks from a single album
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 100
+ *       - in: query
+ *         name: offset
+ *         schema:
+ *           type: integer
+ *           default: 0
+ *       - in: query
+ *         name: sortBy
+ *         schema:
+ *           type: string
+ *           default: name
+ *     responses:
+ *       200:
+ *         description: Tracks returned successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 tracks:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: string
+ *                       title:
+ *                         type: string
+ *                       duration:
+ *                         type: integer
+ *                       trackNo:
+ *                         type: integer
+ *                       album:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: string
+ *                           title:
+ *                             type: string
+ *                           coverArt:
+ *                             type: string
+ *                             nullable: true
+ *                           artist:
+ *                             type: object
+ *                             properties:
+ *                               id:
+ *                                 type: string
+ *                               name:
+ *                                 type: string
+ *                 total:
+ *                   type: integer
+ *                 offset:
+ *                   type: integer
+ *                 limit:
+ *                   type: integer
+ *       401:
+ *         description: Not authenticated
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       503:
+ *         description: Upstream Jellyfin unavailable
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 // GET /library/tracks?albumId=&limit=100&offset=0
 router.get("/tracks", async (req, res) => {
     try {
