@@ -100,17 +100,42 @@ export async function resolveJellyfinArtistToNative(
                     if (!artist) {
                         // Create a lightweight native Artist record so that the
                         // enrichment worker can populate SimilarArtist edges later
-                        artist = await prisma.artist.create({
-                            data: {
-                                mbid: resolvedMbid,
-                                name: best.name || artistName,
-                                normalizedName: normalizeArtistName(best.name || artistName),
-                                enrichmentStatus: "pending",
-                            },
-                        });
-                        logger.debug(
-                            `[JellyfinBridge] Created native artist for "${artistName}" → ${resolvedMbid}`
-                        );
+                        try {
+                            artist = await prisma.artist.create({
+                                data: {
+                                    mbid: resolvedMbid,
+                                    name: best.name || artistName,
+                                    normalizedName: normalizeArtistName(
+                                        best.name || artistName
+                                    ),
+                                    enrichmentStatus: "pending",
+                                },
+                            });
+                            logger.debug(
+                                `[JellyfinBridge] Created native artist for "${artistName}" → ${resolvedMbid}`
+                            );
+                        } catch (error: unknown) {
+                            const code =
+                                typeof error === "object" &&
+                                error !== null &&
+                                "code" in error
+                                    ? (error as { code?: string }).code
+                                    : undefined;
+                            if (code === "P2002") {
+                                artist = await prisma.artist.findUnique({
+                                    where: { mbid: resolvedMbid },
+                                });
+                                if (artist) {
+                                    logger.debug(
+                                        `[JellyfinBridge] Artist for "${artistName}" was created concurrently, reusing MBID ${resolvedMbid}`
+                                    );
+                                } else {
+                                    throw error;
+                                }
+                            } else {
+                                throw error;
+                            }
+                        }
                     }
 
                     result = { nativeId: artist.id, name: artist.name, mbid: artist.mbid };

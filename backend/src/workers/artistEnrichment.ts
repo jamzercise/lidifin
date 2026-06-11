@@ -48,11 +48,33 @@ export async function enrichSimilarArtist(artist: Artist): Promise<void> {
                         `${logPrefix} MusicBrainz: Found real MBID: ${realMbid}`
                     );
 
-                    // Update artist with real MBID
-                    await prisma.artist.update({
-                        where: { id: artist.id },
-                        data: { mbid: realMbid },
-                    });
+                    // Update artist with real MBID. If another worker already
+                    // claimed it, keep going with the resolved MBID so the rest
+                    // of enrichment can still use canonical metadata.
+                    try {
+                        await prisma.artist.update({
+                            where: { id: artist.id },
+                            data: { mbid: realMbid },
+                        });
+                    } catch (error: unknown) {
+                        const code =
+                            typeof error === "object" &&
+                            error !== null &&
+                            "code" in error
+                                ? (error as { code?: string }).code
+                                : undefined;
+                        if (code === "P2002") {
+                            const existingArtist = await prisma.artist.findUnique({
+                                where: { mbid: realMbid },
+                                select: { id: true, name: true },
+                            });
+                            logger.debug(
+                                `${logPrefix} MusicBrainz: MBID ${realMbid} already claimed by "${existingArtist?.name || "another artist"}", continuing enrichment without rewriting current row`
+                            );
+                        } else {
+                            throw error;
+                        }
+                    }
 
                     // Update the local artist object
                     artist.mbid = realMbid;

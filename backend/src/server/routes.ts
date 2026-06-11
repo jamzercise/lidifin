@@ -4,6 +4,7 @@ import { config } from "../config";
 import { swaggerSpec } from "../config/swagger";
 import { errorHandler } from "../middleware/errorHandler";
 import { requireAuth } from "../middleware/auth";
+import { getRuntimeHealthSnapshot } from "./runtimeHealth";
 import {
     apiLimiter,
     authLimiter,
@@ -92,13 +93,15 @@ export function registerRoutes(app: Express): void {
     app.use("/api/vibe", apiLimiter, vibeRoutes);
     app.use("/api/system", apiLimiter, systemRoutes);
 
-    // Container health checks (kept at root + /api).
-    app.get("/health", (_req: Request, res: Response) => {
-        res.json({ status: "ok" });
-    });
-    app.get("/api/health", (_req: Request, res: Response) => {
-        res.json({ status: "ok" });
-    });
+    // Container health checks (kept at root + /api). Report degraded runtime
+    // state so Docker can restart the container when the backend is wedged.
+    const sendHealth = (_req: Request, res: Response) => {
+        const snapshot = getRuntimeHealthSnapshot();
+        const statusCode = snapshot.status === "ok" ? 200 : 503;
+        res.status(statusCode).json(snapshot);
+    };
+    app.get("/health", sendHealth);
+    app.get("/api/health", sendHealth);
 
     // Swagger docs: require auth in prod unless DOCS_PUBLIC=true.
     const docsMiddleware =

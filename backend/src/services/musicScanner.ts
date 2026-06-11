@@ -677,25 +677,72 @@ export class MusicScannerService {
                         logger.debug(
                             `[SCANNER] Consolidating temp artist "${tempArtist.name}" with real MBID: ${artistMbid}`
                         );
-                        artist = await prisma.artist.update({
-                            where: { id: tempArtist.id },
-                            data: { mbid: artistMbid },
-                        });
+                        try {
+                            artist = await prisma.artist.update({
+                                where: { id: tempArtist.id },
+                                data: { mbid: artistMbid },
+                            });
+                        } catch (error: unknown) {
+                            const code =
+                                typeof error === "object" &&
+                                error !== null &&
+                                "code" in error
+                                    ? (error as { code?: string }).code
+                                    : undefined;
+                            if (code === "P2002") {
+                                artist = await prisma.artist.findUnique({
+                                    where: { mbid: artistMbid },
+                                });
+                                if (artist) {
+                                    logger.debug(
+                                        `[SCANNER] MBID ${artistMbid} was claimed concurrently, reusing existing artist "${artist.name}"`
+                                    );
+                                } else {
+                                    throw error;
+                                }
+                            } else {
+                                throw error;
+                            }
+                        }
                     }
                 }
             }
 
             if (!artist) {
                 // Create new artist (use a temporary MBID for now)
-                artist = await prisma.artist.create({
-                    data: {
-                        name: artistName,
-                        normalizedName: normalizedArtistName,
-                        mbid:
-                            artistMbid || `temp-${Date.now()}-${Math.random()}`,
-                        enrichmentStatus: "pending",
-                    },
-                });
+                const mbidForCreate =
+                    artistMbid || `temp-${Date.now()}-${Math.random()}`;
+                try {
+                    artist = await prisma.artist.create({
+                        data: {
+                            name: artistName,
+                            normalizedName: normalizedArtistName,
+                            mbid: mbidForCreate,
+                            enrichmentStatus: "pending",
+                        },
+                    });
+                } catch (error: unknown) {
+                    const code =
+                        typeof error === "object" &&
+                        error !== null &&
+                        "code" in error
+                            ? (error as { code?: string }).code
+                            : undefined;
+                    if (code === "P2002" && artistMbid) {
+                        artist = await prisma.artist.findUnique({
+                            where: { mbid: artistMbid },
+                        });
+                        if (artist) {
+                            logger.debug(
+                                `[SCANNER] Artist "${artistName}" already created concurrently for MBID ${artistMbid}, reusing existing row`
+                            );
+                        } else {
+                            throw error;
+                        }
+                    } else {
+                        throw error;
+                    }
+                }
             }
         }
 
