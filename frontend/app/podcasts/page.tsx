@@ -198,9 +198,17 @@ export default function PodcastsPage() {
                 eyebrow="Shows"
                 icon={<Mic2 className="w-4 h-4" />}
                 title="Podcasts"
-                subtitle={`${podcasts.length} ${
-                    podcasts.length === 1 ? "show" : "shows"
-                }`}
+                backdropImages={podcasts
+                    .slice(0, 4)
+                    .map((p) => getProxiedImageUrl(p.coverUrl))}
+                stats={[
+                    {
+                        icon: <Mic2 />,
+                        label: `${podcasts.length} ${
+                            podcasts.length === 1 ? "show" : "shows"
+                        }`,
+                    },
+                ]}
             />
 
             {/* Quick Search */}

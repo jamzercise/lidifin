@@ -1,14 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAudioControls } from "@/lib/audio-controls-context";
 import { useFavorites } from "@/hooks/useFavorites";
 import { TracksList } from "@/features/library/components/TracksList";
 import { LibraryHeader } from "@/features/library/components/LibraryHeader";
 import { GradientSpinner } from "@/components/ui/GradientSpinner";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { Heart, AudioLines, RefreshCw } from "lucide-react";
+import { Heart, AudioLines, RefreshCw, Clock } from "lucide-react";
 import { Track } from "@/features/library/types";
+import { api } from "@/lib/api";
+import { formatDuration } from "@/utils/formatTime";
 
 function mapFavoritesToTrack(
     t: { id: string; title: string; duration: number; artist?: { id: string; name: string }; album?: { id: string; title: string; coverArt?: string | null } }
@@ -34,6 +36,28 @@ export default function FavoritesPage() {
     const { playTracks, addToQueue } = useAudioControls();
 
     const libraryTracks: Track[] = tracks.map(mapFavoritesToTrack);
+
+    // Blur a few (distinct) favorited album covers into the header backdrop
+    const heroBackdrop = useMemo(() => {
+        const seen = new Set<string>();
+        const covers: string[] = [];
+        for (const t of libraryTracks) {
+            const art = t.album?.coverArt;
+            if (art && !seen.has(art)) {
+                seen.add(art);
+                covers.push(api.getCoverArtUrl(art, 200));
+                if (covers.length >= 4) break;
+            }
+        }
+        return covers;
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed by source list
+    }, [tracks]);
+
+    const totalDurationSecs = useMemo(
+        () => libraryTracks.reduce((sum, t) => sum + (t.duration || 0), 0),
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed by source list
+        [tracks]
+    );
 
     const formatTracksForAudio = useCallback((libraryTracks: Track[]) => {
         return libraryTracks.map((track) => ({
@@ -117,14 +141,29 @@ export default function FavoritesPage() {
                 icon={<Heart className="w-4 h-4" />}
                 title="Favorites"
                 subtitle={
-                    libraryTracks.length > 0
-                        ? `${libraryTracks.length.toLocaleString()} ${
-                              libraryTracks.length === 1
-                                  ? "favorite"
-                                  : "favorites"
-                          }`
-                        : "Jellyfin favorites — play or remove from list"
+                    libraryTracks.length === 0
+                        ? "Jellyfin favorites — play or remove from list"
+                        : undefined
                 }
+                stats={
+                    libraryTracks.length > 0
+                        ? [
+                              {
+                                  icon: <Heart />,
+                                  label: `${libraryTracks.length.toLocaleString()} ${
+                                      libraryTracks.length === 1
+                                          ? "favorite"
+                                          : "favorites"
+                                  }`,
+                              },
+                              {
+                                  icon: <Clock />,
+                                  label: formatDuration(totalDurationSecs),
+                              },
+                          ]
+                        : undefined
+                }
+                backdropImages={heroBackdrop}
                 accent="rose"
                 actions={
                     <button

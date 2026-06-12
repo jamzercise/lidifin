@@ -25,6 +25,8 @@ export interface AccentTokens {
     eyebrow: string;
     /** Solid badge used for the page's signature status (e.g. "upcoming"). */
     solidBadge: string;
+    /** Soft radial glow rendered behind hero titles / watermark icons. */
+    glow: string;
 }
 
 export const ACCENTS: Record<Accent, AccentTokens> = {
@@ -32,31 +34,37 @@ export const ACCENTS: Record<Accent, AccentTokens> = {
         heroGradient: "from-brand/25 via-brand/10 to-transparent",
         eyebrow: "text-brand",
         solidBadge: "bg-brand text-black",
+        glow: "bg-brand/20",
     },
     amber: {
         heroGradient: "from-amber-500/20 via-orange-600/10 to-transparent",
         eyebrow: "text-amber-400",
         solidBadge: "bg-amber-500/90 text-black",
+        glow: "bg-amber-500/20",
     },
     purple: {
         heroGradient: "from-purple-500/20 via-fuchsia-600/10 to-transparent",
         eyebrow: "text-purple-400",
         solidBadge: "bg-purple-500/90 text-white",
+        glow: "bg-purple-500/20",
     },
     emerald: {
         heroGradient: "from-emerald-500/20 via-teal-600/10 to-transparent",
         eyebrow: "text-emerald-400",
         solidBadge: "bg-emerald-500/90 text-black",
+        glow: "bg-emerald-500/20",
     },
     rose: {
         heroGradient: "from-rose-500/20 via-pink-600/10 to-transparent",
         eyebrow: "text-rose-400",
         solidBadge: "bg-rose-500/90 text-white",
+        glow: "bg-rose-500/20",
     },
     blue: {
         heroGradient: "from-blue-500/20 via-sky-600/10 to-transparent",
         eyebrow: "text-blue-400",
         solidBadge: "bg-blue-500/90 text-white",
+        glow: "bg-blue-500/20",
     },
 };
 

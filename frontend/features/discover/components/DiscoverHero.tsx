@@ -1,7 +1,8 @@
 import Link from "next/link";
-import { Bookmark, Sparkles, RefreshCw } from "lucide-react";
+import { Bookmark, Sparkles, RefreshCw, Music, Clock, Calendar } from "lucide-react";
 import { format } from "date-fns";
-import { PageHero } from "@/components/ui/PageHero";
+import { PageHero, PageHeroStat } from "@/components/ui/PageHero";
+import { api } from "@/lib/api";
 import { DiscoverPlaylist, DiscoverConfig } from "../types";
 
 interface DiscoverHeroProps {
@@ -32,10 +33,49 @@ export function DiscoverHero({ playlist, config }: DiscoverHeroProps) {
         const hours = Math.floor(seconds / 3600);
         const mins = Math.floor((seconds % 3600) / 60);
         if (hours > 0) {
-            return `about ${hours} hr ${mins} min`;
+            return `${hours} hr ${mins} min`;
         }
         return `${mins} min`;
     };
+
+    // Blur a few (distinct) album covers from this week's picks into the hero
+    const heroBackdrop: string[] = [];
+    {
+        const seenAlbums = new Set<string>();
+        for (const t of playlist?.tracks ?? []) {
+            if (t.coverUrl && !seenAlbums.has(t.albumId)) {
+                seenAlbums.add(t.albumId);
+                heroBackdrop.push(api.getCoverArtUrl(t.coverUrl, 200));
+                if (heroBackdrop.length >= 4) break;
+            }
+        }
+    }
+
+    const stats: PageHeroStat[] = [];
+    if (playlist) {
+        stats.push({
+            icon: <Music />,
+            label: `${playlist.totalCount} songs`,
+        });
+        if (totalDuration > 0) {
+            stats.push({
+                icon: <Clock />,
+                label: formatTotalDuration(totalDuration),
+            });
+        }
+        stats.push({
+            icon: <Calendar />,
+            label: `Week of ${format(new Date(playlist.weekStart), "MMM d")}`,
+        });
+    }
+    if (config) {
+        stats.push({
+            icon: <RefreshCw />,
+            label: config.enabled
+                ? `Refreshes ${format(nextRefresh, "EEE, MMM d")}`
+                : "Auto-refresh off",
+        });
+    }
 
     return (
         <PageHero
@@ -43,48 +83,9 @@ export function DiscoverHero({ playlist, config }: DiscoverHeroProps) {
             eyebrow="Discover Weekly"
             icon={<Sparkles className="w-6 h-6" />}
             title="Made For You"
-            subtitle={
-                <span className="block space-y-1">
-                    <span className="block">
-                        Your personalized playlist of new music, curated from
-                        your listening history.
-                    </span>
-                    {playlist && (
-                        <span className="block text-white/50">
-                            Week of{" "}
-                            {format(new Date(playlist.weekStart), "MMM d, yyyy")}
-                            {" • "}
-                            {playlist.totalCount} songs
-                            {totalDuration > 0 &&
-                                `, ${formatTotalDuration(totalDuration)}`}
-                            {config?.lastGeneratedAt && (
-                                <>
-                                    {" • "}
-                                    Updated{" "}
-                                    {format(
-                                        new Date(config.lastGeneratedAt),
-                                        "MMM d"
-                                    )}
-                                </>
-                            )}
-                        </span>
-                    )}
-                    {config && (
-                        <span className="flex items-center gap-1.5 text-xs text-white/40">
-                            <RefreshCw
-                                className="w-3.5 h-3.5 shrink-0"
-                                aria-hidden
-                            />
-                            {config.enabled
-                                ? `Auto-refreshes Sundays · next ${format(
-                                      nextRefresh,
-                                      "MMM d"
-                                  )}`
-                                : "Auto-refresh off · generate manually anytime"}
-                        </span>
-                    )}
-                </span>
-            }
+            subtitle="Your personalized playlist of new music, curated from your listening history."
+            backdropImages={heroBackdrop}
+            stats={stats.length > 0 ? stats : undefined}
             actions={
                 <Link
                     href="/library/saved-albums"

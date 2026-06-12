@@ -440,6 +440,17 @@ export default function RadioPage() {
                 icon={<Radio className="w-4 h-4" />}
                 title="Stations For You"
                 subtitle="Continuous shuffle from your library"
+                stats={[
+                    {
+                        icon: <Radio />,
+                        label: `${
+                            genreStations.length +
+                            decadeStations.length +
+                            dynamicVibeStations.length +
+                            VIBE_STATIONS.length
+                        } stations`,
+                    },
+                ]}
             />
 
             {/* Content */}

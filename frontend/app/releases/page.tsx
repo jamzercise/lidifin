@@ -113,6 +113,14 @@ export default function ReleasesPage() {
         );
     }
 
+    const heroBackdrop = [
+        ...(data?.recent ?? []),
+        ...(data?.upcoming ?? []),
+    ]
+        .map((r) => r.coverUrl)
+        .filter(Boolean)
+        .slice(0, 4);
+
     return (
         <div className="min-h-screen pb-32">
             <PageHero
@@ -120,13 +128,22 @@ export default function ReleasesPage() {
                 eyebrow="Release Radar"
                 icon={<Calendar className="w-6 h-6" />}
                 title="New & Upcoming"
-                subtitle={
-                    <>
-                        {data?.monitoredArtistCount || 0} monitored artists •{" "}
-                        {data?.upcoming.length || 0} upcoming •{" "}
-                        {data?.recent.length || 0} recent releases
-                    </>
-                }
+                subtitle="New and upcoming releases from artists you follow and similar artists."
+                backdropImages={heroBackdrop}
+                stats={[
+                    {
+                        icon: <Music2 />,
+                        label: `${data?.monitoredArtistCount || 0} monitored artists`,
+                    },
+                    {
+                        icon: <Clock />,
+                        label: `${data?.upcoming.length || 0} upcoming`,
+                    },
+                    {
+                        icon: <Disc />,
+                        label: `${data?.recent.length || 0} recent`,
+                    },
+                ]}
             />
 
             <div className="px-4 md:px-8 space-y-10">

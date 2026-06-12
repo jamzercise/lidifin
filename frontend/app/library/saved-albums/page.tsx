@@ -66,6 +66,23 @@ export default function SavedDiscoveryAlbumsPage() {
                 icon={<Bookmark className="w-6 h-6" />}
                 title="Saved Albums"
                 subtitle="Bookmarked discovery release groups (MusicBrainz) — separate from your Jellyfin library and favorites. Open a tile for details, previews, or download."
+                backdropImages={albums
+                    .slice(0, 4)
+                    .map((a) =>
+                        a.coverUrl ? api.getCoverArtUrl(a.coverUrl, 300) : null
+                    )}
+                stats={
+                    total > 0
+                        ? [
+                              {
+                                  icon: <Bookmark />,
+                                  label: `${total} saved ${
+                                      total === 1 ? "album" : "albums"
+                                  }`,
+                              },
+                          ]
+                        : undefined
+                }
             />
             <div className="max-w-6xl mx-auto px-4 pt-6">
                 <Link

@@ -411,9 +411,17 @@ export default function AudiobooksPage() {
                 eyebrow="Shows & Books"
                 icon={<Book className="w-4 h-4" />}
                 title="Audiobooks"
-                subtitle={`${audiobooks.length} ${
-                    audiobooks.length === 1 ? "book" : "books"
-                }`}
+                backdropImages={audiobooks
+                    .slice(0, 4)
+                    .map((b) => getCoverUrl(b.coverUrl, 300))}
+                stats={[
+                    {
+                        icon: <Book />,
+                        label: `${audiobooks.length} ${
+                            audiobooks.length === 1 ? "book" : "books"
+                        }`,
+                    },
+                ]}
                 actions={
                     <button
                         type="button"

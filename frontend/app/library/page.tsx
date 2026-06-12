@@ -21,7 +21,7 @@ import { LibraryTabs } from "@/features/library/components/LibraryTabs";
 import { ArtistsGrid } from "@/features/library/components/ArtistsGrid";
 import { AlbumsGrid } from "@/features/library/components/AlbumsGrid";
 import { TracksList } from "@/features/library/components/TracksList";
-import { Shuffle, ListFilter, RefreshCw, Library as LibraryIcon } from "lucide-react";
+import { Shuffle, ListFilter, RefreshCw, Library as LibraryIcon, Users, Disc3, Music } from "lucide-react";
 
 export default function LibraryPage() {
     const router = useRouter();
@@ -237,6 +237,20 @@ export default function LibraryPage() {
     const totalItems = pagination.total;
     const totalPages = pagination.totalPages;
 
+    // Blur the current tab's artwork into the header backdrop
+    const heroBackdrop = useMemo(() => {
+        const covers =
+            activeTab === "artists"
+                ? artists.map((a) => a.coverArt)
+                : activeTab === "albums"
+                ? albums.map((a) => a.coverArt)
+                : tracks.map((t) => t.album?.coverArt);
+        return covers
+            .filter((c): c is string => Boolean(c))
+            .slice(0, 4)
+            .map((c) => api.getCoverArtUrl(c, 200));
+    }, [activeTab, artists, albums, tracks]);
+
     // Delete confirmation dialog state
     const [deleteConfirm, setDeleteConfirm] = useState<DeleteDialogState>({
         isOpen: false,
@@ -371,13 +385,26 @@ export default function LibraryPage() {
                 eyebrow="Your Library"
                 icon={<LibraryIcon className="w-4 h-4" />}
                 title="Library"
-                subtitle={`${totalItems.toLocaleString()} ${
-                    activeTab === "artists"
-                        ? "artists"
-                        : activeTab === "albums"
-                        ? "albums"
-                        : "songs"
-                }`}
+                backdropImages={heroBackdrop}
+                stats={[
+                    {
+                        icon:
+                            activeTab === "artists" ? (
+                                <Users />
+                            ) : activeTab === "albums" ? (
+                                <Disc3 />
+                            ) : (
+                                <Music />
+                            ),
+                        label: `${totalItems.toLocaleString()} ${
+                            activeTab === "artists"
+                                ? "artists"
+                                : activeTab === "albums"
+                                ? "albums"
+                                : "songs"
+                        }`,
+                    },
+                ]}
             />
 
             <div className="relative px-4 md:px-8 pb-24">

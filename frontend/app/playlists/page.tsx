@@ -453,6 +453,21 @@ export default function PlaylistsPage() {
         ? hiddenPlaylists
         : visiblePlaylists;
 
+    // Blur one cover from each of the first few playlists into the header
+    const heroBackdrop: string[] = [];
+    {
+        const seen = new Set<string>();
+        for (const p of visiblePlaylists) {
+            const art = p.items?.find((i) => i.track?.album?.coverArt)
+                ?.track.album?.coverArt;
+            if (art && !seen.has(art)) {
+                seen.add(art);
+                heroBackdrop.push(api.getCoverArtUrl(art, 200));
+                if (heroBackdrop.length >= 4) break;
+            }
+        }
+    }
+
     return (
         <div className="min-h-screen relative">
             <PageHero
@@ -461,9 +476,17 @@ export default function PlaylistsPage() {
                 eyebrow="Your Music"
                 icon={<ListMusic className="w-4 h-4" />}
                 title="Playlists"
-                subtitle={`${visiblePlaylists.length} ${
-                    visiblePlaylists.length === 1 ? "playlist" : "playlists"
-                }`}
+                backdropImages={heroBackdrop}
+                stats={[
+                    {
+                        icon: <ListMusic />,
+                        label: `${visiblePlaylists.length} ${
+                            visiblePlaylists.length === 1
+                                ? "playlist"
+                                : "playlists"
+                        }`,
+                    },
+                ]}
                 actions={
                     <div className="flex items-center gap-2">
                         {/* Browse Public Playlists */}
