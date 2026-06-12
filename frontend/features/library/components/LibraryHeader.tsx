@@ -4,10 +4,12 @@ import type { Accent } from "@/components/ui/accent";
 
 interface LibraryHeaderProps {
   title?: string;
-  subtitle?: string;
+  subtitle?: ReactNode;
   eyebrow?: string;
   icon?: ReactNode;
   accent?: Accent;
+  /** Right-aligned controls (rendered in PageHero's standard actions slot). */
+  actions?: ReactNode;
   showSync?: boolean;
 }
 
@@ -17,6 +19,7 @@ export function LibraryHeader({
   eyebrow,
   icon,
   accent = "brand",
+  actions,
 }: LibraryHeaderProps) {
   return (
     <PageHero
@@ -26,6 +29,7 @@ export function LibraryHeader({
       icon={icon}
       title={title}
       subtitle={subtitle}
+      actions={actions}
     />
   );
 }

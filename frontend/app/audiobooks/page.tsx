@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { GradientSpinner } from "@/components/ui/GradientSpinner";
 import { AudiobookCard } from "@/components/ui/AudiobookCard";
+import { PageHero } from "@/components/ui/PageHero";
 import { api } from "@/lib/api";
 import { useAudioState, useAudioControls } from "@/lib/audio-context";
 import { useAuth } from "@/lib/auth-context";
@@ -404,32 +405,16 @@ export default function AudiobooksPage() {
 
     return (
         <div className="min-h-screen relative">
-            {/* Quick gradient fade - yellow to purple */}
-            <div className="absolute inset-0 pointer-events-none">
-                <div
-                    className="absolute inset-0 bg-gradient-to-b from-[#B1D2C3]/15 via-purple-900/10 to-transparent"
-                    style={{ height: "35vh" }}
-                />
-                <div
-                    className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,var(--tw-gradient-stops))] from-[#B1D2C3]/8 via-transparent to-transparent"
-                    style={{ height: "25vh" }}
-                />
-            </div>
-
-            {/* Hero Section */}
-            <div className="relative">
-                <div className="px-4 md:px-8 py-6 flex items-center justify-between gap-4">
-                    <div>
-                        <div className="flex items-center gap-2 mb-1">
-                            <Book className="w-4 h-4 text-brand" />
-                            <span className="text-xs font-medium uppercase tracking-wider text-brand">
-                                Shows & Books
-                            </span>
-                        </div>
-                        <h1 className="text-2xl font-bold text-white">
-                            Audiobooks
-                        </h1>
-                    </div>
+            <PageHero
+                variant="compact"
+                accent="brand"
+                eyebrow="Shows & Books"
+                icon={<Book className="w-4 h-4" />}
+                title="Audiobooks"
+                subtitle={`${audiobooks.length} ${
+                    audiobooks.length === 1 ? "book" : "books"
+                }`}
+                actions={
                     <button
                         type="button"
                         onClick={handleSyncAudiobooks}
@@ -445,8 +430,8 @@ export default function AudiobooksPage() {
                             {isSyncingAudiobooks ? "Syncing…" : "Sync audiobooks"}
                         </span>
                     </button>
-                </div>
-            </div>
+                }
+            />
 
             <div className="relative px-4 md:px-8 pb-24">
                 {/* Filter and Sort Controls - Mobile Optimized */}

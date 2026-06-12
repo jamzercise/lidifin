@@ -2,8 +2,7 @@
 
 import { useState, lazy, Suspense } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Radio, Play, Loader2, Shuffle, ChevronLeft, Sparkles, Music2, Mic2 } from "lucide-react";
-import Link from "next/link";
+import { Radio, Play, Loader2, Shuffle, Sparkles, Music2, Mic2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAudioControls } from "@/lib/audio-controls-context";
 import { useAudioState } from "@/lib/audio-context";
@@ -12,6 +11,7 @@ import { toast } from "sonner";
 import { shuffleArray } from "@/utils/shuffle";
 import { FindSimilarModal } from "@/components/AudioMuse/FindSimilarModal";
 import { Modal } from "@/components/ui/Modal";
+import { PageHero } from "@/components/ui/PageHero";
 
 const MoodMixer = lazy(() => import("@/components/MoodMixer").then((mod) => ({ default: mod.MoodMixer })));
 
@@ -433,44 +433,17 @@ export default function RadioPage() {
 
     return (
         <div className="min-h-screen relative">
-            {/* Hero gradient */}
-            <div 
-                className="absolute top-0 left-0 right-0 pointer-events-none"
-                style={{
-                    background: "linear-gradient(to bottom, rgba(236, 178, 0, 0.15) 0%, rgba(139, 92, 246, 0.08) 40%, transparent 100%)",
-                    height: "35vh"
-                }}
-            />
-            <div 
-                className="absolute top-0 left-0 right-0 pointer-events-none"
-                style={{
-                    background: "radial-gradient(ellipse at top, rgba(236, 178, 0, 0.1) 0%, transparent 70%)",
-                    height: "25vh"
-                }}
+            <PageHero
+                variant="compact"
+                accent="brand"
+                eyebrow="Radio"
+                icon={<Radio className="w-4 h-4" />}
+                title="Stations For You"
+                subtitle="Continuous shuffle from your library"
             />
 
             {/* Content */}
-            <div className="relative px-4 md:px-8 py-6">
-                {/* Back link */}
-                <Link 
-                    href="/" 
-                    className="inline-flex items-center gap-1 text-sm text-white/60 hover:text-white transition-colors mb-6"
-                >
-                    <ChevronLeft className="w-4 h-4" />
-                    Back to Home
-                </Link>
-
-                {/* Header */}
-                <div className="mb-8">
-                    <div className="flex items-center gap-2 mb-1">
-                        <Radio className="w-4 h-4 text-brand" />
-                        <span className="text-xs font-medium uppercase tracking-wider text-brand">
-                            Radio
-                        </span>
-                    </div>
-                    <h1 className="text-3xl font-bold text-white">Stations For You</h1>
-                    <p className="text-white/60">Continuous shuffle from your library</p>
-                </div>
+            <div className="relative px-4 md:px-8 pt-4 pb-6">
 
                 {/* Quick Start Section */}
                 <section className="mb-10">

@@ -8,6 +8,7 @@ import { useAuth } from "@/lib/auth-context";
 import { Mic2, Search, Plus } from "lucide-react";
 import { useToast } from "@/lib/toast-context";
 import { GradientSpinner } from "@/components/ui/GradientSpinner";
+import { PageHero } from "@/components/ui/PageHero";
 import {
     usePodcastsQuery,
     useTopPodcastsQuery,
@@ -191,30 +192,20 @@ export default function PodcastsPage() {
 
     return (
         <div className="min-h-screen relative">
-            {/* Quick gradient fade - yellow to purple */}
-            <div className="absolute inset-0 pointer-events-none">
-                <div
-                    className="absolute inset-0 bg-gradient-to-b from-[#B1D2C3]/15 via-purple-900/10 to-transparent"
-                    style={{ height: "35vh" }}
-                />
-                <div
-                    className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,var(--tw-gradient-stops))] from-[#B1D2C3]/8 via-transparent to-transparent"
-                    style={{ height: "25vh" }}
-                />
-            </div>
+            <PageHero
+                variant="compact"
+                accent="brand"
+                eyebrow="Shows"
+                icon={<Mic2 className="w-4 h-4" />}
+                title="Podcasts"
+                subtitle={`${podcasts.length} ${
+                    podcasts.length === 1 ? "show" : "shows"
+                }`}
+            />
 
-            {/* Hero Section */}
+            {/* Quick Search */}
             <div className="relative">
-                <div className="px-4 md:px-8 py-6">
-                    <div className="flex items-center gap-2 mb-1">
-                        <Mic2 className="w-4 h-4 text-brand" />
-                        <span className="text-xs font-medium uppercase tracking-wider text-brand">
-                            Shows
-                        </span>
-                    </div>
-                    <h1 className="text-2xl font-bold text-white mb-4">
-                        Podcasts
-                    </h1>
+                <div className="px-4 md:px-8 pb-2">
 
                     {/* Quick Search - Full Width on Mobile */}
                     <div

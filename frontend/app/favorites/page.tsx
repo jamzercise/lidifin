@@ -112,24 +112,31 @@ export default function FavoritesPage() {
 
     return (
         <div className="min-h-screen">
-            <div className="relative flex items-start justify-end">
-                <LibraryHeader
-                    eyebrow="Your Music"
-                    icon={<Heart className="w-4 h-4" />}
-                    title="Favorites"
-                    subtitle="Jellyfin favorites — play or remove from list"
-                    accent="rose"
-                    showSync={false}
-                />
-                <button
-                    onClick={handleRefresh}
-                    disabled={isRefreshing}
-                    className="absolute top-6 right-4 md:right-8 flex items-center justify-center w-8 h-8 rounded-full bg-white/5 text-gray-400 hover:text-white hover:bg-white/10 transition-all disabled:opacity-50"
-                    title="Refresh favorites from Jellyfin"
-                >
-                    <RefreshCw className={`w-4 h-4 ${isRefreshing ? "animate-spin" : ""}`} />
-                </button>
-            </div>
+            <LibraryHeader
+                eyebrow="Your Music"
+                icon={<Heart className="w-4 h-4" />}
+                title="Favorites"
+                subtitle={
+                    libraryTracks.length > 0
+                        ? `${libraryTracks.length.toLocaleString()} ${
+                              libraryTracks.length === 1
+                                  ? "favorite"
+                                  : "favorites"
+                          }`
+                        : "Jellyfin favorites — play or remove from list"
+                }
+                accent="rose"
+                actions={
+                    <button
+                        onClick={handleRefresh}
+                        disabled={isRefreshing}
+                        className="flex items-center justify-center w-8 h-8 rounded-full bg-white/5 text-gray-400 hover:text-white hover:bg-white/10 transition-all disabled:opacity-50"
+                        title="Refresh favorites from Jellyfin"
+                    >
+                        <RefreshCw className={`w-4 h-4 ${isRefreshing ? "animate-spin" : ""}`} />
+                    </button>
+                }
+            />
 
             {error && (
                 <div className="mx-4 mb-4 rounded-lg bg-red-500/10 border border-red-500/20 p-4 text-sm text-red-400">

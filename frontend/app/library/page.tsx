@@ -371,6 +371,13 @@ export default function LibraryPage() {
                 eyebrow="Your Library"
                 icon={<LibraryIcon className="w-4 h-4" />}
                 title="Library"
+                subtitle={`${totalItems.toLocaleString()} ${
+                    activeTab === "artists"
+                        ? "artists"
+                        : activeTab === "albums"
+                        ? "albums"
+                        : "songs"
+                }`}
             />
 
             <div className="relative px-4 md:px-8 pb-24">
@@ -414,15 +421,6 @@ export default function LibraryPage() {
                             <ListFilter className="w-4 h-4" />
                         </button>
 
-                        {/* Item Count */}
-                        <span className="text-sm text-gray-400 ml-2">
-                            {totalItems.toLocaleString()}{" "}
-                            {activeTab === "artists" ?
-                                "artists"
-                            : activeTab === "albums" ?
-                                "albums"
-                            :   "songs"}
-                        </span>
                     </div>
                 </div>
 
