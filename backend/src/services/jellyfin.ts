@@ -740,27 +740,29 @@ export async function getJellyfinTracks(
     });
     const items = res.data?.Items ?? [];
     const total = res.data?.TotalRecordCount ?? items.length;
+
+    // Batch-fetch all referenced albums in a few calls instead of one call per
+    // track (the old N+1 pattern made a 100-track page take 15s+ and was the
+    // cause of mobile client sync timeouts).
+    const albumIds = [...new Set(items.map((i) => i.AlbumId).filter(Boolean))] as string[];
+    const albumsById = await getJellyfinItemsBatch(cfg, albumIds, "Id,Name,ImageTags");
+
     const tracks: ResolvedTrack[] = [];
     for (const item of items) {
         let album: ResolvedAlbum | undefined;
-        if (item.AlbumId) {
-            try {
-                const albumItem = await getJellyfinItem(cfg, item.AlbumId, "MusicAlbum");
-                if (albumItem)
-                    album = {
-                        id: `${JELLYFIN_PREFIX}${albumItem.Id}`,
-                        title: albumItem.Name,
-                        coverArt: getJellyfinImageUrl(
-                            cfg.url,
-                            albumItem.Id,
-                            albumItem.ImageTags?.Primary,
-                            cfg.apiKey,
-                            cfg.userId
-                        ),
-                    };
-            } catch {
-                // ignore
-            }
+        const albumItem = item.AlbumId ? albumsById.get(item.AlbumId) : undefined;
+        if (albumItem) {
+            album = {
+                id: `${JELLYFIN_PREFIX}${albumItem.Id}`,
+                title: albumItem.Name,
+                coverArt: getJellyfinImageUrl(
+                    cfg.url,
+                    albumItem.Id,
+                    albumItem.ImageTags?.Primary,
+                    cfg.apiKey,
+                    cfg.userId
+                ),
+            };
         }
         const artistId = item.AlbumArtists?.[0]?.Id;
         const artistName = item.AlbumArtists?.[0]?.Name;
