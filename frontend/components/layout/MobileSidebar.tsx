@@ -15,6 +15,7 @@ import {
     Radio,
     Disc3,
     ListPlus,
+    ListMusic,
     BookOpen,
     Podcast,
     type LucideIcon,
@@ -39,6 +40,7 @@ const mobileSections: Array<{
         label: "Music",
         items: [
             { name: "Library", href: "/library", icon: Library },
+            { name: "Playlists", href: "/playlists", icon: ListMusic },
             { name: "Favorites", href: "/favorites", icon: Heart },
         ],
     },
