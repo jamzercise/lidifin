@@ -8,11 +8,22 @@ should build against first.
 
 ## Machine-Readable Spec
 
-The canonical machine-readable OpenAPI artifact for this contract lives at:
+The canonical machine-readable OpenAPI artifact lives at:
 
 - repo file: `backend/src/config/mobileOpenApi.json`
 - running server endpoint: `/api/docs/mobile.json`
 - human-browsable Swagger UI: `/api/docs/mobile`
+
+As of this revision the spec is a **complete reference for every backend
+endpoint** (~290 operations across the whole system), not just a curated mobile
+subset. Coverage is two-tiered:
+
+- **Core mobile flows** (auth, library browse, search, streaming, playlists,
+  audiobooks, podcasts, radio) carry fully detailed request/response schemas.
+- **All remaining endpoints** (admin, enrichment, analysis, discovery, system
+  settings, integrations, webhooks, etc.) document path, method, authentication,
+  and path parameters with generic response shapes. Endpoints that require admin
+  privileges say so in their description.
 
 If you are feeding Lidifin docs into an AI system or a code generator, prefer
 the JSON spec over this Markdown file. Use this Markdown document as supporting
@@ -99,6 +110,18 @@ Send them as:
 - `GET /library/albums`
 - `GET /library/tracks`
 
+### Playlists
+
+- `GET /playlists`
+- `POST /playlists`
+- `GET /playlists/{id}`
+- `PUT /playlists/{id}`
+- `DELETE /playlists/{id}`
+- `GET /playlists/{id}/cover`
+- `POST /playlists/{id}/items`
+- `DELETE /playlists/{id}/items/{trackId}`
+- `PUT /playlists/{id}/items/reorder`
+
 ### Search
 
 - `GET /search?q=...`
@@ -106,6 +129,52 @@ Send them as:
 ### Playback and streaming
 
 - `GET /library/tracks/{id}/stream`
+
+### Audiobooks
+
+Backed by an external Audiobookshelf server. When Audiobookshelf is not
+configured, list endpoints return empty results (and `GET /audiobooks` returns
+`{ "configured": false, "enabled": false, "audiobooks": [] }` instead of an
+array).
+
+- `GET /audiobooks`
+- `GET /audiobooks/search?q=...`
+- `GET /audiobooks/{id}`
+- `GET /audiobooks/{id}/cover` (no auth required)
+- `GET /audiobooks/{id}/stream`
+- `POST /audiobooks/{id}/progress`
+- `DELETE /audiobooks/{id}/progress`
+
+### Podcasts
+
+- `GET /podcasts`
+- `GET /podcasts/{id}`
+- `POST /podcasts/subscribe`
+- `DELETE /podcasts/{id}/unsubscribe`
+- `GET /podcasts/new-episodes`
+- `GET /podcasts/continue-listening`
+- `GET /podcasts/discover/top`
+- `GET /podcasts/{podcastId}/episodes/{episodeId}/stream`
+
+### Radio
+
+Core radio (always available):
+
+- `GET /library/radio?type=...` (returns `{ tracks }`)
+- `GET /library/genres` (genre stations)
+- `GET /library/decades` (decade stations)
+- `GET /library/vibes` (mood/vibe stations)
+
+AI-powered radio (only when AudioMuse-AI is enabled and reachable; requires
+Jellyfin as the music source):
+
+- `GET /mixes/audiomuse/status`
+- `POST /mixes/audiomuse/instant`
+- `GET /mixes/audiomuse/similar-tracks?trackId=...`
+- `GET /mixes/audiomuse/similar-artists?artistId=...`
+- `GET /mixes/audiomuse/artist-tracks?artistId=...`
+- `POST /mixes/audiomuse/alchemy`
+- `POST /mixes/audiomuse/save-playlist`
 
 ## Request/Response Notes
 
@@ -210,6 +279,48 @@ Useful query param:
 
 - `type=all|artists|albums|tracks|audiobooks|podcasts|episodes`
 
+### Audiobooks and podcasts
+
+- Audiobook and podcast media are separate from the music library and live
+  under `/audiobooks` and `/podcasts` respectively.
+- Both accept the same auth as the rest of the mobile API (Bearer JWT preferred,
+  `X-API-Key` also supported).
+- Cover images are served as relative paths (e.g. `/audiobooks/{id}/cover`,
+  `/podcasts/{id}/cover`); resolve them against the API base URL.
+- Progress is per-user. Audiobooks expose `POST/DELETE /audiobooks/{id}/progress`;
+  podcast progress is reflected in the `progress` field on episodes.
+- Episode and audiobook streaming supports HTTP Range the same way track
+  streaming does.
+
+### Radio
+
+- `GET /library/radio` requires a `type` (one of `discovery`, `favorites`,
+  `decade`, `genre`, `mood`, `workout`, `artist`, `vibe`). `value` carries the
+  station selector (decade year, genre/mood name, artist ID for `artist`, or a
+  source track ID for `vibe`). Response is `{ tracks }`, plus `sourceFeatures`
+  for `vibe`.
+- Radio tracks place `artist` at the top level (not nested under `album`), which
+  differs from `GET /library/tracks`.
+- The `/mixes/audiomuse/*` endpoints depend on an optional external service
+  (AudioMuse-AI) and require Jellyfin as the music source. Gate the AI radio UI
+  on `GET /mixes/audiomuse/status` returning `enabled: true` and
+  `available: true`.
+- `POST /mixes/audiomuse/instant` can take minutes; use a long client timeout
+  (the web app allows ~2-3 minutes) and show a progress state.
+
+### Playlists
+
+- `GET /playlists` returns summaries with `trackCount` but no track list; fetch
+  `GET /playlists/{id}` for the resolved items.
+- Track IDs in add/remove/reorder may be native IDs or `jellyfin:`-prefixed IDs,
+  consistent with the rest of the API.
+- Mutations (`POST`/`PUT`/`DELETE`) are owner-only and return `403` otherwise;
+  private playlists owned by others return `403` on read as well.
+- When Jellyfin is the source, playlists are bi-directionally synced, so reads
+  reflect Jellyfin and writes propagate to it.
+- Playlist detail may also include `pendingTracks` (unresolved Spotify imports)
+  and a `mergedItems` array; a mobile client can ignore these for basic playback.
+
 ## Streaming Contract
 
 ### Endpoint
@@ -284,13 +395,15 @@ retry.
 
 ## Current Non-Goals for Mobile v1
 
-These backend areas exist, but are not yet declared part of the stable mobile
-contract:
+All backend endpoints are now present in the OpenAPI spec, but the following
+areas are documented at the path/method/auth level rather than with detailed,
+stability-guaranteed schemas. Treat them as available-but-evolving for mobile:
 
 - offline download lifecycle
 - playback-state sync
-- mixes/discover/recommendation flows
-- full admin/settings management
+- discover/recommendation flows beyond radio
+- admin/settings/system management
+- enrichment, audio analysis, and integration (Lidarr/Soulseek/Spotify) controls
 
 They can be added later once the core browse/search/stream experience is solid.
 
