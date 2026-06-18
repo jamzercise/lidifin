@@ -186,14 +186,14 @@ export default function DiscoverWeeklyPage() {
                             />
                         </div>
                     ) : (
-                        <div className="flex flex-col items-center justify-center py-24 text-center">
-                            <div className="w-20 h-20 bg-gradient-to-br from-purple-600/20 to-yellow-600/20 rounded-full flex items-center justify-center mb-4 shadow-xl border border-white/10">
-                                <Music2 className="w-10 h-10 text-purple-400" />
+                        <div className="flex flex-col items-center justify-center py-10 text-center">
+                            <div className="w-14 h-14 bg-gradient-to-br from-purple-600/20 to-yellow-600/20 rounded-full flex items-center justify-center mb-3 shadow-xl border border-white/10">
+                                <Music2 className="w-7 h-7 text-purple-400" />
                             </div>
-                            <h3 className="text-lg font-medium text-white mb-1">
+                            <h3 className="text-base font-medium text-white mb-1">
                                 No Discover Weekly Yet
                             </h3>
-                            <p className="text-sm text-gray-500 mb-6 max-w-md">
+                            <p className="text-sm text-gray-500 mb-4 max-w-md">
                                 Generate your first playlist based on your
                                 listening history!
                             </p>
@@ -201,7 +201,7 @@ export default function DiscoverWeeklyPage() {
                                 onClick={handleGenerate}
                                 disabled={isGenerating}
                                 className={cn(
-                                    "flex items-center gap-2 px-6 py-3 rounded-full text-white font-semibold transition-all",
+                                    "flex items-center gap-2 px-5 py-2.5 rounded-full text-white font-semibold transition-all",
                                     isGenerating
                                         ? "bg-white/5 cursor-not-allowed opacity-50"
                                         : "bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/30 hover:scale-105"

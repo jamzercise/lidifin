@@ -113,17 +113,16 @@ const PageHero = memo(function PageHero({
 
     if (variant === "compact") {
         return (
-            <div className={cn("relative", className)}>
+            // `overflow-hidden` keeps the backdrop/gradients clipped to the
+            // header band so they never bleed onto the page content below.
+            <div className={cn("relative overflow-hidden", className)}>
                 <div className="absolute inset-0 pointer-events-none">
-                    {/* Blurred cover-art collage, faded into the page background */}
+                    {/* Blurred cover-art collage, contained within the header */}
                     {hasBackdrop && (
-                        <div
-                            className="absolute inset-0 overflow-hidden"
-                            style={{ height: "30vh" }}
-                        >
+                        <div className="absolute inset-0 overflow-hidden">
                             <BackdropCollage images={backdrop} />
                             <div className="absolute inset-0 bg-[#0A0A0A]/55" />
-                            <div className="absolute inset-0 bg-gradient-to-b from-transparent via-[#0A0A0A]/30 to-[#0A0A0A]" />
+                            <div className="absolute inset-0 bg-gradient-to-b from-transparent via-[#0A0A0A]/25 to-[#0A0A0A]" />
                         </div>
                     )}
 
@@ -132,21 +131,18 @@ const PageHero = memo(function PageHero({
                             "absolute inset-0 bg-gradient-to-b",
                             tokens.heroGradient
                         )}
-                        style={{ height: "35vh" }}
                     />
                     <div
                         className={cn(
                             "absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,var(--tw-gradient-stops))]",
                             tokens.heroGradient
                         )}
-                        style={{ height: "25vh" }}
                     />
 
                     {/* Watermark icon + glow when there's no artwork to show */}
                     {!hasBackdrop && (
                         <div
-                            className="absolute inset-x-0 top-0 overflow-hidden"
-                            style={{ height: "22vh" }}
+                            className="absolute inset-0 overflow-hidden"
                             aria-hidden
                         >
                             <div
@@ -164,7 +160,7 @@ const PageHero = memo(function PageHero({
                     )}
                 </div>
 
-                <div className="relative px-4 md:px-8 pt-6 pb-2 flex items-center justify-between gap-4">
+                <div className="relative px-4 md:px-8 pt-6 pb-4 flex items-center justify-between gap-4">
                     <div className="min-w-0">
                         {eyebrow && (
                             <div className="flex items-center gap-2 mb-1">
