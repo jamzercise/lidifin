@@ -160,7 +160,9 @@ const PageHero = memo(function PageHero({
                     )}
                 </div>
 
-                <div className="relative px-4 md:px-8 pt-6 pb-4 flex items-center justify-between gap-4">
+                {/* Fixed min-height standardizes every compact header (and its
+                    backdrop band) regardless of how much content it carries. */}
+                <div className="relative px-4 md:px-8 py-6 min-h-[9rem] flex items-center justify-between gap-4">
                     <div className="min-w-0">
                         {eyebrow && (
                             <div className="flex items-center gap-2 mb-1">

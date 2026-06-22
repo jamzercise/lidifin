@@ -61,11 +61,12 @@ export default function SavedDiscoveryAlbumsPage() {
     return (
         <div className="min-h-screen bg-[#0a0a0a] text-white pb-24">
             <PageHero
+                variant="compact"
                 accent="rose"
                 eyebrow="Your Collection"
-                icon={<Bookmark className="w-6 h-6" />}
+                icon={<Bookmark className="w-4 h-4" />}
                 title="Saved Albums"
-                subtitle="Bookmarked discovery release groups (MusicBrainz) — separate from your Jellyfin library and favorites. Open a tile for details, previews, or download."
+                subtitle="Bookmarked release groups — separate from your library and favorites."
                 backdropImages={albums
                     .slice(0, 4)
                     .map((a) =>
