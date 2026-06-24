@@ -9,6 +9,7 @@ declare module "./client" {
         deletePlaylist(id: string): Promise<void>;
         addTrackToPlaylist(playlistId: string, trackId: string): Promise<ApiData>;
         removeTrackFromPlaylist(playlistId: string, trackId: string): Promise<void>;
+        reorderPlaylistItems(playlistId: string, trackIds: string[]): Promise<{ message: string }>;
         hidePlaylist(playlistId: string): Promise<{ message: string; isHidden: boolean }>;
         unhidePlaylist(playlistId: string): Promise<{ message: string; isHidden: boolean }>;
         retryPendingTrack(playlistId: string, pendingTrackId: string): Promise<{ success: boolean; message: string; error?: string; filePath?: string }>;
@@ -53,6 +54,13 @@ ApiClient.prototype.addTrackToPlaylist = async function (this: ApiClient, playli
 
 ApiClient.prototype.removeTrackFromPlaylist = async function (this: ApiClient, playlistId: string, trackId: string) {
     return this.request(`/playlists/${playlistId}/items/${trackId}`, { method: "DELETE" });
+};
+
+ApiClient.prototype.reorderPlaylistItems = async function (this: ApiClient, playlistId: string, trackIds: string[]) {
+    return this.request(`/playlists/${playlistId}/items/reorder`, {
+        method: "PUT",
+        body: JSON.stringify({ trackIds }),
+    });
 };
 
 ApiClient.prototype.hidePlaylist = async function (this: ApiClient, playlistId: string) {

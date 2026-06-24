@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useRef, useEffect } from "react";
+import { useState, useMemo, useRef, useEffect, type DragEvent } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Image from "next/image";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -31,6 +31,8 @@ import {
     X,
     Loader2,
     Pencil,
+    GripVertical,
+    Check,
 } from "lucide-react";
 
 interface Track {
@@ -88,6 +90,7 @@ export default function PlaylistDetailPage() {
     const [isHiding, setIsHiding] = useState(false);
     const [isEditingName, setIsEditingName] = useState(false);
     const [editingName, setEditingName] = useState("");
+    const [isSavingName, setIsSavingName] = useState(false);
     const nameInputRef = useRef<HTMLInputElement>(null);
     const [playingPreviewId, setPlayingPreviewId] = useState<string | null>(
         null
@@ -95,6 +98,14 @@ export default function PlaylistDetailPage() {
     const [retryingTrackId, setRetryingTrackId] = useState<string | null>(null);
     const [removingTrackId, setRemovingTrackId] = useState<string | null>(null);
     const previewAudioRef = useRef<HTMLAudioElement | null>(null);
+
+    // Local copy of the track ordering so drag-and-drop reordering feels instant
+    // (optimistic) before the backend + Jellyfin sync confirms.
+    const [orderedItems, setOrderedItems] = useState<
+        (PlaylistItem | PendingTrack)[]
+    >([]);
+    const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+    const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
     // Clean up preview audio on unmount
     useEffect(() => {
@@ -211,6 +222,114 @@ export default function PlaylistDetailPage() {
     // Check if this is a shared playlist
     const isShared = playlist?.isOwner === false;
 
+    // Only owners can reorder their own playlists
+    const canReorder = playlist?.isOwner === true;
+
+    // Keep the local ordering in sync with fetched data (unless mid-drag)
+    useEffect(() => {
+        if (draggedIndex !== null) return;
+        const next = (playlist?.mergedItems ||
+            playlist?.items ||
+            []) as (PlaylistItem | PendingTrack)[];
+        setOrderedItems(next);
+    }, [playlist?.mergedItems, playlist?.items, draggedIndex]);
+
+    const handleDragStart = (index: number) => {
+        if (!canReorder) return;
+        setDraggedIndex(index);
+    };
+
+    const handleDragOver = (e: DragEvent, index: number) => {
+        if (!canReorder || draggedIndex === null) return;
+        e.preventDefault();
+        if (index !== dragOverIndex) setDragOverIndex(index);
+    };
+
+    const handleDragEnd = () => {
+        setDraggedIndex(null);
+        setDragOverIndex(null);
+    };
+
+    const handleDrop = async (e: DragEvent, dropIndex: number) => {
+        if (!canReorder || draggedIndex === null) return;
+        e.preventDefault();
+        const fromIndex = draggedIndex;
+        setDraggedIndex(null);
+        setDragOverIndex(null);
+        if (fromIndex === dropIndex) return;
+
+        const reordered = [...orderedItems];
+        const [moved] = reordered.splice(fromIndex, 1);
+        reordered.splice(dropIndex, 0, moved);
+        setOrderedItems(reordered);
+
+        // Persist only real tracks (pending/failed imports aren't reorderable server-side)
+        const trackIds = reordered
+            .filter((item) => item.type !== "pending")
+            .map((item) => (item as PlaylistItem).track?.id)
+            .filter((id): id is string => Boolean(id));
+
+        try {
+            await api.reorderPlaylistItems(playlistId, trackIds);
+            window.dispatchEvent(
+                new CustomEvent("playlist-updated", {
+                    detail: { playlistId },
+                })
+            );
+            // Refresh after Jellyfin sync settles so order is authoritative
+            setTimeout(() => {
+                queryClient.invalidateQueries({
+                    queryKey: ["playlist", playlistId],
+                });
+            }, 1500);
+        } catch (error) {
+            console.error("Failed to reorder playlist:", error);
+            toast.error("Failed to save new order");
+            // Revert optimistic update
+            queryClient.invalidateQueries({
+                queryKey: ["playlist", playlistId],
+            });
+        }
+    };
+
+    const handleCancelRename = () => {
+        setEditingName(playlist?.name ?? "");
+        setIsEditingName(false);
+    };
+
+    const handleSaveName = async () => {
+        const trimmed = editingName.trim();
+        // Nothing to do if blank or unchanged
+        if (!trimmed || trimmed === playlist?.name) {
+            handleCancelRename();
+            return;
+        }
+        setIsSavingName(true);
+        try {
+            await api.updatePlaylist(playlistId, { name: trimmed });
+            queryClient.setQueryData(
+                ["playlist", playlistId],
+                (old: Record<string, unknown> | undefined) =>
+                    old ? { ...old, name: trimmed } : old
+            );
+            window.dispatchEvent(
+                new CustomEvent("playlist-updated", {
+                    detail: { playlistId },
+                })
+            );
+            setIsEditingName(false);
+        } catch (error) {
+            console.error("Failed to rename playlist:", error);
+            toast.error(
+                (error as { message?: string })?.message ||
+                    "Failed to rename playlist"
+            );
+            // Keep editing open so the user doesn't lose their text
+        } finally {
+            setIsSavingName(false);
+        }
+    };
+
     const handleToggleHide = async () => {
         if (!playlist) return;
         setIsHiding(true);
@@ -292,13 +411,15 @@ export default function PlaylistDetailPage() {
         }
     };
 
-    // Playable tracks (filter out items with null/unresolved track)
+    // Playable tracks (filter out pending + items with null/unresolved track).
+    // Derived from orderedItems so playback respects drag-and-drop reordering.
     const playableTracks = useMemo(() => {
-        if (!playlist?.items) return [];
-        return playlist.items.filter(
-            (item: PlaylistItem) => item.track?.album?.artist
-        );
-    }, [playlist?.items]);
+        return orderedItems.filter(
+            (item) =>
+                item.type !== "pending" &&
+                (item as PlaylistItem).track?.album?.artist
+        ) as PlaylistItem[];
+    }, [orderedItems]);
 
     // Check if this playlist is currently playing
     const playlistTrackIds = useMemo(() => {
@@ -494,84 +615,42 @@ export default function PlaylistDetailPage() {
                                     ref={nameInputRef}
                                     type="text"
                                     value={editingName}
+                                    disabled={isSavingName}
                                     onChange={(e) =>
                                         setEditingName(e.target.value)
                                     }
                                     onKeyDown={(e) => {
                                         if (e.key === "Enter") {
-                                            const trimmed =
-                                                editingName.trim();
-                                            if (trimmed) {
-                                                api.updatePlaylist(
-                                                    playlistId,
-                                                    { name: trimmed }
-                                                ).then(() => {
-                                                    queryClient.setQueryData(
-                                                        [
-                                                            "playlist",
-                                                            playlistId,
-                                                        ],
-                                                        (old: Record<string, unknown>) =>
-                                                            old
-                                                                ? {
-                                                                      ...old,
-                                                                      name: trimmed,
-                                                                  }
-                                                                : old
-                                                    );
-                                                    window.dispatchEvent(
-                                                        new CustomEvent(
-                                                            "playlist-updated",
-                                                            {
-                                                                detail: {
-                                                                    playlistId,
-                                                                },
-                                                            }
-                                                        )
-                                                    );
-                                                    setIsEditingName(false);
-                                                });
-                                            }
+                                            e.preventDefault();
+                                            handleSaveName();
                                         }
                                         if (e.key === "Escape") {
-                                            setEditingName(playlist.name);
-                                            setIsEditingName(false);
+                                            e.preventDefault();
+                                            handleCancelRename();
                                         }
                                     }}
-                                    onBlur={() => {
-                                        const trimmed =
-                                            editingName.trim();
-                                        if (trimmed && trimmed !== playlist.name) {
-                                            api.updatePlaylist(
-                                                playlistId,
-                                                { name: trimmed }
-                                            ).then(() => {
-                                                queryClient.setQueryData(
-                                                    ["playlist", playlistId],
-                                                    (old: Record<string, unknown>) =>
-                                                        old
-                                                            ? {
-                                                                  ...old,
-                                                                  name: trimmed,
-                                                              }
-                                                            : old
-                                                );
-                                                window.dispatchEvent(
-                                                    new CustomEvent(
-                                                        "playlist-updated",
-                                                        {
-                                                            detail: {
-                                                                playlistId,
-                                                            },
-                                                        }
-                                                    )
-                                                );
-                                            });
-                                        }
-                                        setIsEditingName(false);
-                                    }}
-                                    className="flex-1 min-w-0 text-2xl md:text-4xl lg:text-5xl font-bold text-white bg-white/10 px-2 py-1 rounded border border-white/20 focus:outline-none focus:border-[#B1D2C3]"
+                                    className="flex-1 min-w-0 text-2xl md:text-4xl lg:text-5xl font-bold text-white bg-white/10 px-2 py-1 rounded border border-white/20 focus:outline-none focus:border-[#B1D2C3] disabled:opacity-60"
                                 />
+                                <button
+                                    onClick={handleSaveName}
+                                    disabled={isSavingName}
+                                    title="Save name"
+                                    className="p-2 rounded-full bg-[#B1D2C3] hover:bg-[#9bc4b3] text-black transition-all flex-shrink-0 disabled:opacity-60 disabled:cursor-not-allowed"
+                                >
+                                    {isSavingName ? (
+                                        <Loader2 className="w-5 h-5 animate-spin" />
+                                    ) : (
+                                        <Check className="w-5 h-5" />
+                                    )}
+                                </button>
+                                <button
+                                    onClick={handleCancelRename}
+                                    disabled={isSavingName}
+                                    title="Cancel"
+                                    className="p-2 rounded-full hover:bg-white/10 text-white/70 hover:text-white transition-all flex-shrink-0 disabled:opacity-60"
+                                >
+                                    <X className="w-5 h-5" />
+                                </button>
                             </div>
                         ) : (
                             <div className="flex items-center gap-2 mb-2 group/title">
@@ -740,9 +819,9 @@ export default function PlaylistDetailPage() {
                             <span className="text-right">Duration</span>
                         </div>
 
-                        {/* Track Rows - use mergedItems to show tracks and pending in correct order */}
+                        {/* Track Rows - use orderedItems (local, drag-reorderable) */}
                         <div>
-                            {(playlist.mergedItems || playlist.items || []).map(
+                            {orderedItems.map(
                                 (
                                     item: PlaylistItem | PendingTrack,
                                     index: number
@@ -904,13 +983,25 @@ export default function PlaylistDetailPage() {
                                             onClick={() =>
                                                 handlePlayTrack(trackIndex)
                                             }
+                                            onDragOver={(e) =>
+                                                handleDragOver(e, index)
+                                            }
+                                            onDrop={(e) =>
+                                                handleDrop(e, index)
+                                            }
                                             className={cn(
                                                 "grid grid-cols-[40px_1fr_auto] md:grid-cols-[40px_minmax(160px,2fr)_minmax(100px,1fr)_minmax(100px,1fr)_80px] gap-4 px-4 py-2 rounded-md hover:bg-white/5 transition-colors group cursor-pointer",
                                                 isCurrentlyPlaying &&
-                                                    "bg-white/10"
+                                                    "bg-white/10",
+                                                draggedIndex === index &&
+                                                    "opacity-40",
+                                                dragOverIndex === index &&
+                                                    draggedIndex !== null &&
+                                                    draggedIndex !== index &&
+                                                    "border-t-2 border-[#B1D2C3]"
                                             )}
                                         >
-                                            {/* Track Number / Play Icon */}
+                                            {/* Track Number / Drag Handle / Play Icon */}
                                             <div className="flex items-center justify-center">
                                                 <span
                                                     className={cn(
@@ -927,7 +1018,29 @@ export default function PlaylistDetailPage() {
                                                         trackIndex + 1
                                                     )}
                                                 </span>
-                                                <Play className="w-4 h-4 text-white hidden group-hover:block" />
+                                                {canReorder ? (
+                                                    <div
+                                                        draggable
+                                                        onDragStart={(e) => {
+                                                            e.stopPropagation();
+                                                            handleDragStart(
+                                                                index
+                                                            );
+                                                        }}
+                                                        onDragEnd={
+                                                            handleDragEnd
+                                                        }
+                                                        onClick={(e) =>
+                                                            e.stopPropagation()
+                                                        }
+                                                        className="hidden group-hover:flex items-center justify-center text-gray-400 hover:text-white cursor-grab active:cursor-grabbing"
+                                                        title="Drag to reorder"
+                                                    >
+                                                        <GripVertical className="w-4 h-4" />
+                                                    </div>
+                                                ) : (
+                                                    <Play className="w-4 h-4 text-white hidden group-hover:block" />
+                                                )}
                                             </div>
 
                                             {/* Title (mobile: title + artist subtitle) */}

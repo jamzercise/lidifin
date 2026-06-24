@@ -221,16 +221,23 @@ export function registerPlaylistItemRoutes(router: Router): void {
                 return res.status(403).json({ error: "Access denied" });
             }
 
-            // Update sort order for each track
+            // Update sort order for each track. Use upsert so reordering still
+            // works when a Jellyfin-sourced item hasn't been mirrored into the
+            // local DB yet (the detail view triggers that sync in the background).
             const updates = trackIds.map((trackId, index) =>
-                prisma.playlistItem.update({
+                prisma.playlistItem.upsert({
                     where: {
                         playlistId_trackId: {
                             playlistId: req.params.id,
                             trackId,
                         },
                     },
-                    data: { sort: index },
+                    update: { sort: index },
+                    create: {
+                        playlistId: req.params.id,
+                        trackId,
+                        sort: index,
+                    },
                 }),
             );
 

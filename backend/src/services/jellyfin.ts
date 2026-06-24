@@ -1031,19 +1031,49 @@ export async function resolveTrackReferences(
                 })
             );
 
+            // Gather the resolved audio items first, then batch-fetch their albums
+            // in one pass so each track shows its real album name instead of
+            // "Unknown Album".
+            const resolvedItems: { item: JellyfinItem; idx: number }[] = [];
             for (const { batchIds, batchIndexes, byId } of batchResults) {
                 for (let j = 0; j < batchIds.length; j++) {
                     const item = byId.get(batchIds[j]);
                     const idx = batchIndexes[j];
                     if (item && item.Type === "Audio") {
-                        result[idx] = mapJellyfinItemToTrack(
-                            item,
-                            undefined,
-                            item.AlbumArtists?.[0]?.Name,
-                            item.AlbumArtists?.[0] ? `${JELLYFIN_PREFIX}${item.AlbumArtists[0].Id}` : undefined
-                        );
+                        resolvedItems.push({ item, idx });
                     }
                 }
+            }
+            const trackAlbumIds = [
+                ...new Set(resolvedItems.map((p) => p.item.AlbumId).filter(Boolean)),
+            ] as string[];
+            const trackAlbumsById = await getJellyfinItemsBatch(
+                cfg,
+                trackAlbumIds,
+                "Id,Name,ImageTags"
+            );
+            for (const { item, idx } of resolvedItems) {
+                let album: ResolvedAlbum | undefined;
+                const albumItem = item.AlbumId ? trackAlbumsById.get(item.AlbumId) : undefined;
+                if (albumItem) {
+                    album = {
+                        id: `${JELLYFIN_PREFIX}${albumItem.Id}`,
+                        title: albumItem.Name,
+                        coverArt: getJellyfinImageUrl(
+                            cfg.url,
+                            albumItem.Id,
+                            albumItem.ImageTags?.Primary,
+                            cfg.apiKey,
+                            cfg.userId
+                        ),
+                    };
+                }
+                result[idx] = mapJellyfinItemToTrack(
+                    item,
+                    album,
+                    item.AlbumArtists?.[0]?.Name,
+                    item.AlbumArtists?.[0] ? `${JELLYFIN_PREFIX}${item.AlbumArtists[0].Id}` : undefined
+                );
             }
             const nullIndices: number[] = [];
             for (let k = 0; k < jellyfinIds.length; k++) {
@@ -1203,11 +1233,38 @@ export async function updateJellyfinPlaylistName(
 ): Promise<boolean> {
     const token = getEffectiveToken(cfg);
     const client = createClient(cfg.url, token);
+
+    // Preferred: dedicated playlist update endpoint (Jellyfin 10.9+).
     try {
         await client.post(`/Playlists/${playlistId}`, { Name: name });
         return true;
     } catch (err: any) {
-        logger.warn("[Jellyfin] updatePlaylistName failed:", playlistId, err.message);
+        logger.warn(
+            `[Jellyfin] updatePlaylistName via /Playlists failed (status ${err?.response?.status}), trying /Items fallback:`,
+            playlistId,
+            err.message
+        );
+    }
+
+    // Fallback for older Jellyfin: update the underlying item DTO. We GET the
+    // current item, change its Name, then POST it back to /Items/{id}.
+    try {
+        const userId = getEffectiveUserId(cfg);
+        const getPath = userId
+            ? `/Users/${userId}/Items/${playlistId}`
+            : `/Items/${playlistId}`;
+        const current = await client.get<Record<string, unknown>>(getPath);
+        const dto = current.data;
+        if (!dto || typeof dto !== "object") return false;
+        dto.Name = name;
+        await client.post(`/Items/${playlistId}`, dto);
+        return true;
+    } catch (err: any) {
+        logger.warn(
+            `[Jellyfin] updatePlaylistName via /Items failed (status ${err?.response?.status}):`,
+            playlistId,
+            err.message
+        );
         return false;
     }
 }
@@ -1325,21 +1382,42 @@ export async function getJellyfinPlaylistItemsWithMetadata(
             },
         });
         const items = (res.data?.Items ?? []) as (JellyfinItem & { PlaylistItemId?: string })[];
+
+        // Batch-fetch the albums referenced by these tracks so each row shows its
+        // real album name (and album art as a cover fallback) instead of the
+        // "Unknown Album" placeholder. Mirrors getJellyfinTracks.
+        const albumIds = [...new Set(items.map((i) => i.AlbumId).filter(Boolean))] as string[];
+        const albumsById = await getJellyfinItemsBatch(cfg, albumIds, "Id,Name,ImageTags");
+
         const result: { entryId: string; itemId: string; track: ResolvedTrack }[] = [];
         for (const it of items) {
             if (it.Type !== "Audio") continue;
+            let album: ResolvedAlbum | undefined;
+            const albumItem = it.AlbumId ? albumsById.get(it.AlbumId) : undefined;
+            if (albumItem) {
+                album = {
+                    id: `${JELLYFIN_PREFIX}${albumItem.Id}`,
+                    title: albumItem.Name,
+                    coverArt: getJellyfinImageUrl(
+                        cfg.url,
+                        albumItem.Id,
+                        albumItem.ImageTags?.Primary,
+                        cfg.apiKey,
+                        cfg.userId
+                    ),
+                };
+            }
             const track = mapJellyfinItemToTrack(
                 it,
-                undefined,
+                album,
                 it.AlbumArtists?.[0]?.Name,
                 it.AlbumArtists?.[0] ? `${JELLYFIN_PREFIX}${it.AlbumArtists[0].Id}` : undefined
             );
-            const coverArt = it.ImageTags?.Primary
+            // Prefer the track's own primary image; fall back to album cover.
+            const trackCover = it.ImageTags?.Primary
                 ? getJellyfinImageUrl(cfg.url, it.Id, it.ImageTags.Primary, cfg.apiKey, cfg.userId)
-                : null;
-            if (coverArt) {
-                track.album = { ...track.album, coverArt };
-            }
+                : track.album.coverArt;
+            track.album = { ...track.album, coverArt: trackCover };
             result.push({
                 entryId: it.PlaylistItemId ?? it.Id,
                 itemId: it.Id,
