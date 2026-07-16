@@ -25,34 +25,58 @@ export function createApp(): Express {
         })
     );
 
+    // Warn once at startup if production is running without an allowlist, so
+    // operators know cross-origin credentialed requests are being permitted.
+    if (
+        config.nodeEnv !== "development" &&
+        !(Array.isArray(config.allowedOrigins) && config.allowedOrigins.length > 0) &&
+        config.allowedOrigins !== true
+    ) {
+        logger.warn(
+            "[CORS] No ALLOWED_ORIGINS configured in production — cross-origin " +
+                "requests are being allowed. Set ALLOWED_ORIGINS to lock this down."
+        );
+    }
+
     app.use(
         cors({
             origin: (origin, callback) => {
-                // Self-hosted apps run on user-controlled domains/IPs we can't
-                // predict; security comes from authentication, not CORS. Allow
-                // by default and log when origin is unknown.
+                // No Origin header: same-origin requests, native apps, and
+                // server-to-server callers. Always allowed.
                 if (!origin) {
-                    callback(null, true);
-                } else if (
+                    return callback(null, true);
+                }
+
+                // Development, or an explicit "allow all" (ALLOWED_ORIGINS unset
+                // in dev): allow any origin.
+                if (
                     config.allowedOrigins === true ||
                     config.nodeEnv === "development"
                 ) {
-                    callback(null, true);
-                } else if (
+                    return callback(null, true);
+                }
+
+                // Production with a configured allowlist: enforce it strictly.
+                // Reflecting arbitrary origins while credentials:true is on
+                // would defeat the browser's cross-origin protections.
+                if (
                     Array.isArray(config.allowedOrigins) &&
                     config.allowedOrigins.length > 0
                 ) {
                     if (config.allowedOrigins.includes(origin)) {
-                        callback(null, true);
-                    } else {
-                        logger.debug(
-                            `[CORS] Origin ${origin} not in allowlist, allowing anyway (self-hosted)`
-                        );
-                        callback(null, true);
+                        return callback(null, true);
                     }
-                } else {
-                    callback(null, true);
+                    logger.warn(
+                        `[CORS] Rejected origin not in ALLOWED_ORIGINS: ${origin}`
+                    );
+                    return callback(null, false);
                 }
+
+                // Production without any allowlist configured: preserve
+                // out-of-the-box behavior (the frontend is typically served
+                // same-origin via the Next.js proxy). The startup warning above
+                // nudges operators to configure ALLOWED_ORIGINS.
+                return callback(null, true);
             },
             credentials: true,
         })

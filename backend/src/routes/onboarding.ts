@@ -100,10 +100,21 @@ router.post("/register", async (req, res) => {
         const userCount = await prisma.user.count();
         const isFirstUser = userCount === 0;
 
-        // If this is the first user, ensure encryption key is generated
-        if (isFirstUser) {
-            await ensureEncryptionKey();
+        // Public registration is only for initial setup. Once an account
+        // exists, additional users must be created by an admin via
+        // POST /auth/create-user — otherwise anyone who can reach the server
+        // can mint themselves an account.
+        if (!isFirstUser) {
+            logger.warn(
+                "[ONBOARDING] Rejected public registration attempt after initial setup"
+            );
+            return res.status(403).json({
+                error: "Registration is disabled. Ask an administrator to create your account.",
+            });
         }
+
+        // First user: ensure the settings encryption key is generated.
+        await ensureEncryptionKey();
 
         // Check if username is taken
         const existing = await prisma.user.findUnique({

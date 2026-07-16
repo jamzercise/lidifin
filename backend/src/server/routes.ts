@@ -53,9 +53,11 @@ import systemRoutes from "../routes/system";
  * every route.
  */
 export function registerRoutes(app: Express): void {
-    // Auth routes (with stricter limiter on login/register).
+    // Auth routes (with stricter limiter on login and registration).
     app.use("/api/auth/login", authLimiter);
-    app.use("/api/auth/register", authLimiter);
+    // Registration lives under /api/onboarding/register — rate-limit it to
+    // blunt brute-force / account-spam attempts during initial setup.
+    app.use("/api/onboarding/register", authLimiter);
     app.use("/api/auth", authRoutes);
     app.use("/api/onboarding", onboardingRoutes);
 

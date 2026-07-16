@@ -1,5 +1,6 @@
 import Parser from "rss-parser";
 import { logger } from "../utils/logger";
+import { assertSafeRemoteUrl, UnsafeUrlError } from "../utils/safeFetch";
 
 interface RSSPodcast {
     title: string;
@@ -59,6 +60,10 @@ class RSSParserService {
      */
     async parseFeed(feedUrl: string): Promise<ParsedPodcastFeed> {
         try {
+            // feedUrl is user-supplied; block private/LAN targets before the
+            // rss-parser library fetches it (SSRF protection).
+            await assertSafeRemoteUrl(feedUrl);
+
             logger.debug(`\n [RSS PARSER] Fetching feed: ${feedUrl}`);
             const feed = await this.parser.parseURL(feedUrl);
 

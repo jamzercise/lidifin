@@ -3,6 +3,7 @@ import { logger } from "../utils/logger";
 import { requirePrimaryAuth } from "../middleware/auth";
 import { prisma } from "../utils/db";
 import crypto from "crypto";
+import { hashApiKey } from "../utils/apiKeyHash";
 
 const router = Router();
 
@@ -182,12 +183,13 @@ router.post("/verify", async (req, res) => {
             return res.status(400).json({ error: "Code expired" });
         }
 
-        // Generate API key for this device
+        // Generate API key for this device. Only the hash is stored — the
+        // plaintext goes to the device in this response and nowhere else.
         const apiKey = generateApiKey();
         const createdApiKey = await prisma.apiKey.create({
             data: {
                 userId: linkCode.userId,
-                key: apiKey,
+                keyHash: hashApiKey(apiKey),
                 name: deviceName || "Mobile Device",
             },
         });

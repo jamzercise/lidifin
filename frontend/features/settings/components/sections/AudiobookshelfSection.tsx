@@ -63,7 +63,7 @@ export function AudiobookshelfSection({ settings, onUpdate, onTest, isTesting }:
                             type="password"
                             value={settings.audiobookshelfApiKey}
                             onChange={(v) => onUpdate({ audiobookshelfApiKey: v })}
-                            placeholder="Enter API key"
+                            placeholder={settings.audiobookshelfApiKeySet ? "•••••••• (saved — leave blank to keep)" : "Enter API key"}
                             className="w-64"
                         />
                     </SettingsRow>
@@ -72,7 +72,7 @@ export function AudiobookshelfSection({ settings, onUpdate, onTest, isTesting }:
                         <div className="inline-flex items-center gap-3">
                             <button
                                 onClick={handleTest}
-                                disabled={isTesting || !settings.audiobookshelfUrl || !settings.audiobookshelfApiKey}
+                                disabled={isTesting || !settings.audiobookshelfUrl || (!settings.audiobookshelfApiKey && !settings.audiobookshelfApiKeySet)}
                                 className="px-4 py-1.5 text-sm bg-[#333] text-white rounded-full
                                     hover:bg-[#404040] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                             >

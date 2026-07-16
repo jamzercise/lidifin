@@ -1,7 +1,12 @@
 import crypto from "crypto";
 import { logger } from "./logger";
 
-const ALGORITHM = "aes-256-cbc";
+// New values are encrypted with AES-256-GCM (authenticated encryption, so
+// tampering is detected). Legacy values written by older builds used
+// AES-256-CBC and are still decryptable for backward compatibility.
+const GCM_ALGORITHM = "aes-256-gcm";
+const CBC_ALGORITHM = "aes-256-cbc";
+const GCM_PREFIX = "gcm:";
 
 // Insecure default that must not be used in production
 const INSECURE_DEFAULT = "default-encryption-key-change-me";
@@ -68,49 +73,83 @@ export function _resetEncryptionKeyCacheForTests(): void {
 }
 
 /**
- * Encrypt a string using AES-256-CBC
- * Returns empty string for empty/null input
+ * Encrypt a string using AES-256-GCM (authenticated encryption).
+ * Format: `gcm:<iv_hex>:<authTag_hex>:<ciphertext_hex>`
+ * Returns empty string for empty/null input.
  */
 export function encrypt(text: string): string {
     if (!text) return "";
-    const iv = crypto.randomBytes(16);
-    const cipher = crypto.createCipheriv(ALGORITHM, resolveKey(), iv);
-    let encrypted = cipher.update(text);
-    encrypted = Buffer.concat([encrypted, cipher.final()]);
-    return iv.toString("hex") + ":" + encrypted.toString("hex");
+    const iv = crypto.randomBytes(12); // 96-bit nonce, the GCM standard
+    const cipher = crypto.createCipheriv(GCM_ALGORITHM, resolveKey(), iv);
+    const encrypted = Buffer.concat([cipher.update(text, "utf8"), cipher.final()]);
+    const authTag = cipher.getAuthTag();
+    return `${GCM_PREFIX}${iv.toString("hex")}:${authTag.toString("hex")}:${encrypted.toString("hex")}`;
+}
+
+function decryptGcm(payload: string): string {
+    const [ivHex, tagHex, dataHex] = payload.split(":");
+    if (!ivHex || !tagHex || !dataHex) {
+        throw new Error("Malformed GCM ciphertext");
+    }
+    const decipher = crypto.createDecipheriv(
+        GCM_ALGORITHM,
+        resolveKey(),
+        Buffer.from(ivHex, "hex")
+    );
+    decipher.setAuthTag(Buffer.from(tagHex, "hex"));
+    return Buffer.concat([
+        decipher.update(Buffer.from(dataHex, "hex")),
+        decipher.final(),
+    ]).toString("utf8");
+}
+
+function decryptCbc(text: string): string {
+    const parts = text.split(":");
+    const iv = Buffer.from(parts[0], "hex");
+    const encryptedText = Buffer.from(parts.slice(1).join(":"), "hex");
+    const decipher = crypto.createDecipheriv(CBC_ALGORITHM, resolveKey(), iv);
+    return Buffer.concat([
+        decipher.update(encryptedText),
+        decipher.final(),
+    ]).toString();
 }
 
 /**
- * Decrypt a string that was encrypted with the encrypt function
- * Returns empty string for empty/null input
- * Returns original text if decryption fails (for backwards compatibility with unencrypted data)
+ * Decrypt a string produced by `encrypt`. Handles both the current GCM
+ * format and the legacy CBC format (`<iv_hex>:<ciphertext_hex>`).
+ *
+ * Returns empty string for empty/null input. Values that are not in a
+ * recognized ciphertext format are returned as-is, to tolerate data that
+ * predates encryption. Authentication/decryption failures on data that IS
+ * in a ciphertext format are thrown, so callers never treat a corrupt or
+ * tampered blob as a valid secret.
  */
 export function decrypt(text: string): string {
     if (!text) return "";
+
+    if (text.startsWith(GCM_PREFIX)) {
+        // GCM auth failures must surface — a bad tag means tampering or the
+        // wrong key, never "maybe it's plaintext".
+        return decryptGcm(text.slice(GCM_PREFIX.length));
+    }
+
+    // Legacy CBC: `<32-hex-char iv>:<hex ciphertext>`. Only attempt CBC when
+    // the shape matches; otherwise assume the value is genuinely unencrypted.
+    const parts = text.split(":");
+    if (parts.length < 2 || !/^[0-9a-f]{32}$/i.test(parts[0])) {
+        return text;
+    }
+
     try {
-        const parts = text.split(":");
-        if (parts.length < 2) {
-            // Not in expected format, return as-is (might be unencrypted)
-            return text;
-        }
-        const iv = Buffer.from(parts[0], "hex");
-        const encryptedText = Buffer.from(parts.slice(1).join(":"), "hex");
-        const decipher = crypto.createDecipheriv(
-            ALGORITHM,
-            resolveKey(),
-            iv
-        );
-        let decrypted = decipher.update(encryptedText);
-        decrypted = Buffer.concat([decrypted, decipher.final()]);
-        return decrypted.toString();
+        return decryptCbc(text);
     } catch (error: any) {
-        // If it's a decryption error (wrong key), throw so callers know the value is corrupt
-        if (error.code === 'ERR_OSSL_BAD_DECRYPT') {
+        // Wrong key / corrupt ciphertext: throw so callers know the value is
+        // unusable rather than silently returning ciphertext as a "secret".
+        if (error.code === "ERR_OSSL_BAD_DECRYPT") {
             throw error;
         }
-        // For other errors, log and return original (might be unencrypted)
         logger.error("Decryption error:", error);
-        return text;
+        throw error;
     }
 }
 

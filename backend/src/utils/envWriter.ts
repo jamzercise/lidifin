@@ -3,6 +3,48 @@ import { logger } from "./logger";
 import path from "path";
 
 /**
+ * Parse a stored .env value, undoing the quoting applied by formatEnvValue so
+ * values round-trip cleanly (no double-escaping across writes).
+ */
+function parseEnvValue(raw: string): string {
+    const value = raw.trim();
+    if (value.length >= 2 && value.startsWith('"') && value.endsWith('"')) {
+        return value
+            .slice(1, -1)
+            .replace(/\\n/g, "\n")
+            .replace(/\\"/g, '"')
+            .replace(/\\\\/g, "\\");
+    }
+    if (value.length >= 2 && value.startsWith("'") && value.endsWith("'")) {
+        return value.slice(1, -1);
+    }
+    return value;
+}
+
+/**
+ * Serialize a value for safe inclusion in a .env file.
+ *
+ * Without this, a value containing a newline could inject arbitrary
+ * additional environment variables (e.g. an API key set to
+ * "abc\nADMIN=true"), and values with spaces or `#` would be silently
+ * truncated. Newlines and carriage returns are stripped outright (they can
+ * never be a legitimate part of these single-line values); anything with
+ * shell/dotenv-significant characters is double-quoted and escaped.
+ */
+function formatEnvValue(value: string): string {
+    const sanitized = value.replace(/[\r\n]+/g, " ");
+    // Safe to write bare: no whitespace and no characters that a dotenv or
+    // shell parser would treat specially.
+    if (sanitized !== "" && /^[A-Za-z0-9_./:@+-]+$/.test(sanitized)) {
+        return sanitized;
+    }
+    const escaped = sanitized
+        .replace(/\\/g, "\\\\")
+        .replace(/"/g, '\\"');
+    return `"${escaped}"`;
+}
+
+/**
  * Writes key-value pairs to .env file
  * Preserves existing variables not in the provided map
  */
@@ -25,7 +67,10 @@ export async function writeEnvFile(
             if (trimmed && !trimmed.startsWith("#")) {
                 const [key, ...valueParts] = trimmed.split("=");
                 if (key) {
-                    existingVars.set(key.trim(), valueParts.join("="));
+                    existingVars.set(
+                        key.trim(),
+                        parseEnvValue(valueParts.join("="))
+                    );
                 }
             }
         });
@@ -74,8 +119,8 @@ export async function writeEnvFile(
 
         keys.forEach((key) => {
             if (existingVars.has(key)) {
-                const value = existingVars.get(key);
-                categoryVars.push(`${key}=${value}`);
+                const value = existingVars.get(key) ?? "";
+                categoryVars.push(`${key}=${formatEnvValue(value)}`);
                 writtenKeys.add(key);
             }
         });
@@ -89,7 +134,7 @@ export async function writeEnvFile(
     const uncategorized: string[] = [];
     existingVars.forEach((value, key) => {
         if (!writtenKeys.has(key)) {
-            uncategorized.push(`${key}=${value}`);
+            uncategorized.push(`${key}=${formatEnvValue(value)}`);
         }
     });
 

@@ -70,7 +70,7 @@ export function AIServicesSection({ settings, onUpdate, onTest, isTesting }: AIS
                             type="password"
                             value={settings.fanartApiKey}
                             onChange={(v) => onUpdate({ fanartApiKey: v })}
-                            placeholder="Enter Fanart.tv API key"
+                            placeholder={settings.fanartApiKeySet ? "•••••••• (saved — leave blank to keep)" : "Enter Fanart.tv API key"}
                             className="w-64"
                         />
                     </SettingsRow>
@@ -79,7 +79,7 @@ export function AIServicesSection({ settings, onUpdate, onTest, isTesting }: AIS
                         <div className="inline-flex items-center gap-3">
                             <button
                                 onClick={handleFanartTest}
-                                disabled={isTesting || !settings.fanartApiKey}
+                                disabled={isTesting || (!settings.fanartApiKey && !settings.fanartApiKeySet)}
                                 className="px-4 py-1.5 text-sm bg-[#333] text-white rounded-full
                                     hover:bg-[#404040] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                             >
@@ -108,12 +108,12 @@ export function AIServicesSection({ settings, onUpdate, onTest, isTesting }: AIS
                         type="password"
                         value={settings.lastfmApiKey || ""}
                         onChange={(v) => onUpdate({ lastfmApiKey: v })}
-                        placeholder="Optional: Your Last.fm API key"
+                        placeholder={settings.lastfmApiKeySet ? "•••••••• (saved — leave blank to keep)" : "Optional: Your Last.fm API key"}
                         className="w-64"
                     />
                 </SettingsRow>
 
-                {settings.lastfmApiKey && (
+                {(settings.lastfmApiKey || settings.lastfmApiKeySet) && (
                     <div className="pt-2">
                         <div className="inline-flex items-center gap-3">
                             <button

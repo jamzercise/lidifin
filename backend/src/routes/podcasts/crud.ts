@@ -4,6 +4,7 @@ import { logger } from "../../utils/logger";
 import { prisma } from "../../utils/db";
 import { rssParserService } from "../../services/rss-parser";
 import { refreshPodcastFeed } from "../../services/podcastFeedRefresh";
+import { UnsafeUrlError } from "../../utils/safeFetch";
 
 /** Subscribed podcast detail, subscribe/unsubscribe, and feed refresh. */
 export function registerPodcastCrudRoutes(router: Router): void {
@@ -252,6 +253,12 @@ export function registerPodcastCrudRoutes(router: Router): void {
                 message: "Subscribed successfully",
             });
         } catch (error: any) {
+            if (error instanceof UnsafeUrlError) {
+                logger.warn(`[PODCAST] Blocked unsafe feed URL: ${error.message}`);
+                return res
+                    .status(400)
+                    .json({ error: "Invalid or disallowed feed URL" });
+            }
             logger.error("Error subscribing to podcast:", error);
             res.status(500).json({
                 error: "Failed to subscribe to podcast",

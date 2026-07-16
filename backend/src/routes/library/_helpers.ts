@@ -47,49 +47,7 @@ export const applyCoverArtCorsHeaders = (res: Response, origin?: string) => {
     res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
 };
 
-const RETRYABLE_ERRORS = ["ECONNRESET", "ECONNREFUSED", "ETIMEDOUT", "ENOTFOUND", "EAI_AGAIN", "EPIPE"];
-
-function isRetryableError(err: unknown): boolean {
-    const e = err as NodeJS.ErrnoException & { cause?: NodeJS.ErrnoException };
-    const code = e?.code ?? e?.cause?.code;
-    if (code && RETRYABLE_ERRORS.includes(code)) return true;
-    const message = String(e?.message ?? "").toLowerCase();
-    return message.includes("econnreset") || message.includes("fetch failed") || message.includes("aborted");
-}
-
-type FetchResponse = Awaited<ReturnType<typeof fetch>>;
-
-export async function fetchWithRetry(
-    url: string,
-    options: RequestInit & { timeoutMs?: number } = {}
-): Promise<FetchResponse> {
-    const { timeoutMs = 15000, ...fetchOptions } = options;
-    const maxAttempts = 3;
-    let lastError: unknown;
-
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-        try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-            const res = await fetch(url, {
-                ...fetchOptions,
-                signal: controller.signal,
-                headers: {
-                    "User-Agent": "Lidifin/1.0.0 (https://github.com/jamzercise/lidifin)",
-                    ...(fetchOptions.headers as Record<string, string>),
-                },
-            });
-            clearTimeout(timeoutId);
-            return res;
-        } catch (err) {
-            lastError = err;
-            if (attempt < maxAttempts && isRetryableError(err)) {
-                logger.debug(`[FETCH] Retry ${attempt}/${maxAttempts - 1} for ${url.substring(0, 60)}...:`, (err as Error).message);
-                await new Promise((r) => setTimeout(r, 400));
-            } else {
-                throw err;
-            }
-        }
-    }
-    throw lastError;
-}
+// Re-exported from utils/safeFetch so existing imports keep working.
+// safeFetch also provides safeFetchRemote for URLs derived from
+// user-controllable data (SSRF validation + size caps).
+export { fetchWithRetry } from "../../utils/safeFetch";

@@ -9,22 +9,9 @@ import {
     getSystemSettings,
 } from "../utils/systemSettings";
 import { queueCleaner } from "../jobs/queueCleaner";
-import { encrypt, decrypt } from "../utils/encryption";
+import { encrypt } from "../utils/encryption";
 
 const router = Router();
-
-/**
- * Safely decrypt a field, returning null if decryption fails
- */
-function safeDecrypt(value: string | null): string | null {
-    if (!value) return null;
-    try {
-        return decrypt(value);
-    } catch (error) {
-        logger.warn("[Settings Route] Failed to decrypt field, returning null");
-        return null;
-    }
-}
 
 // Only admins can access system settings
 router.use(requireAuth);
@@ -127,32 +114,51 @@ router.get("/", async (req, res) => {
             });
         }
 
-        // Decrypt sensitive fields before sending to client
-        // Use safeDecrypt to handle corrupted encrypted values gracefully
-        // Jellyfin: env overrides DB; do not send raw API key; send flag when from env
+        // SECURITY: never send stored secrets back to the client. Secrets are
+        // write-only from the API's perspective — the client sees whether a
+        // value is configured (`<field>Set: true`) but never its plaintext.
+        // This keeps a compromised/XSS'd admin browser from exfiltrating every
+        // integration credential in one GET.
+        const isSet = (value: string | null | undefined): boolean =>
+            !!(value && String(value).trim() !== "");
+
         const jellyfinApiKeyFromEnv =
             process.env.JELLYFIN_API_KEY != null &&
             process.env.JELLYFIN_API_KEY !== "";
-        const decryptedSettings = {
+
+        const maskedSettings = {
             ...settings,
-            lidarrApiKey: safeDecrypt(settings.lidarrApiKey),
-            lidarrWebhookSecret: safeDecrypt(settings.lidarrWebhookSecret),
-            openaiApiKey: safeDecrypt(settings.openaiApiKey),
-            fanartApiKey: safeDecrypt(settings.fanartApiKey),
-            lastfmApiKey: safeDecrypt(settings.lastfmApiKey),
-            audiobookshelfApiKey: safeDecrypt(settings.audiobookshelfApiKey),
-            soulseekPassword: safeDecrypt(settings.soulseekPassword),
-            spotifyClientSecret: safeDecrypt(settings.spotifyClientSecret),
-            jellyfinApiKey: jellyfinApiKeyFromEnv
-                ? undefined
-                : safeDecrypt(settings.jellyfinApiKey),
-            jellyfinApiKeyFromEnv: jellyfinApiKeyFromEnv || undefined,
+            // Blank out every secret field...
+            lidarrApiKey: "",
+            lidarrWebhookSecret: "",
+            openaiApiKey: "",
+            fanartApiKey: "",
+            lastfmApiKey: "",
+            audiobookshelfApiKey: "",
+            soulseekPassword: "",
+            spotifyClientSecret: "",
+            audiomuseApiKey: "",
+            jellyfinApiKey: "",
+            jellyfinPassword: "",
             jellyfinUsername: settings.jellyfinUsername ?? undefined,
-            jellyfinPassword: undefined,
             jellyfinUserId: settings.jellyfinUserId ?? undefined,
+            // ...and expose only whether each is configured.
+            lidarrApiKeySet: isSet(settings.lidarrApiKey),
+            lidarrWebhookSecretSet: isSet(settings.lidarrWebhookSecret),
+            openaiApiKeySet: isSet(settings.openaiApiKey),
+            fanartApiKeySet: isSet(settings.fanartApiKey),
+            lastfmApiKeySet: isSet(settings.lastfmApiKey),
+            audiobookshelfApiKeySet: isSet(settings.audiobookshelfApiKey),
+            soulseekPasswordSet: isSet(settings.soulseekPassword),
+            spotifyClientSecretSet: isSet(settings.spotifyClientSecret),
+            audiomuseApiKeySet: isSet(settings.audiomuseApiKey),
+            jellyfinApiKeySet:
+                jellyfinApiKeyFromEnv || isSet(settings.jellyfinApiKey),
+            jellyfinPasswordSet: isSet(settings.jellyfinPassword),
+            jellyfinApiKeyFromEnv: jellyfinApiKeyFromEnv || undefined,
         };
 
-        res.json(decryptedSettings);
+        res.json(maskedSettings);
     } catch (error) {
         logger.error("Get system settings error:", error);
         res.status(500).json({ error: "Failed to get system settings" });
@@ -183,39 +189,39 @@ router.post("/", async (req, res) => {
             data.transcodeCacheMaxGb
         );
 
-        // Encrypt sensitive fields
+        // Secrets are write-only. The client never receives stored secrets
+        // (see the GET handler), so it echoes back an empty string for any
+        // secret it isn't changing. Treat empty/undefined as "keep existing"
+        // and only encrypt + persist secrets that were actually provided.
+        // This prevents a normal settings save from wiping stored credentials.
+        const SECRET_FIELDS = [
+            "lidarrApiKey",
+            "lidarrWebhookSecret",
+            "openaiApiKey",
+            "fanartApiKey",
+            "lastfmApiKey",
+            "audiobookshelfApiKey",
+            "soulseekPassword",
+            "spotifyClientSecret",
+            "audiomuseApiKey",
+            "jellyfinApiKey",
+            "jellyfinPassword",
+        ] as const;
+
         const encryptedData: any = { ...data };
 
-        if (data.lidarrApiKey)
-            encryptedData.lidarrApiKey = encrypt(data.lidarrApiKey);
-        if (data.lidarrWebhookSecret)
-            encryptedData.lidarrWebhookSecret = encrypt(
-                data.lidarrWebhookSecret
-            );
-        if (data.openaiApiKey)
-            encryptedData.openaiApiKey = encrypt(data.openaiApiKey);
-        if (data.fanartApiKey)
-            encryptedData.fanartApiKey = encrypt(data.fanartApiKey);
-        if (data.lastfmApiKey)
-            encryptedData.lastfmApiKey = encrypt(data.lastfmApiKey);
-        if (data.audiobookshelfApiKey)
-            encryptedData.audiobookshelfApiKey = encrypt(
-                data.audiobookshelfApiKey
-            );
-        if (data.soulseekPassword)
-            encryptedData.soulseekPassword = encrypt(data.soulseekPassword);
-        if (data.spotifyClientSecret)
-            encryptedData.spotifyClientSecret = encrypt(
-                data.spotifyClientSecret
-            );
-        if (data.jellyfinApiKey != null)
-            encryptedData.jellyfinApiKey = encrypt(data.jellyfinApiKey);
+        for (const field of SECRET_FIELDS) {
+            const value = (data as Record<string, unknown>)[field];
+            if (typeof value === "string" && value.trim() !== "") {
+                encryptedData[field] = encrypt(value);
+            } else {
+                // Not provided (or blank) — never overwrite the stored secret.
+                delete encryptedData[field];
+            }
+        }
+
         if (data.jellyfinUsername !== undefined)
             encryptedData.jellyfinUsername = data.jellyfinUsername || null;
-        if (data.jellyfinPassword !== undefined)
-            encryptedData.jellyfinPassword = data.jellyfinPassword
-                ? encrypt(data.jellyfinPassword)
-                : null;
         if (data.jellyfinUserId !== undefined)
             encryptedData.jellyfinUserId = data.jellyfinUserId || null;
 
@@ -328,6 +334,23 @@ router.post("/", async (req, res) => {
 
                 logger.debug(`   Webhook URL: ${webhookUrl}`);
 
+                // The webhook endpoint requires a shared secret (it is
+                // otherwise unauthenticated). Ensure one exists — generate it
+                // on first configure — and hand it to Lidarr as the webhook's
+                // Basic-auth password, which our handler verifies.
+                const crypto = await import("crypto");
+                let webhookSecret =
+                    (await getSystemSettings(true))?.lidarrWebhookSecret || "";
+                if (!webhookSecret) {
+                    webhookSecret = crypto.randomBytes(32).toString("hex");
+                    await prisma.systemSettings.update({
+                        where: { id: "default" },
+                        data: { lidarrWebhookSecret: encrypt(webhookSecret) },
+                    });
+                    invalidateSystemSettingsCache();
+                    logger.debug("   Generated new Lidarr webhook secret");
+                }
+
                 // Check if webhook already exists - find by name "Lidifin" (or legacy "Lidify") OR by URL containing "lidifin"/"lidify" or "webhooks/lidarr"
                 const notificationsResponse = await axios.get(
                     `${lidarrUrl}/api/v1/notification`,
@@ -401,8 +424,10 @@ router.post("/", async (req, res) => {
                     fields: [
                         { name: "url", value: webhookUrl },
                         { name: "method", value: 1 }, // 1 = POST
-                        { name: "username", value: "" },
-                        { name: "password", value: "" },
+                        // Lidarr sends these as HTTP Basic auth; the webhook
+                        // handler verifies the password as the shared secret.
+                        { name: "username", value: "lidifin" },
+                        { name: "password", value: webhookSecret },
                     ],
                 };
 
@@ -469,7 +494,15 @@ router.post("/", async (req, res) => {
 // POST /system-settings/test-lidarr
 router.post("/test-lidarr", async (req, res) => {
     try {
-        const { url, apiKey } = req.body;
+        let { url, apiKey } = req.body;
+
+        // Fall back to the stored secret when the client omits it (secrets are
+        // no longer sent to the client, so the field is blank when unchanged).
+        if (!apiKey || !String(apiKey).trim()) {
+            const stored = await getSystemSettings();
+            apiKey = stored?.lidarrApiKey || apiKey;
+            if (!url) url = stored?.lidarrUrl || url;
+        }
 
         logger.debug("[Lidarr Test] Testing connection to:", url);
 
@@ -530,7 +563,13 @@ router.post("/test-lidarr", async (req, res) => {
 // POST /system-settings/test-openai
 router.post("/test-openai", async (req, res) => {
     try {
-        const { apiKey, model } = req.body;
+        let { apiKey } = req.body;
+        const { model } = req.body;
+
+        if (!apiKey || !String(apiKey).trim()) {
+            const stored = await getSystemSettings();
+            apiKey = stored?.openaiApiKey || apiKey;
+        }
 
         if (!apiKey) {
             return res.status(400).json({ error: "API key is required" });
@@ -567,7 +606,12 @@ router.post("/test-openai", async (req, res) => {
 // Test Fanart.tv connection
 router.post("/test-fanart", async (req, res) => {
     try {
-        const { fanartApiKey } = req.body;
+        let { fanartApiKey } = req.body;
+
+        if (!fanartApiKey || !String(fanartApiKey).trim()) {
+            const stored = await getSystemSettings();
+            fanartApiKey = stored?.fanartApiKey || fanartApiKey;
+        }
 
         if (!fanartApiKey) {
             return res.status(400).json({ error: "API key is required" });
@@ -609,7 +653,12 @@ router.post("/test-fanart", async (req, res) => {
 // Test Last.fm connection
 router.post("/test-lastfm", async (req, res) => {
     try {
-        const { lastfmApiKey } = req.body;
+        let { lastfmApiKey } = req.body;
+
+        if (!lastfmApiKey || !String(lastfmApiKey).trim()) {
+            const stored = await getSystemSettings();
+            lastfmApiKey = stored?.lastfmApiKey || lastfmApiKey;
+        }
 
         if (!lastfmApiKey) {
             return res.status(400).json({ error: "API key is required" });
@@ -662,7 +711,13 @@ router.post("/test-lastfm", async (req, res) => {
 // Test Audiobookshelf connection
 router.post("/test-audiobookshelf", async (req, res) => {
     try {
-        const { url, apiKey } = req.body;
+        let { url, apiKey } = req.body;
+
+        if (!apiKey || !String(apiKey).trim()) {
+            const stored = await getSystemSettings();
+            apiKey = stored?.audiobookshelfApiKey || apiKey;
+            if (!url) url = stored?.audiobookshelfUrl || url;
+        }
 
         if (!url || !apiKey) {
             return res
@@ -736,7 +791,13 @@ router.post("/test-jellyfin", async (req, res) => {
 // Test Soulseek connection (direct via slsk-client)
 router.post("/test-soulseek", async (req, res) => {
     try {
-        const { username, password } = req.body;
+        let { password } = req.body;
+        const { username } = req.body;
+
+        if (!password || !String(password).trim()) {
+            const stored = await getSystemSettings();
+            password = stored?.soulseekPassword || password;
+        }
 
         if (!username || !password) {
             return res.status(400).json({
@@ -812,7 +873,13 @@ router.post("/test-soulseek", async (req, res) => {
 // Test Spotify credentials
 router.post("/test-spotify", async (req, res) => {
     try {
-        const { clientId, clientSecret } = req.body;
+        let { clientSecret } = req.body;
+        const { clientId } = req.body;
+
+        if (!clientSecret || !String(clientSecret).trim()) {
+            const stored = await getSystemSettings();
+            clientSecret = stored?.spotifyClientSecret || clientSecret;
+        }
 
         if (!clientId || !clientSecret) {
             return res.status(400).json({

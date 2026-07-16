@@ -30,7 +30,9 @@ export function SoulseekSection({ settings, onUpdate, onTest, isTesting }: Souls
         }
     };
 
-    const hasCredentials = settings.soulseekUsername && settings.soulseekPassword;
+    const hasCredentials =
+        settings.soulseekUsername &&
+        (settings.soulseekPassword || settings.soulseekPasswordSet);
 
     return (
         <SettingsSection
@@ -71,7 +73,7 @@ export function SoulseekSection({ settings, onUpdate, onTest, isTesting }: Souls
                     type="password"
                     value={settings.soulseekPassword || ""}
                     onChange={(v) => onUpdate({ soulseekPassword: v })}
-                    placeholder="your_password"
+                    placeholder={settings.soulseekPasswordSet ? "•••••••• (saved — leave blank to keep)" : "your_password"}
                     className="w-64"
                 />
             </SettingsRow>

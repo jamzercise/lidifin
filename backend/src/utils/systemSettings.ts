@@ -73,6 +73,14 @@ export async function getSystemSettings(forceRefresh = false) {
             settings.soulseekPassword,
             "soulseekPassword",
         ),
+        spotifyClientSecret: safeDecrypt(
+            settings.spotifyClientSecret,
+            "spotifyClientSecret",
+        ),
+        audiomuseApiKey: safeDecrypt(
+            settings.audiomuseApiKey,
+            "audiomuseApiKey",
+        ),
         jellyfinApiKey:
             process.env.JELLYFIN_API_KEY != null &&
             process.env.JELLYFIN_API_KEY !== ""

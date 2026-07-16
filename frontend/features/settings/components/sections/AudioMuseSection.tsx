@@ -148,7 +148,7 @@ export function AudioMuseSection({ settings, onUpdate, isTesting }: AudioMuseSec
                                 onChange={(v) =>
                                     onUpdate({ audiomuseApiKey: v || null })
                                 }
-                                placeholder="Enter API key"
+                                placeholder={settings.audiomuseApiKeySet ? "•••••••• (saved — leave blank to keep)" : "Enter API key"}
                                 className="w-64"
                             />
                         </SettingsRow>

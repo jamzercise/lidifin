@@ -61,6 +61,21 @@ export interface SystemSettings {
     // Download Preferences
     downloadSource: "soulseek" | "lidarr";
     primaryFailureFallback: "none" | "lidarr" | "soulseek";
+    // Secret presence flags (read-only, from GET /system-settings).
+    // Secrets themselves are never returned by the API; these indicate
+    // whether a value is already stored so the UI can show "saved" state
+    // and enable connection tests without re-entering the secret.
+    lidarrApiKeySet?: boolean;
+    lidarrWebhookSecretSet?: boolean;
+    openaiApiKeySet?: boolean;
+    fanartApiKeySet?: boolean;
+    lastfmApiKeySet?: boolean;
+    audiobookshelfApiKeySet?: boolean;
+    soulseekPasswordSet?: boolean;
+    spotifyClientSecretSet?: boolean;
+    audiomuseApiKeySet?: boolean;
+    jellyfinApiKeySet?: boolean;
+    jellyfinPasswordSet?: boolean;
 }
 
 export interface ApiKey {

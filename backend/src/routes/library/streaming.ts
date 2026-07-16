@@ -23,8 +23,53 @@ import {
     getJellyfinStreamUrl,
     streamJellyfinAudio,
 } from "../../services/jellyfin";
+import { safeFetchRemote, UnsafeUrlError } from "../../utils/safeFetch";
 
 const router = Router();
+
+// Native covers are written by CoverArtExtractor (`<albumId>.jpg` at the
+// covers root) and imageStorage (`artists/<id>.jpg` / `albums/<id>.jpg`).
+// Anything else — especially path separators or `..` — is rejected.
+const NATIVE_COVER_REGEX =
+    /^(?:(?:artists|albums)\/)?[A-Za-z0-9_-]+\.(?:jpg|jpeg|png|webp)$/;
+
+// Audiobookshelf cover paths stored by audiobookCache: `items/<id>/cover`.
+const AUDIOBOOK_COVER_REGEX = /^items\/[A-Za-z0-9_-]+\/cover$/;
+
+/**
+ * Resolve a `native:`-prefixed cover path to an absolute file path inside
+ * the covers directory. Returns null when the path is malformed or would
+ * escape the covers root (path traversal).
+ */
+function resolveNativeCoverPath(nativePath: string): string | null {
+    if (!NATIVE_COVER_REGEX.test(nativePath)) {
+        return null;
+    }
+    const coversRoot = path.resolve(
+        path.join(config.music.transcodeCachePath, "../covers")
+    );
+    const resolved = path.resolve(coversRoot, nativePath);
+    if (resolved !== coversRoot && !resolved.startsWith(coversRoot + path.sep)) {
+        return null;
+    }
+    return resolved;
+}
+
+/**
+ * Resolve a track's relative filePath (from the DB) to an absolute path,
+ * requiring the result to stay inside the music library root. filePath is
+ * written by the scanner, but defense in depth: if a crafted value ever
+ * lands in the DB it must not become an arbitrary-file-read via streaming.
+ */
+function resolveMusicFilePath(relativeFilePath: string): string | null {
+    const musicRoot = path.resolve(config.music.musicPath);
+    const normalized = relativeFilePath.replace(/\\/g, "/");
+    const resolved = path.resolve(musicRoot, normalized);
+    if (resolved !== musicRoot && !resolved.startsWith(musicRoot + path.sep)) {
+        return null;
+    }
+    return resolved;
+}
 
 // GET /library/cover-art/:id?size= or GET /library/cover-art?url=&size=
 // Apply lenient image limiter (500 req/min) instead of general API limiter (100 req/15min)
@@ -42,6 +87,15 @@ router.get("/cover-art/:id?", imageLimiter, async (req, res) => {
             if (decodedUrl.startsWith("audiobook__")) {
                 isAudiobook = true;
                 const audiobookPath = decodedUrl.replace("audiobook__", "");
+
+                // Only allow the known Audiobookshelf cover path shape so
+                // this can't be used to call arbitrary ABS API endpoints
+                // with the server's API key.
+                if (!AUDIOBOOK_COVER_REGEX.test(audiobookPath)) {
+                    return res
+                        .status(400)
+                        .json({ error: "Invalid audiobook cover path" });
+                }
 
                 // Get Audiobookshelf settings
                 const settings = await getSystemSettings();
@@ -105,11 +159,15 @@ router.get("/cover-art/:id?", imageLimiter, async (req, res) => {
             if (decodedUrl.startsWith("native:")) {
                 const nativePath = decodedUrl.replace("native:", "");
 
-                const coverCachePath = path.join(
-                    config.music.transcodeCachePath,
-                    "../covers",
-                    nativePath
-                );
+                const coverCachePath = resolveNativeCoverPath(nativePath);
+                if (!coverCachePath) {
+                    logger.warn(
+                        `[COVER-ART] Rejected malformed native cover path: ${nativePath.substring(0, 100)}`
+                    );
+                    return res
+                        .status(400)
+                        .json({ error: "Invalid cover path" });
+                }
 
                 logger.debug(
                     `[COVER-ART] Serving native cover: ${coverCachePath}`
@@ -160,11 +218,15 @@ router.get("/cover-art/:id?", imageLimiter, async (req, res) => {
             if (decodedId.startsWith("native:")) {
                 const nativePath = decodedId.replace("native:", "");
 
-                const coverCachePath = path.join(
-                    config.music.transcodeCachePath,
-                    "../covers",
-                    nativePath
-                );
+                const coverCachePath = resolveNativeCoverPath(nativePath);
+                if (!coverCachePath) {
+                    logger.warn(
+                        `[COVER-ART] Rejected malformed native cover path: ${nativePath.substring(0, 100)}`
+                    );
+                    return res
+                        .status(400)
+                        .json({ error: "Invalid cover path" });
+                }
 
                 // Check if file exists
                 if (fs.existsSync(coverCachePath)) {
@@ -231,6 +293,12 @@ router.get("/cover-art/:id?", imageLimiter, async (req, res) => {
             if (decodedId.startsWith("audiobook__")) {
                 isAudiobook = true;
                 const audiobookPath = decodedId.replace("audiobook__", "");
+
+                if (!AUDIOBOOK_COVER_REGEX.test(audiobookPath)) {
+                    return res
+                        .status(400)
+                        .json({ error: "Invalid audiobook cover path" });
+                }
 
                 // Get Audiobookshelf settings
                 const settings = await getSystemSettings();
@@ -365,16 +433,33 @@ router.get("/cover-art/:id?", imageLimiter, async (req, res) => {
             logger.warn("[COVER-ART] Redis cache read error:", cacheError);
         }
 
-        // Fetch the image and proxy it to avoid CORS issues
+        // Fetch the image and proxy it to avoid CORS issues.
+        // coverUrl here is a client-supplied remote URL, so it MUST go
+        // through the SSRF-validated fetch (blocks private/LAN targets,
+        // enforces image content type, caps response size).
         logger.debug(`[COVER-ART] Fetching: ${coverUrl.substring(0, 100)}...`);
-        const imageResponse = await fetchWithRetry(coverUrl);
-        if (!imageResponse.ok) {
+        let imageResult;
+        try {
+            imageResult = await safeFetchRemote(coverUrl, {
+                requireContentTypePrefix: "image/",
+            });
+        } catch (err) {
+            if (err instanceof UnsafeUrlError) {
+                logger.warn(`[COVER-ART] Blocked unsafe fetch: ${err.message}`);
+                return res
+                    .status(400)
+                    .json({ error: "Invalid or disallowed cover art URL" });
+            }
+            throw err;
+        }
+
+        if (!imageResult.ok || !imageResult.body) {
             logger.error(
-                `[COVER-ART] Failed to fetch: ${coverUrl} (${imageResponse.status} ${imageResponse.statusText})`
+                `[COVER-ART] Failed to fetch: ${coverUrl} (${imageResult.status} ${imageResult.statusText})`
             );
 
             // Cache 404s for 1 hour to avoid repeatedly trying to fetch missing images
-            if (imageResponse.status === 404) {
+            if (imageResult.status === 404) {
                 try {
                     await redisClient.setEx(
                         cacheKey,
@@ -394,21 +479,19 @@ router.get("/cover-art/:id?", imageLimiter, async (req, res) => {
         }
         logger.debug(`[COVER-ART] Successfully fetched, caching...`);
 
-        const buffer = await imageResponse.arrayBuffer();
-        const imageBuffer = Buffer.from(buffer);
+        const imageBuffer = imageResult.body;
 
         // Generate ETag from content
         const etag = crypto.createHash("md5").update(imageBuffer).digest("hex");
 
         // Cache in Redis for 7 days
         try {
-            const contentType = imageResponse.headers.get("content-type");
             await redisClient.setEx(
                 cacheKey,
                 7 * 24 * 60 * 60, // 7 days
                 JSON.stringify({
                     etag,
-                    contentType,
+                    contentType: imageResult.contentType,
                     data: imageBuffer.toString("base64"),
                 })
             );
@@ -422,7 +505,7 @@ router.get("/cover-art/:id?", imageLimiter, async (req, res) => {
         }
 
         // Set appropriate headers
-        const contentType = imageResponse.headers.get("content-type");
+        const contentType = imageResult.contentType;
         if (contentType) {
             res.setHeader("Content-Type", contentType);
         }
@@ -518,21 +601,34 @@ router.get("/cover-art-colors", imageLimiter, async (req, res) => {
             logger.warn("[COLORS] Redis cache read error:", cacheError);
         }
 
-        // Fetch the image
+        // Fetch the image. imageUrl is client-supplied, so use the
+        // SSRF-validated fetch here too.
         logger.debug(
             `[COLORS] Fetching image: ${imageUrl.substring(0, 100)}...`
         );
-        const imageResponse = await fetchWithRetry(imageUrl);
+        let colorImageResult;
+        try {
+            colorImageResult = await safeFetchRemote(imageUrl, {
+                requireContentTypePrefix: "image/",
+            });
+        } catch (err) {
+            if (err instanceof UnsafeUrlError) {
+                logger.warn(`[COLORS] Blocked unsafe fetch: ${err.message}`);
+                return res
+                    .status(400)
+                    .json({ error: "Invalid or disallowed image URL" });
+            }
+            throw err;
+        }
 
-        if (!imageResponse.ok) {
+        if (!colorImageResult.ok || !colorImageResult.body) {
             logger.error(
-                `[COLORS] Failed to fetch image: ${imageUrl} (${imageResponse.status})`
+                `[COLORS] Failed to fetch image: ${imageUrl} (${colorImageResult.status})`
             );
             return res.status(404).json({ error: "Image not found" });
         }
 
-        const buffer = await imageResponse.arrayBuffer();
-        const imageBuffer = Buffer.from(buffer);
+        const imageBuffer = colorImageResult.body;
 
         // Extract colors using sharp
         const colors = await extractColorsFromImage(imageBuffer);
@@ -760,13 +856,17 @@ router.get("/tracks/:id/stream", async (req, res) => {
                     config.music.transcodeCacheMaxGb
                 );
 
-                // Get absolute path to source file
-                // Normalize path separators for cross-platform compatibility (Windows -> Linux)
-                const normalizedFilePath = track.filePath.replace(/\\/g, "/");
-                const absolutePath = path.join(
-                    config.music.musicPath,
-                    normalizedFilePath
-                );
+                // Get absolute path to source file (normalizes Windows
+                // separators and rejects paths that escape the music root)
+                const absolutePath = resolveMusicFilePath(track.filePath);
+                if (!absolutePath) {
+                    logger.error(
+                        `[STREAM] Track filePath escapes music root: ${track.filePath.substring(0, 120)}`
+                    );
+                    return res
+                        .status(500)
+                        .json({ error: "Failed to stream track" });
+                }
 
                 logger.debug(
                     `[STREAM] Using native file: ${track.filePath} (${requestedQuality})`
@@ -815,11 +915,12 @@ router.get("/tracks/:id/stream", async (req, res) => {
                     logger.warn(
                         `[STREAM] FFmpeg not available, falling back to original quality`
                     );
-                    const fallbackFilePath = track.filePath.replace(/\\/g, "/");
-                    const absolutePath = path.join(
-                        config.music.musicPath,
-                        fallbackFilePath
-                    );
+                    const absolutePath = resolveMusicFilePath(track.filePath);
+                    if (!absolutePath) {
+                        return res
+                            .status(500)
+                            .json({ error: "Failed to stream track" });
+                    }
 
                     const streamingService = new AudioStreamingService(
                         config.music.musicPath,

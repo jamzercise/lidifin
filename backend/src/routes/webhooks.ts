@@ -6,6 +6,7 @@
  */
 
 import { Router } from "express";
+import crypto from "crypto";
 import { scanQueue } from "../workers/queues";
 import { simpleDownloadManager } from "../services/simpleDownloadManager";
 import { queueCleaner } from "../jobs/queueCleaner";
@@ -14,6 +15,46 @@ import { prisma } from "../utils/db";
 import { logger } from "../utils/logger";
 
 const router = Router();
+
+/**
+ * Constant-time comparison of two secrets that avoids leaking length or
+ * content via timing. Returns false for any length mismatch.
+ */
+function timingSafeMatch(provided: string, expected: string): boolean {
+    const a = Buffer.from(provided);
+    const b = Buffer.from(expected);
+    if (a.length !== b.length) return false;
+    return crypto.timingSafeEqual(a, b);
+}
+
+/**
+ * Extract the webhook secret from the request. Supports:
+ *  - X-Webhook-Secret header (manual configuration)
+ *  - HTTP Basic auth password (what our Lidarr auto-configure sets, since
+ *    Lidarr's webhook notification has username/password fields but no
+ *    custom-header support)
+ */
+function extractWebhookSecret(req: { headers: Record<string, unknown> }): string {
+    const headerSecret = req.headers["x-webhook-secret"];
+    if (typeof headerSecret === "string" && headerSecret) {
+        return headerSecret;
+    }
+
+    const authHeader = req.headers["authorization"];
+    if (typeof authHeader === "string" && authHeader.startsWith("Basic ")) {
+        try {
+            const decoded = Buffer.from(authHeader.slice(6), "base64").toString("utf8");
+            const separator = decoded.indexOf(":");
+            if (separator >= 0) {
+                return decoded.slice(separator + 1);
+            }
+        } catch {
+            // fall through — treated as missing secret
+        }
+    }
+
+    return "";
+}
 
 // GET /webhooks/lidarr/verify - Webhook verification endpoint
 router.get("/lidarr/verify", (req, res) => {
@@ -46,19 +87,30 @@ router.post("/lidarr", async (req, res) => {
             });
         }
 
-        // Verify webhook secret if configured
+        // Verify the webhook secret. This endpoint is unauthenticated (Lidarr
+        // has no session), so the shared secret is the ONLY thing preventing an
+        // attacker from forging download/scan side effects. A secret is
+        // therefore mandatory — if none is configured we refuse to process.
         // Note: settings.lidarrWebhookSecret is already decrypted by getSystemSettings()
-        if (settings.lidarrWebhookSecret) {
-            const providedSecret = req.headers["x-webhook-secret"] as string;
+        const configuredSecret = settings.lidarrWebhookSecret;
+        if (!configuredSecret) {
+            logger.warn(
+                "[WEBHOOK] Rejected Lidarr webhook: no webhook secret is configured. " +
+                    "Set a secret in Settings and configure Lidarr to send it as the X-Webhook-Secret header."
+            );
+            return res.status(401).json({
+                error: "Webhook secret not configured",
+            });
+        }
 
-            if (!providedSecret || providedSecret !== settings.lidarrWebhookSecret) {
-                logger.debug(
-                    `[WEBHOOK] Lidarr webhook received with invalid or missing secret`
-                );
-                return res.status(401).json({
-                    error: "Unauthorized - Invalid webhook secret",
-                });
-            }
+        const providedSecret = extractWebhookSecret(req);
+        if (!timingSafeMatch(providedSecret, configuredSecret)) {
+            logger.debug(
+                `[WEBHOOK] Lidarr webhook received with invalid or missing secret`
+            );
+            return res.status(401).json({
+                error: "Unauthorized - Invalid webhook secret",
+            });
         }
 
         const eventType = req.body.eventType;

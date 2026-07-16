@@ -156,7 +156,13 @@ export function JellyfinSection({ settings, onUpdate, onTest, isTesting }: Jelly
                             type="password"
                             value={settings.jellyfinApiKeyFromEnv ? "" : (settings.jellyfinApiKey ?? "")}
                             onChange={(v) => onUpdate({ jellyfinApiKey: v || null })}
-                            placeholder={settings.jellyfinApiKeyFromEnv ? "Set via JELLYFIN_API_KEY env" : "Enter API key"}
+                            placeholder={
+                                settings.jellyfinApiKeyFromEnv
+                                    ? "Set via JELLYFIN_API_KEY env"
+                                    : settings.jellyfinApiKeySet
+                                    ? "•••••••• (saved — leave blank to keep)"
+                                    : "Enter API key"
+                            }
                             className="w-64"
                             disabled={!!settings.jellyfinApiKeyFromEnv}
                         />
@@ -193,7 +199,9 @@ export function JellyfinSection({ settings, onUpdate, onTest, isTesting }: Jelly
                                 disabled={
                                     isTesting ||
                                     !settings.jellyfinUrl?.trim() ||
-                                    (!settings.jellyfinApiKey && !settings.jellyfinApiKeyFromEnv)
+                                    (!settings.jellyfinApiKey &&
+                                        !settings.jellyfinApiKeyFromEnv &&
+                                        !settings.jellyfinApiKeySet)
                                 }
                                 className="px-4 py-1.5 text-sm bg-[#333] text-white rounded-full
                                     hover:bg-[#404040] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"

@@ -16,7 +16,10 @@ router.use(requireAuthOrToken);
 router.get("/genres", async (req, res) => {
     try {
         const { limit = "4" } = req.query;
-        const limitNum = parseInt(limit as string, 10);
+        const parsedLimit = parseInt(limit as string, 10);
+        const limitNum = Number.isNaN(parsedLimit)
+            ? 4
+            : Math.min(Math.max(parsedLimit, 1), 50);
 
         // Check Redis cache first (cache for 24 hours).
         // The genres breakdown is computed across the *library* (Album rows), not
@@ -77,8 +80,9 @@ router.get("/genres", async (req, res) => {
                 FROM "Album" a
                 JOIN "Artist" ar ON a."artistId" = ar.id
                 CROSS JOIN LATERAL jsonb_array_elements_text(a.genres) AS g(genre)
-                WHERE a.location = 'LIBRARY'
-                  AND a.genres IS NOT NULL
+                -- Album.location was dropped in the Arch-X.d schema slim
+                -- (20260429110000); every remaining Album row is library-owned.
+                WHERE a.genres IS NOT NULL
                   AND jsonb_typeof(a.genres) = 'array'
             ),
             counts AS (

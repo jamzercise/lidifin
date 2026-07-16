@@ -63,7 +63,7 @@ export function LidarrSection({ settings, onUpdate, onTest, isTesting }: LidarrS
                             type="password"
                             value={settings.lidarrApiKey}
                             onChange={(v) => onUpdate({ lidarrApiKey: v })}
-                            placeholder="Enter API key"
+                            placeholder={settings.lidarrApiKeySet ? "•••••••• (saved — leave blank to keep)" : "Enter API key"}
                             className="w-64"
                         />
                     </SettingsRow>
@@ -72,7 +72,7 @@ export function LidarrSection({ settings, onUpdate, onTest, isTesting }: LidarrS
                         <div className="inline-flex items-center gap-3">
                             <button
                                 onClick={handleTest}
-                                disabled={isTesting || !settings.lidarrUrl || !settings.lidarrApiKey}
+                                disabled={isTesting || !settings.lidarrUrl || (!settings.lidarrApiKey && !settings.lidarrApiKeySet)}
                                 className="px-4 py-1.5 text-sm bg-[#333] text-white rounded-full
                                     hover:bg-[#404040] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                             >

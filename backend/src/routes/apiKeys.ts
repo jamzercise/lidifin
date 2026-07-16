@@ -3,6 +3,7 @@ import { logger } from "../utils/logger";
 import { requirePrimaryAuth } from "../middleware/auth";
 import { prisma } from "../utils/db";
 import crypto from "crypto";
+import { hashApiKey } from "../utils/apiKeyHash";
 
 const router = Router();
 
@@ -82,21 +83,23 @@ router.post("/", async (req, res) => {
 
         const userId = req.user!.id;
 
-        // Generate a secure random API key (32 bytes = 64 hex chars)
+        // Generate a secure random API key (32 bytes = 64 hex chars).
+        // Only its SHA-256 hash is persisted; the plaintext is returned to
+        // the user exactly once, right here.
         const apiKeyValue = crypto.randomBytes(32).toString("hex");
 
         const apiKey = await prisma.apiKey.create({
             data: {
                 userId,
                 name: deviceName,
-                key: apiKeyValue,
+                keyHash: hashApiKey(apiKeyValue),
             },
         });
 
         logger.debug(`API key created for user ${userId}: ${deviceName}`);
 
         res.status(201).json({
-            apiKey: apiKey.key,
+            apiKey: apiKeyValue,
             name: apiKey.name,
             createdAt: apiKey.createdAt,
             message:

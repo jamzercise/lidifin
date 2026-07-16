@@ -932,14 +932,17 @@ model DiscoveryBatch {
 model ApiKey {
   id        String   @id @default(cuid())
   userId    String
-  key       String   @unique
+  // SHA-256 hex digest of the API key. The plaintext key is returned to the
+  // user once at creation and never stored, so a DB leak cannot expose
+  // usable credentials.
+  keyHash   String   @unique
   name      String
   lastUsed  DateTime @default(now())
   createdAt DateTime @default(now())
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  // `key` is already @unique, which auto-creates a unique B-tree index — no
-  // separate @@index([key]) needed.
+  // `keyHash` is already @unique, which auto-creates a unique B-tree index —
+  // no separate @@index([keyHash]) needed.
   @@index([userId])
   @@index([lastUsed])
 }
