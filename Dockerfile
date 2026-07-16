@@ -3,8 +3,75 @@
 # Contains: Backend, Frontend, PostgreSQL, Redis, yt-dlp for YouTube Music
 # Jellyfin-only: no Essentia/CLAP analyzers (vibe matching handled by Jellyfin AudioMuse AI plugin)
 # Usage: docker run -d -p 31013:3030 -v lidifin_data:/data jamzercise/lidifin:latest
+#
+# Multi-stage layout:
+#   backend-builder  - full deps, prisma generate, tsc build
+#   backend-deps     - production-only node_modules (+ prisma client)
+#   frontend-builder - Next.js standalone build
+#   runtime          - slim final image: Postgres, Redis, supervisord,
+#                      compiled backend + prod deps, standalone frontend.
+#                      App processes run as the non-root `node` user;
+#                      Postgres/Redis bind to loopback only; secrets are
+#                      generated at first boot and persisted in /data/secrets.
 
-FROM node:20-slim
+# ============================================
+# BACKEND BUILDER (all deps + tsc)
+# ============================================
+FROM node:20-slim AS backend-builder
+
+WORKDIR /app/backend
+
+COPY backend/package*.json ./
+COPY backend/prisma ./prisma/
+# Use npm install so build works when package-lock.json is out of sync with package.json
+RUN npm install && npm cache clean --force
+RUN npx prisma generate
+
+COPY backend/src ./src
+COPY backend/tsconfig.json ./
+RUN npm run build
+
+# ============================================
+# BACKEND PRODUCTION DEPS (no devDependencies)
+# ============================================
+FROM node:20-slim AS backend-deps
+
+WORKDIR /app/backend
+
+# openssl for Prisma engine download/generation
+RUN apt-get update && apt-get install -y --no-install-recommends openssl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY backend/package*.json ./
+COPY backend/prisma ./prisma/
+RUN npm install --omit=dev && npm cache clean --force
+# Prisma client generated against the prod-only install. `prisma` is a
+# runtime dependency so `npx prisma migrate deploy` works at boot.
+RUN npx prisma generate
+
+# ============================================
+# FRONTEND BUILDER (standalone output)
+# ============================================
+FROM node:20-slim AS frontend-builder
+
+WORKDIR /app/frontend
+
+COPY frontend/package*.json ./
+RUN npm install && npm cache clean --force
+
+COPY frontend/ ./
+
+# Build Next.js in standalone mode. The AIO runtime then only needs
+# .next/standalone (self-contained server + pruned node_modules),
+# .next/static, and public — not the full dev node_modules tree.
+ENV NEXT_PUBLIC_BACKEND_URL=http://127.0.0.1:3006
+ENV BUILD_STANDALONE=1
+RUN npm run build
+
+# ============================================
+# RUNTIME
+# ============================================
+FROM node:20-slim AS runtime
 
 # Add PostgreSQL 16 repository (Debian Bookworm only has PG15 by default)
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -14,6 +81,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     apt-get update
 
 # Install system dependencies (no Python/ML - Jellyfin-only deployment)
+# Note: supervisor pulls in python3, which yt-dlp also needs.
 RUN apt-get install -y --no-install-recommends \
     postgresql-16 \
     postgresql-16-pgvector \
@@ -25,88 +93,6 @@ RUN apt-get install -y --no-install-recommends \
     gosu \
     && rm -rf /var/lib/apt/lists/*
 
-# Create directories
-RUN mkdir -p /app/backend /app/frontend \
-    /data/postgres /data/redis /run/postgresql /var/log/supervisor \
-    && chown -R postgres:postgres /data/postgres /run/postgresql
-
-# Create database readiness check script (outer heredoc so BuildKit parses as one RUN)
-RUN <<'OUTER'
-cat > /app/wait-for-db.sh << 'INNER'
-#!/bin/bash
-TIMEOUT=${1:-120}
-COUNTER=0
-
-echo "[wait-for-db] Waiting for database schema (timeout: ${TIMEOUT}s)..."
-
-# Quick check for schema ready flag
-if [ -f /data/.schema_ready ]; then
-    echo "[wait-for-db] Schema ready flag found, verifying connection..."
-fi
-
-while [ $COUNTER -lt $TIMEOUT ]; do
-    if PGPASSWORD=lidify psql -h localhost -U lidify -d lidify -c "SELECT 1 FROM \"Track\" LIMIT 1" > /dev/null 2>&1; then
-        echo "[wait-for-db] ✓ Database is ready and schema exists!"
-        exit 0
-    fi
-    
-    if [ $((COUNTER % 15)) -eq 0 ]; then
-        echo "[wait-for-db] Still waiting... (${COUNTER}s elapsed)"
-    fi
-    
-    sleep 1
-    COUNTER=$((COUNTER + 1))
-done
-
-echo "[wait-for-db] ERROR: Database schema not ready after ${TIMEOUT}s"
-echo "[wait-for-db] Listing available tables:"
-PGPASSWORD=lidify psql -h localhost -U lidify -d lidify -c "\dt" 2>&1 || echo "Could not list tables"
-exit 1
-INNER
-chmod +x /app/wait-for-db.sh
-sed -i 's/\r$//' /app/wait-for-db.sh
-OUTER
-
-# ============================================
-# BACKEND BUILD
-# ============================================
-WORKDIR /app/backend
-
-# Copy backend package files and install dependencies
-COPY backend/package*.json ./
-COPY backend/prisma ./prisma/
-RUN echo "=== Migrations copied ===" && ls -la prisma/migrations/ && echo "=== End migrations ==="
-# Use npm install so build works when package-lock.json is out of sync with package.json
-RUN npm install && npm cache clean --force
-RUN npx prisma generate
-
-# Copy backend source and build
-COPY backend/src ./src
-COPY backend/tsconfig.json ./
-RUN npm run build
-
-COPY backend/docker-entrypoint.sh ./
-COPY backend/healthcheck.js ./healthcheck-backend.js
-
-# Create log directory (cache will be in /data volume)
-RUN mkdir -p /app/backend/logs
-
-# ============================================
-# FRONTEND BUILD
-# ============================================
-WORKDIR /app/frontend
-
-# Copy frontend package files and install dependencies
-COPY frontend/package*.json ./
-RUN npm install && npm cache clean --force
-
-# Copy frontend source and build
-COPY frontend/ ./
-
-# Build Next.js (production)
-ENV NEXT_PUBLIC_BACKEND_URL=http://127.0.0.1:3006
-RUN npm run build
-
 # ============================================
 # YT-DLP (YouTube Music playlist import)
 # ============================================
@@ -116,11 +102,44 @@ RUN curl -L --progress-bar -o /usr/local/bin/yt-dlp \
     && chmod +x /usr/local/bin/yt-dlp \
     && yt-dlp --version
 
+# Create directories
+RUN mkdir -p /app/backend /app/frontend \
+    /data/postgres /data/redis /run/postgresql /var/log/supervisor \
+    && chown -R postgres:postgres /data/postgres /run/postgresql
+
+# ============================================
+# BACKEND (compiled JS + prod-only deps)
+# ============================================
+WORKDIR /app/backend
+
+COPY backend/package*.json ./
+COPY backend/prisma ./prisma/
+COPY --from=backend-deps /app/backend/node_modules ./node_modules
+COPY --from=backend-builder /app/backend/dist ./dist
+COPY backend/healthcheck.js ./healthcheck-backend.js
+
+# Create log directory (cache will be in /data volume)
+RUN mkdir -p /app/backend/logs
+
+# ============================================
+# FRONTEND (Next.js standalone server)
+# ============================================
+WORKDIR /app/frontend
+
+COPY --from=frontend-builder /app/frontend/.next/standalone ./
+COPY --from=frontend-builder /app/frontend/.next/static ./.next/static
+COPY --from=frontend-builder /app/frontend/public ./public
+
+# App processes run as the unprivileged `node` user (see supervisord config)
+RUN chown -R node:node /app
+
 # ============================================
 # SECURITY HARDENING
 # ============================================
-# Remove dangerous tools AFTER all builds are complete
+# Remove dangerous tools AFTER all installs are complete
 RUN \
+    apt-get purge -y gnupg lsb-release curl 2>/dev/null || true && \
+    apt-get autoremove -y 2>/dev/null || true && \
     rm -f /usr/bin/wget /bin/wget 2>/dev/null || true && \
     rm -f /usr/bin/curl /bin/curl 2>/dev/null || true && \
     rm -f /usr/bin/nc /bin/nc /usr/bin/ncat /usr/bin/netcat 2>/dev/null || true && \
@@ -135,7 +154,47 @@ WORKDIR /app
 # Copy healthcheck script
 COPY healthcheck-prod.js /app/healthcheck.js
 
+# Create database readiness check script (outer heredoc so BuildKit parses as one RUN)
+# DB_PASSWORD is inherited from supervisord's environment (set by start.sh).
+RUN <<'OUTER'
+cat > /app/wait-for-db.sh << 'INNER'
+#!/bin/bash
+TIMEOUT=${1:-120}
+COUNTER=0
+
+echo "[wait-for-db] Waiting for database schema (timeout: ${TIMEOUT}s)..."
+
+# Quick check for schema ready flag
+if [ -f /data/.schema_ready ]; then
+    echo "[wait-for-db] Schema ready flag found, verifying connection..."
+fi
+
+while [ $COUNTER -lt $TIMEOUT ]; do
+    if PGPASSWORD="$DB_PASSWORD" psql -h 127.0.0.1 -U lidify -d lidify -c "SELECT 1 FROM \"Track\" LIMIT 1" > /dev/null 2>&1; then
+        echo "[wait-for-db] ✓ Database is ready and schema exists!"
+        exit 0
+    fi
+
+    if [ $((COUNTER % 15)) -eq 0 ]; then
+        echo "[wait-for-db] Still waiting... (${COUNTER}s elapsed)"
+    fi
+
+    sleep 1
+    COUNTER=$((COUNTER + 1))
+done
+
+echo "[wait-for-db] ERROR: Database schema not ready after ${TIMEOUT}s"
+echo "[wait-for-db] Listing available tables:"
+PGPASSWORD="$DB_PASSWORD" psql -h 127.0.0.1 -U lidify -d lidify -c "\dt" 2>&1 || echo "Could not list tables"
+exit 1
+INNER
+chmod +x /app/wait-for-db.sh
+sed -i 's/\r$//' /app/wait-for-db.sh
+OUTER
+
 # Create supervisord config - logs to stdout/stderr for Docker visibility (outer heredoc for BuildKit)
+# Backend, worker, and frontend run as the unprivileged `node` user.
+# Postgres binds to loopback only; Redis binds to loopback only.
 RUN <<'OUTER'
 cat > /etc/supervisor/conf.d/lidify.conf << 'INNER'
 [supervisord]
@@ -157,7 +216,7 @@ stderr_logfile_maxbytes=0
 priority=10
 
 [program:redis]
-command=/usr/bin/redis-server --dir /data/redis --appendonly yes --save ""
+command=/usr/bin/redis-server --dir /data/redis --appendonly yes --save "" --bind 127.0.0.1 -::1 --protected-mode yes
 user=redis
 autostart=true
 autorestart=true
@@ -169,6 +228,7 @@ priority=20
 
 [program:backend]
 command=/bin/bash -c "/app/wait-for-db.sh 120 && cd /app/backend && node dist/index.js"
+user=node
 autostart=true
 autorestart=unexpected
 startretries=3
@@ -182,6 +242,7 @@ priority=30
 
 [program:backend-worker]
 command=/bin/bash -c "/app/wait-for-db.sh 120 && cd /app/backend && node dist/workerEntry.js"
+user=node
 autostart=true
 autorestart=true
 startretries=3
@@ -194,28 +255,29 @@ directory=/app/backend
 priority=35
 
 [program:frontend]
-command=/bin/bash -c "sleep 10 && cd /app/frontend && npm start"
+command=/bin/bash -c "sleep 10 && cd /app/frontend && node server.js"
+user=node
 autostart=true
 autorestart=true
 stdout_logfile=/dev/stdout
 stdout_logfile_maxbytes=0
 stderr_logfile=/dev/stderr
 stderr_logfile_maxbytes=0
-environment=NODE_ENV="production",BACKEND_URL="http://localhost:3006",PORT="3030"
+environment=NODE_ENV="production",BACKEND_URL="http://localhost:3006",PORT="3030",HOSTNAME="0.0.0.0"
 priority=40
 INNER
 sed -i 's/\r$//' /etc/supervisor/conf.d/lidify.conf
 OUTER
 
-# Create startup script with root check (outer heredoc for BuildKit)
+# Create startup script (outer heredoc for BuildKit)
 RUN <<'OUTER'
 cat > /app/start.sh << 'INNER'
 #!/bin/bash
 set -e
 
-# Security check: Warn if running internal services as root
-# Note: This container runs multiple services, some require root for initial setup
-# but individual services (postgres, backend processes) run as non-root users
+# This script runs as root for initial setup (chown, Postgres init,
+# migrations). Long-running services drop privileges via supervisord:
+# postgres -> postgres, redis -> redis, backend/worker/frontend -> node.
 
 echo ""
 echo "============================================================"
@@ -228,7 +290,8 @@ echo "    - High-quality audio streaming"
 echo ""
 echo "  Security:"
 echo "    - Hardened container (no wget/curl/nc)"
-echo "    - Auto-generated encryption keys"
+echo "    - Auto-generated secrets (DB password, session, encryption)"
+echo "    - Postgres/Redis bound to localhost, non-root app processes"
 echo "============================================================"
 echo ""
 
@@ -242,7 +305,8 @@ echo "Using PostgreSQL from: $PG_BIN"
 
 # Prepare data directories (bind-mount safe)
 echo "Preparing data directories..."
-mkdir -p /data/postgres /data/redis /run/postgresql
+mkdir -p /data/postgres /data/redis /run/postgresql /data/secrets
+chmod 700 /data/secrets
 
 if id postgres >/dev/null 2>&1; then
     chown -R postgres:postgres /data/postgres /run/postgresql 2>/dev/null || true
@@ -268,25 +332,66 @@ if id redis >/dev/null 2>&1; then
     fi
 fi
 
+# ---------------------------------------------------------
+# Secrets: load from env if provided, else load/generate a
+# persisted value under /data/secrets (survives upgrades).
+# ---------------------------------------------------------
+load_or_generate_secret() {
+    # $1 = env value (may be empty), $2 = file path, $3 = label
+    local env_value="$1" file_path="$2" label="$3" value
+    if [ -n "$env_value" ]; then
+        value="$env_value"
+        echo "Using ${label} from environment" >&2
+    elif [ -f "$file_path" ]; then
+        value=$(cat "$file_path")
+        echo "Loaded existing ${label}" >&2
+    else
+        value=$(openssl rand -hex 32)
+        echo "$value" > "$file_path"
+        chmod 600 "$file_path"
+        echo "Generated and saved new ${label}" >&2
+    fi
+    printf '%s' "$value"
+}
+
+SESSION_SECRET=$(load_or_generate_secret "${SESSION_SECRET:-}" /data/secrets/session_secret "SESSION_SECRET")
+SETTINGS_ENCRYPTION_KEY=$(load_or_generate_secret "${SETTINGS_ENCRYPTION_KEY:-}" /data/secrets/encryption_key "SETTINGS_ENCRYPTION_KEY")
+INTERNAL_API_SECRET=$(load_or_generate_secret "${INTERNAL_API_SECRET:-}" /data/secrets/internal_api_secret "INTERNAL_API_SECRET")
+DB_PASSWORD=$(load_or_generate_secret "${DB_PASSWORD:-}" /data/secrets/db_password "database password")
+
 # Clean up stale PID file if exists
 rm -f /data/postgres/postmaster.pid 2>/dev/null || true
 
 # Initialize PostgreSQL if not already done
 if [ ! -f /data/postgres/PG_VERSION ]; then
     echo "Initializing PostgreSQL database..."
-    gosu postgres $PG_BIN/initdb -D /data/postgres
-
-    # Configure PostgreSQL
-    echo "host all all 0.0.0.0/0 md5" >> /data/postgres/pg_hba.conf
-    echo "listen_addresses='*'" >> /data/postgres/postgresql.conf
+    # peer auth for local socket (lets this script run psql as postgres),
+    # scram for TCP connections (backend authenticates with DB_PASSWORD)
+    gosu postgres $PG_BIN/initdb -D /data/postgres --auth-local=peer --auth-host=scram-sha-256
 fi
+
+# Enforce loopback-only Postgres on every boot (also fixes clusters
+# initialized by older images that listened on all interfaces).
+PG_CONF=/data/postgres/postgresql.conf
+PG_HBA=/data/postgres/pg_hba.conf
+sed -i "/^listen_addresses/d" "$PG_CONF"
+echo "listen_addresses='127.0.0.1'" >> "$PG_CONF"
+# Drop the old wide-open rule from previous image versions
+sed -i '/^host all all 0\.0\.0\.0\/0 md5$/d' "$PG_HBA"
+grep -q "^host all all 127.0.0.1/32" "$PG_HBA" || \
+    echo "host all all 127.0.0.1/32 scram-sha-256" >> "$PG_HBA"
 
 # Start PostgreSQL temporarily to create database and user
 gosu postgres $PG_BIN/pg_ctl -D /data/postgres -w start
 
 # Create user and database if they don't exist
 gosu postgres psql -tc "SELECT 1 FROM pg_roles WHERE rolname = 'lidify'" | grep -q 1 || \
-    gosu postgres psql -c "CREATE USER lidify WITH PASSWORD 'lidify';"
+    gosu postgres psql -c "CREATE USER lidify;"
+# Always (re)apply the generated password — this migrates old installs off
+# the hardcoded default without any manual steps. Pass via psql variable on
+# stdin (psql does not interpolate variables in -c commands) so the secret
+# never appears in process args/logs.
+echo "ALTER USER lidify WITH PASSWORD :'pw';" | gosu postgres psql -v pw="$DB_PASSWORD"
 gosu postgres psql -tc "SELECT 1 FROM pg_database WHERE datname = 'lidify'" | grep -q 1 || \
     gosu postgres psql -c "CREATE DATABASE lidify OWNER lidify;"
 
@@ -296,7 +401,7 @@ gosu postgres psql -d lidify -c "CREATE EXTENSION IF NOT EXISTS vector;"
 
 # Run Prisma migrations
 cd /app/backend
-export DATABASE_URL="postgresql://lidify:lidify@localhost:5432/lidify"
+export DATABASE_URL="postgresql://lidify:${DB_PASSWORD}@localhost:5432/lidify"
 echo "Running Prisma migrations..."
 ls -la prisma/migrations/ || echo "No migrations directory!"
 
@@ -352,55 +457,39 @@ echo "✓ Schema verification passed"
 
 # Create flag file for wait-for-db.sh
 touch /data/.schema_ready
-echo "✓ Schema ready flag created"
 
 # Stop PostgreSQL (supervisord will start it)
 gosu postgres $PG_BIN/pg_ctl -D /data/postgres -w stop
 
-# Create persistent cache directories in /data volume
-mkdir -p /data/cache/covers /data/cache/transcodes /data/secrets
+# Create persistent cache directories in /data volume, writable by the
+# unprivileged node user that runs the backend
+mkdir -p /data/cache/covers /data/cache/transcodes
+chown -R node:node /data/cache 2>/dev/null || true
 
-# Load or generate persistent secrets
-if [ -f /data/secrets/session_secret ]; then
-    SESSION_SECRET=$(cat /data/secrets/session_secret)
-    echo "Loaded existing SESSION_SECRET"
-else
-    SESSION_SECRET=$(openssl rand -hex 32)
-    echo "$SESSION_SECRET" > /data/secrets/session_secret
-    chmod 600 /data/secrets/session_secret
-    echo "Generated and saved new SESSION_SECRET"
-fi
-
-if [ -f /data/secrets/encryption_key ]; then
-    SETTINGS_ENCRYPTION_KEY=$(cat /data/secrets/encryption_key)
-    echo "Loaded existing SETTINGS_ENCRYPTION_KEY"
-else
-    SETTINGS_ENCRYPTION_KEY=$(openssl rand -hex 32)
-    echo "$SETTINGS_ENCRYPTION_KEY" > /data/secrets/encryption_key
-    chmod 600 /data/secrets/encryption_key
-    echo "Generated and saved new SETTINGS_ENCRYPTION_KEY"
-fi
-
-# Write environment file for backend
+# Write environment file for backend (owned by node, not world-readable)
 cat > /app/backend/.env << ENVEOF
 NODE_ENV=production
-DATABASE_URL=postgresql://lidify:lidify@localhost:5432/lidify
+DATABASE_URL=postgresql://lidify:${DB_PASSWORD}@localhost:5432/lidify
 REDIS_URL=redis://localhost:6379
 PORT=3006
+BIND_HOST=127.0.0.1
 MUSIC_PATH=/music
 TRANSCODE_CACHE_PATH=/data/cache/transcodes
 SESSION_SECRET=$SESSION_SECRET
 SETTINGS_ENCRYPTION_KEY=$SETTINGS_ENCRYPTION_KEY
+INTERNAL_API_SECRET=$INTERNAL_API_SECRET
 ENVEOF
-# INTERNAL_API_SECRET: used by internal backend endpoints (optional for Jellyfin-only)
-echo "INTERNAL_API_SECRET=\${INTERNAL_API_SECRET:-lidify-internal-aio}" >> /app/backend/.env
+chown node:node /app/backend/.env
+chmod 600 /app/backend/.env
 
 echo "Starting Lidifin..."
 exec env \
     NODE_ENV=production \
-    DATABASE_URL="postgresql://lidify:lidify@localhost:5432/lidify" \
+    DATABASE_URL="postgresql://lidify:${DB_PASSWORD}@localhost:5432/lidify" \
+    DB_PASSWORD="$DB_PASSWORD" \
     SESSION_SECRET="$SESSION_SECRET" \
     SETTINGS_ENCRYPTION_KEY="$SETTINGS_ENCRYPTION_KEY" \
+    INTERNAL_API_SECRET="$INTERNAL_API_SECRET" \
     /usr/bin/supervisord -c /etc/supervisor/supervisord.conf
 INNER
 sed -i 's/\r$//' /app/start.sh

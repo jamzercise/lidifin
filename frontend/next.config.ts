@@ -6,6 +6,11 @@ const withBundleAnalyzer = bundleAnalyzer({
 });
 
 const nextConfig: NextConfig = {
+    // Standalone output produces a self-contained server (server.js + pruned
+    // node_modules) so the AIO Docker image doesn't ship the full dev
+    // node_modules tree. Opt-in via env because `next start` (used by the
+    // separate frontend image and local dev) doesn't support standalone.
+    ...(process.env.BUILD_STANDALONE === "1" ? { output: "standalone" as const } : {}),
     // Proxy timeout: default 30s causes "socket hang up" when backend is slow (e.g. Jellyfin
     // resolution, event loop blocked). 60s gives more headroom without excessive resource hogging.
     experimental: {

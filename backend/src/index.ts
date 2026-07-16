@@ -15,7 +15,12 @@ import { installLifecycleHandlers } from "./server/lifecycle";
 const app = createApp();
 registerRoutes(app);
 
-const server = app.listen(config.port, "0.0.0.0", async () => {
+// Bind host: 0.0.0.0 for split-container deployments (frontend reaches the
+// backend over the Docker network); the AIO image sets BIND_HOST=127.0.0.1 so
+// the API is only reachable through the Next.js proxy on port 3030.
+const bindHost = process.env.BIND_HOST || "0.0.0.0";
+
+const server = app.listen(config.port, bindHost, async () => {
     // Server timeouts:
     // - 2min request timeout catches stuck handlers (uploads, long DB ops).
     // - 5min keep-alive prevents the Next.js proxy in the same container
@@ -29,9 +34,7 @@ const server = app.listen(config.port, "0.0.0.0", async () => {
     await checkRedisConnection();
     await checkPasswordReset();
 
-    logger.debug(
-        `Lidifin API running on port ${config.port} (accessible on all network interfaces)`
-    );
+    logger.debug(`Lidifin API running on ${bindHost}:${config.port}`);
 
     await runPostStartupTasks(app);
 });
