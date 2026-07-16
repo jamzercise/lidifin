@@ -110,28 +110,31 @@ RUN mkdir -p /app/backend /app/frontend \
 # ============================================
 # BACKEND (compiled JS + prod-only deps)
 # ============================================
+# App files are copied with --chown=node:node (the user supervisord runs the
+# app processes as). A recursive `chown -R /app` after the fact would rewrite
+# every node_modules file into a new layer — slow and doubles the image size.
 WORKDIR /app/backend
 
-COPY backend/package*.json ./
-COPY backend/prisma ./prisma/
-COPY --from=backend-deps /app/backend/node_modules ./node_modules
-COPY --from=backend-builder /app/backend/dist ./dist
-COPY backend/healthcheck.js ./healthcheck-backend.js
+COPY --chown=node:node backend/package*.json ./
+COPY --chown=node:node backend/prisma ./prisma/
+COPY --from=backend-deps --chown=node:node /app/backend/node_modules ./node_modules
+COPY --from=backend-builder --chown=node:node /app/backend/dist ./dist
+COPY --chown=node:node backend/healthcheck.js ./healthcheck-backend.js
 
-# Create log directory (cache will be in /data volume)
-RUN mkdir -p /app/backend/logs
+# Log directory (cache lives in the /data volume). Also make the /app and
+# /app/backend directories themselves node-owned (non-recursive, instant) so
+# the backend can create files like /app/.env at runtime.
+RUN mkdir -p /app/backend/logs \
+    && chown node:node /app /app/backend /app/backend/logs /app/frontend
 
 # ============================================
 # FRONTEND (Next.js standalone server)
 # ============================================
 WORKDIR /app/frontend
 
-COPY --from=frontend-builder /app/frontend/.next/standalone ./
-COPY --from=frontend-builder /app/frontend/.next/static ./.next/static
-COPY --from=frontend-builder /app/frontend/public ./public
-
-# App processes run as the unprivileged `node` user (see supervisord config)
-RUN chown -R node:node /app
+COPY --from=frontend-builder --chown=node:node /app/frontend/.next/standalone ./
+COPY --from=frontend-builder --chown=node:node /app/frontend/.next/static ./.next/static
+COPY --from=frontend-builder --chown=node:node /app/frontend/public ./public
 
 # ============================================
 # SECURITY HARDENING
