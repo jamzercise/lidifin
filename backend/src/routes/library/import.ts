@@ -105,6 +105,9 @@ router.get("/scan/status/:jobId", async (req, res) => {
             status: state,
             progress,
             result,
+            // Scan failures are thrown, so the reason lives on the job
+            // rather than in the return value.
+            error: state === "failed" ? job.failedReason : undefined,
         });
     } catch (error) {
         logger.error("Get scan status error:", error);

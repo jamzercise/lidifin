@@ -8,6 +8,7 @@ declare module "./client" {
             status: string;
             progress: number;
             result?: { success: boolean; playlistName: string; songCount: number; error?: string };
+            error?: string;
         }>;
         getCurrentDiscoverWeekly(): Promise<{ weekStart: string; weekEnd: string; tracks: ApiData[]; unavailable: ApiData[]; totalCount: number; unavailableCount: number; batchContext?: BatchContext | null }>;
         getDiscoverBatchStatus(): Promise<{ active: boolean; status: "downloading" | "scanning" | null; batchId?: string; mode?: "album" | "track"; progress?: number; completed?: number; failed?: number; total?: number; albums?: Array<{ id?: string; artist: string; album: string; status: string; error: string | null }> }>;

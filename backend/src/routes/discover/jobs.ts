@@ -142,6 +142,9 @@ export function registerJobsRoutes(router: Router): void {
                 status: state,
                 progress,
                 result,
+                // Processors now throw on failure, so errors live in
+                // failedReason rather than the return value.
+                error: state === "failed" ? job.failedReason : undefined,
             });
         } catch (error) {
             logger.error("Get generation status error:", error);

@@ -851,6 +851,26 @@ class AcquisitionService {
             throw new Error(`Invalid userId in acquisition context: ${context.userId}`);
         }
 
+        // The DownloadJob table is the source of truth for active downloads;
+        // reuse an existing active job for this album instead of creating a
+        // duplicate (which would also trip the partial unique index on
+        // targetMbid for pending/processing jobs).
+        if (request.mbid) {
+            const existingJob = await prisma.downloadJob.findFirst({
+                where: {
+                    targetMbid: request.mbid,
+                    status: { in: ["pending", "processing"] },
+                },
+                select: { id: true },
+            });
+            if (existingJob) {
+                logger.debug(
+                    `[Acquisition] Reusing active download job ${existingJob.id} for ${request.mbid}`
+                );
+                return existingJob;
+            }
+        }
+
         const jobData: any = {
             userId: context.userId,
             subject: `${request.artistName} - ${request.albumTitle}`,
@@ -875,9 +895,31 @@ class AcquisitionService {
             jobData.metadata.downloadType = "spotify_import";
         }
 
-        const job = await prisma.downloadJob.create({
-            data: jobData,
-        });
+        let job: AcquisitionDownloadJob;
+        try {
+            job = await prisma.downloadJob.create({
+                data: jobData,
+            });
+        } catch (error: any) {
+            // P2002: concurrent request won the race on the partial unique
+            // index — reuse the job it created.
+            if (error.code === "P2002" && request.mbid) {
+                const racedJob = await prisma.downloadJob.findFirst({
+                    where: {
+                        targetMbid: request.mbid,
+                        status: { in: ["pending", "processing"] },
+                    },
+                    select: { id: true },
+                });
+                if (racedJob) {
+                    logger.debug(
+                        `[Acquisition] Concurrent job creation detected, reusing ${racedJob.id}`
+                    );
+                    return racedJob;
+                }
+            }
+            throw error;
+        }
 
         logger.debug(
             `[Acquisition] Created download job: ${job.id} (type: ${

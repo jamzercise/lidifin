@@ -42,6 +42,15 @@ export async function processDiscoverWeekly(
             batchId: result.batchId,
         });
 
+        if (!result.success) {
+            // Soft failure from the service — surface it as a real job
+            // failure so BullMQ records it and applies retry/backoff.
+            throw new Error(
+                (result as { error?: string }).error ||
+                    "Discover Weekly generation reported failure"
+            );
+        }
+
         await job.updateProgress(100); // Complete
 
         logger.debug(
@@ -49,7 +58,7 @@ export async function processDiscoverWeekly(
         );
 
         return {
-            success: result.success,
+            success: true,
             playlistName: result.playlistName,
             songCount: result.songCount,
             batchId: result.batchId,
@@ -61,11 +70,9 @@ export async function processDiscoverWeekly(
         );
         logger.error(`[DiscoverJob ${job.id}] Stack trace:`, error.stack);
 
-        return {
-            success: false,
-            playlistName: "",
-            songCount: 0,
-            error: error.message || "Unknown error",
-        };
+        // Re-throw so BullMQ marks the job failed (and retries per queue
+        // config) instead of recording a "completed" job that silently
+        // carries an error payload.
+        throw error;
     }
 }

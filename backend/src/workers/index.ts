@@ -20,7 +20,6 @@ import {
     startMoodBucketWorker,
     stopMoodBucketWorker,
 } from "./moodBucketWorker";
-import { downloadQueueManager } from "../services/downloadQueue";
 import { prisma } from "../utils/db";
 import {
     startDiscoverWeeklyCron,
@@ -113,51 +112,10 @@ async function shouldRunHeavyMaintenance(taskName: string): Promise<boolean> {
 
 // BullMQ Workers (one per queue) are created in jobWorkers.ts
 
-// Register download queue callback for unavailable albums
-downloadQueueManager.onUnavailableAlbum(async (info) => {
-    logger.debug(
-        ` Recording unavailable album: ${info.artistName} - ${info.albumTitle}`
-    );
-
-    if (!info.userId) {
-        logger.debug(` No userId provided, skipping database record`);
-        return;
-    }
-
-    try {
-        // Get week start date from discovery album if it exists
-        const discoveryAlbum = await prisma.discoveryAlbum.findFirst({
-            where: { rgMbid: info.albumMbid },
-            orderBy: { downloadedAt: "desc" },
-        });
-
-        await prisma.unavailableAlbum.create({
-            data: {
-                userId: info.userId,
-                artistName: info.artistName,
-                albumTitle: info.albumTitle,
-                albumMbid: info.albumMbid,
-                artistMbid: info.artistMbid,
-                similarity: info.similarity || 0,
-                tier: info.tier || "unknown",
-                weekStartDate: discoveryAlbum?.weekStartDate || new Date(),
-                attemptNumber: 0,
-            },
-        });
-
-        logger.debug(`   Recorded in database`);
-    } catch (error: any) {
-        // Handle duplicate entries (album already marked as unavailable)
-        if (error.code === "P2002") {
-            logger.debug(`     Album already marked as unavailable`);
-        } else {
-            logger.error(
-                ` Failed to record unavailable album:`,
-                error.message
-            );
-        }
-    }
-});
+// Note: unavailable-album recording happens in discoverWeekly's batch
+// completion (UnavailableAlbum upsert for failed jobs). The old in-memory
+// download queue callback that duplicated this was dead code and has been
+// removed along with services/downloadQueue.ts.
 
 // Start unified enrichment worker
 // Handles: artist metadata, track tags (Last.fm), audio analysis queueing (Essentia)
@@ -285,13 +243,9 @@ scanWorker.on("stalled", (jobId) => {
 });
 
 discoverWorker.on("completed", (job, result) => {
-    if (result.success) {
-        logger.debug(
-            `Discover job ${job.id} completed: ${result.playlistName} (${result.songCount} songs)`
-        );
-    } else {
-        logger.debug(`Discover job ${job.id} failed: ${result.error}`);
-    }
+    logger.debug(
+        `Discover job ${job.id} completed: ${result.playlistName} (${result.songCount} songs)`
+    );
 });
 
 discoverWorker.on("failed", (job, err) => {
@@ -608,9 +562,6 @@ export async function shutdownWorkers(): Promise<void> {
 
     // Stop discover weekly cron
     stopDiscoverWeeklyCron();
-
-    // Shutdown download queue manager
-    downloadQueueManager.shutdown();
 
     // Clear all intervals
     for (const interval of intervals) {

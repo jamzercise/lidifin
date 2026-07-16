@@ -275,22 +275,63 @@ router.post("/download/:albumMbid", async (req, res) => {
             `[Releases] Download requested: ${artistName} - ${albumTitle} (${albumMbid})`
         );
 
-        // Reuse the same job + Lidarr pipeline as every other album download.
-        const job = await prisma.downloadJob.create({
-            data: {
-                userId,
-                subject: `${albumTitle} by ${artistName}`,
-                type: "album",
+        // The DownloadJob table is the source of truth — if this album is
+        // already downloading, report that instead of double-grabbing.
+        const existingJob = await prisma.downloadJob.findFirst({
+            where: {
                 targetMbid: albumMbid,
-                status: "pending",
-                metadata: {
-                    downloadType: "album",
-                    source: "release-radar",
-                    artistName,
-                    albumTitle,
-                },
+                status: { in: ["pending", "processing"] },
             },
+            select: { id: true, status: true },
         });
+        if (existingJob) {
+            return res.status(202).json({
+                success: true,
+                message: `"${albumTitle}" is already downloading`,
+                jobId: existingJob.id,
+                duplicate: true,
+            });
+        }
+
+        // Reuse the same job + Lidarr pipeline as every other album download.
+        let job;
+        try {
+            job = await prisma.downloadJob.create({
+                data: {
+                    userId,
+                    subject: `${albumTitle} by ${artistName}`,
+                    type: "album",
+                    targetMbid: albumMbid,
+                    status: "pending",
+                    metadata: {
+                        downloadType: "album",
+                        source: "release-radar",
+                        artistName,
+                        albumTitle,
+                    },
+                },
+            });
+        } catch (error: any) {
+            // P2002: a concurrent request created the active job first.
+            if (error.code === "P2002") {
+                const racedJob = await prisma.downloadJob.findFirst({
+                    where: {
+                        targetMbid: albumMbid,
+                        status: { in: ["pending", "processing"] },
+                    },
+                    select: { id: true },
+                });
+                if (racedJob) {
+                    return res.status(202).json({
+                        success: true,
+                        message: `"${albumTitle}" is already downloading`,
+                        jobId: racedJob.id,
+                        duplicate: true,
+                    });
+                }
+            }
+            throw error;
+        }
 
         const result = await simpleDownloadManager.startDownload(
             job.id,

@@ -53,7 +53,11 @@ export function useJobStatus(
             } else if (statusData.status === "failed") {
                 setIsPolling(false);
                 if (optionsRef.current?.onError) {
+                    // Failed jobs report their reason at the top level
+                    // (BullMQ failedReason); older payloads embedded it in
+                    // the result object.
                     const errorMsg =
+                        (statusData as JobStatus).error ||
                         statusData.result?.error ||
                         "Job failed with unknown error";
                     optionsRef.current.onError(errorMsg);

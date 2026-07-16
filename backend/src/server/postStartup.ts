@@ -152,18 +152,33 @@ function autoSyncAudiobooksIfEmpty(): void {
 }
 
 /**
- * Reconcile the download queue with the DB so jobs that were active
- * before a restart are resumed (or marked failed if unrecoverable).
+ * Reconcile download jobs with the DB after a restart. The DownloadJob
+ * table is the single source of truth for download tracking; here we only
+ * fail jobs that were mid-flight for too long before the server went down.
+ * Ongoing reconciliation is handled by simpleDownloadManager +
+ * queueCleaner cycles.
  */
 async function reconcileDownloadQueue(): Promise<void> {
-    const { downloadQueueManager } = await import("../services/downloadQueue");
+    const STALE_TIMEOUT_MS = 30 * 60 * 1000;
     try {
-        const result = await downloadQueueManager.reconcileOnStartup();
+        const { prisma } = await import("../utils/db");
+        const staleThreshold = new Date(Date.now() - STALE_TIMEOUT_MS);
+        const staleResult = await prisma.downloadJob.updateMany({
+            where: {
+                status: "processing",
+                startedAt: { lt: staleThreshold },
+            },
+            data: {
+                status: "failed",
+                error: "Server restart - download was processing but never completed",
+                completedAt: new Date(),
+            },
+        });
         logger.debug(
-            `Download queue reconciled: ${result.loaded} active, ${result.failed} marked failed`
+            `Download jobs reconciled on startup: ${staleResult.count} stale job(s) marked failed`
         );
     } catch (err) {
-        logger.error("Download queue reconciliation failed:", err);
+        logger.error("Download job reconciliation failed:", err);
     }
 }
 

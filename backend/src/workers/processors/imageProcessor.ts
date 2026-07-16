@@ -37,9 +37,7 @@ export async function processImageOptimization(job: Job<ImageJobData>): Promise<
   } catch (error: any) {
     logger.error(`[ImageJob ${job.id}] Optimization failed:`, error);
 
-    return {
-      success: false,
-      error: error.message || 'Unknown error'
-    };
+    // Re-throw so BullMQ marks the job failed and applies retry/backoff.
+    throw error;
   }
 }
