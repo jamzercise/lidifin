@@ -1,5 +1,10 @@
 import { useEffect, useCallback, useRef } from "react";
-import { useAudio } from "@/lib/audio-context";
+import { useAudioState } from "@/lib/audio-state-context";
+import {
+    useAudioPlaybackState,
+    useAudioPlaybackTime,
+} from "@/lib/audio-playback-context";
+import { useCastAwareAudioControls } from "@/lib/useCastAwareAudioControls";
 import { api } from "@/lib/api";
 
 /**
@@ -13,19 +18,15 @@ import { api } from "@/lib/api";
  * - Seek controls (on supported platforms)
  */
 export function useMediaSession() {
-    const {
-        currentTrack,
-        currentAudiobook,
-        currentPodcast,
-        playbackType,
-        isPlaying,
-        pause,
-        resume,
-        next,
-        previous,
-        seek,
-        currentTime,
-    } = useAudio();
+    const { currentTrack, currentAudiobook, currentPodcast, playbackType } =
+        useAudioState();
+    // getCurrentTime() is used inside action handlers so they aren't
+    // re-registered on every 250ms tick; the position-state effect below
+    // subscribes to currentTime because it genuinely tracks position.
+    const { isPlaying, getCurrentTime } = useAudioPlaybackState();
+    const { currentTime } = useAudioPlaybackTime();
+    const { pause, resume, next, previous, seek } =
+        useCastAwareAudioControls();
 
     // Track if this device has initiated playback locally
     // Prevents cross-device media session interference from state sync
@@ -240,7 +241,7 @@ export function useMediaSession() {
                 previous();
             } else {
                 // For audiobooks/podcasts, seek backward 30s
-                seek(Math.max(currentTime - 30, 0));
+                seek(Math.max(getCurrentTime() - 30, 0));
             }
         });
 
@@ -251,7 +252,7 @@ export function useMediaSession() {
                 // For audiobooks/podcasts, seek forward 30s
                 const duration =
                     currentAudiobook?.duration || currentPodcast?.duration || 0;
-                seek(Math.min(currentTime + 30, duration));
+                seek(Math.min(getCurrentTime() + 30, duration));
             }
         });
 
@@ -261,7 +262,7 @@ export function useMediaSession() {
                 "seekbackward",
                 (details) => {
                     const skipTime = details.seekOffset || 10;
-                    seek(Math.max(currentTime - skipTime, 0));
+                    seek(Math.max(getCurrentTime() - skipTime, 0));
                 }
             );
 
@@ -274,7 +275,7 @@ export function useMediaSession() {
                         currentAudiobook?.duration ||
                         currentPodcast?.duration ||
                         0;
-                    seek(Math.min(currentTime + skipTime, duration));
+                    seek(Math.min(getCurrentTime() + skipTime, duration));
                 }
             );
 
@@ -315,7 +316,7 @@ export function useMediaSession() {
         next,
         previous,
         seek,
-        currentTime,
+        getCurrentTime,
         playbackType,
         currentTrack,
         currentAudiobook,

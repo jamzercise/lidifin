@@ -1,5 +1,6 @@
 import { useCallback } from "react";
-import { useAudio } from "@/lib/audio-context";
+import { useAudioPlaybackState } from "@/lib/audio-playback-context";
+import { useCastAwareAudioControls } from "@/lib/useCastAwareAudioControls";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { DiscoverTrack, DiscoverPlaylist } from "../types";
@@ -12,7 +13,9 @@ export function useDiscoverActions(
     setPendingGeneration?: (pending: boolean) => void,
     updateTrackLiked?: (albumId: string, isLiked: boolean) => void
 ) {
-    const { playTracks, isPlaying, pause, resume } = useAudio();
+    // Granular hooks — avoids re-rendering on every currentTime tick.
+    const { isPlaying } = useAudioPlaybackState();
+    const { playTracks, pause, resume } = useCastAwareAudioControls();
 
     const handleGenerate = useCallback(async () => {
         if (isGenerating) {

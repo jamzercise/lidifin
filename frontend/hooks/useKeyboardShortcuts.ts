@@ -1,5 +1,7 @@
 import { useEffect } from 'react';
-import { useAudio } from '@/lib/audio-context';
+import { useAudioState } from '@/lib/audio-state-context';
+import { useAudioPlaybackState } from '@/lib/audio-playback-context';
+import { useCastAwareAudioControls } from '@/lib/useCastAwareAudioControls';
 import { useIsTV } from '@/lib/tv-utils';
 
 /**
@@ -18,23 +20,27 @@ import { useIsTV } from '@/lib/tv-utils';
  */
 export function useKeyboardShortcuts() {
   const isTV = useIsTV();
+  // Granular hooks: read position via getCurrentTime() inside the handler
+  // so this hook doesn't re-render (and re-bind the listener) on every
+  // 250ms currentTime tick.
   const {
-    isPlaying,
+    playbackType,
+    currentTrack,
+    currentAudiobook,
+    currentPodcast,
+    volume,
+  } = useAudioState();
+  const { isPlaying, getCurrentTime } = useAudioPlaybackState();
+  const {
     resume,
     pause,
     next,
     previous,
     seek,
-    currentTime,
     setVolume,
-    volume,
     toggleMute,
     toggleShuffle,
-    playbackType,
-    currentTrack,
-    currentAudiobook,
-    currentPodcast,
-  } = useAudio();
+  } = useCastAwareAudioControls();
 
   useEffect(() => {
     // Disable keyboard shortcuts on TV - use remote's media keys instead
@@ -71,13 +77,13 @@ export function useKeyboardShortcuts() {
         case 'arrowright': // Right arrow - Seek forward 10s
           if (playbackType === 'track' || playbackType === 'audiobook' || playbackType === 'podcast') {
             const duration = currentTrack?.duration || currentAudiobook?.duration || currentPodcast?.duration || 0;
-            seek(Math.min(currentTime + 10, duration));
+            seek(Math.min(getCurrentTime() + 10, duration));
           }
           break;
 
         case 'arrowleft': // Left arrow - Seek backward 10s
           if (playbackType === 'track' || playbackType === 'audiobook' || playbackType === 'podcast') {
-            seek(Math.max(currentTime - 10, 0));
+            seek(Math.max(getCurrentTime() - 10, 0));
           }
           break;
 
@@ -126,7 +132,7 @@ export function useKeyboardShortcuts() {
     next,
     previous,
     seek,
-    currentTime,
+    getCurrentTime,
     setVolume,
     volume,
     toggleMute,

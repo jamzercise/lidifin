@@ -3,8 +3,9 @@
 import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
-import { useAudio } from "@/lib/audio-context";
 import { useAudioState } from "@/lib/audio-state-context";
+import { useAudioPlaybackState } from "@/lib/audio-playback-context";
+import { useCastAwareAudioControls } from "@/lib/useCastAwareAudioControls";
 import { api } from "@/lib/api";
 import { Podcast, Episode, PodcastPreview } from "../types";
 import { queryKeys } from "@/hooks/useQueries";
@@ -13,9 +14,10 @@ import { dispatchQueryEvent } from "@/lib/query-events";
 export function usePodcastActions(podcastId: string, sortedEpisodes?: Episode[]) {
     const router = useRouter();
     const queryClient = useQueryClient();
-    const { playPodcast, currentPodcast, isPlaying, pause, resume } =
-        useAudio();
-    const { setPodcastEpisodeQueue } = useAudioState();
+    // Granular hooks — avoids re-rendering on every currentTime tick.
+    const { currentPodcast, setPodcastEpisodeQueue } = useAudioState();
+    const { isPlaying } = useAudioPlaybackState();
+    const { playPodcast, pause, resume } = useCastAwareAudioControls();
 
     const [isSubscribing, setIsSubscribing] = useState(false);
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);

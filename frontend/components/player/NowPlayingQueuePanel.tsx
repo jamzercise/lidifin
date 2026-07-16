@@ -1,6 +1,7 @@
 "use client";
 
-import { useAudio } from "@/lib/audio-context";
+import { useAudioState } from "@/lib/audio-state-context";
+import { useAudioControls } from "@/lib/audio-controls-context";
 import { useFavorites } from "@/hooks/useFavorites";
 import { useQueuePanel } from "@/lib/queue-panel-context";
 import { api } from "@/lib/api";
@@ -22,6 +23,8 @@ import { useSongRadio } from "@/hooks/useSongRadio";
 
 export function NowPlayingQueuePanel() {
     const { isOpen, closeQueue } = useQueuePanel();
+    // Granular hooks: this panel only needs queue/media state and actions,
+    // so it must not subscribe to the playback context (currentTime ticks).
     const {
         playbackType,
         currentTrack,
@@ -30,10 +33,8 @@ export function NowPlayingQueuePanel() {
         queue,
         currentIndex,
         podcastEpisodeQueue,
-        playTracks,
-        removeFromQueue,
-        playPodcast,
-    } = useAudio();
+    } = useAudioState();
+    const { playTracks, removeFromQueue, playPodcast } = useAudioControls();
 
     const { favoriteIds, addFavorite, removeFavorite } = useFavorites();
     const { startRadio, startingId } = useSongRadio();

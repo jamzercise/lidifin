@@ -204,6 +204,11 @@ export function CastProvider({ children }: { children: ReactNode }) {
     const remotePlayerRef = useRef<RemotePlayer | null>(null);
     const remoteControllerRef = useRef<RemotePlayerController | null>(null);
     const finishedHandledRef = useRef(false);
+    // Generation counter for loadMedia calls. Rapid track changes can start
+    // overlapping loads; only the most recent one may act on completion
+    // (e.g. reset finishedHandledRef), otherwise a stale load's callback can
+    // re-trigger track advancement and desync the queue from the receiver.
+    const loadGenerationRef = useRef(0);
 
     useEffect(() => {
         loadCastScript().then((loaded) => {
@@ -341,6 +346,9 @@ export function CastProvider({ children }: { children: ReactNode }) {
         }
 
         try {
+            loadGenerationRef.current += 1;
+            const thisLoad = loadGenerationRef.current;
+
             const mediaInfo = new window.chrome!.cast!.media.MediaInfo(
                 streamUrl,
                 contentType
@@ -356,6 +364,12 @@ export function CastProvider({ children }: { children: ReactNode }) {
             loadRequest.currentTime = currentTime;
 
             await session.loadMedia(loadRequest);
+
+            // A newer load superseded this one while awaiting — report
+            // failure so callers don't act on a stale load.
+            if (loadGenerationRef.current !== thisLoad) {
+                return false;
+            }
             return true;
         } catch (err) {
             console.error("[Cast] loadMedia failed:", err);
@@ -420,8 +434,13 @@ export function CastProvider({ children }: { children: ReactNode }) {
                         ) {
                             finishedHandledRef.current = true;
                             next(true);
-                            loadMedia().then(() => {
-                                finishedHandledRef.current = false;
+                            loadMedia().then((loaded) => {
+                                // Only re-arm if this load wasn't superseded;
+                                // a stale completion must not allow another
+                                // premature auto-advance.
+                                if (loaded) {
+                                    finishedHandledRef.current = false;
+                                }
                             });
                         } else if (state === "PLAYING" || state === "BUFFERING") {
                             finishedHandledRef.current = false;

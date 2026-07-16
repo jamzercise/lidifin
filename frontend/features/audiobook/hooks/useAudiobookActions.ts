@@ -1,8 +1,12 @@
 "use client";
 
 import { useCallback } from "react";
-import { useAudio } from "@/lib/audio-context";
 import { useAudioState } from "@/lib/audio-state-context";
+import {
+  useAudioPlaybackState,
+  useAudioPlaybackTime,
+} from "@/lib/audio-playback-context";
+import { useCastAwareAudioControls } from "@/lib/useCastAwareAudioControls";
 import { useToast } from "@/lib/toast-context";
 import { api } from "@/lib/api";
 import type { Audiobook } from "../types";
@@ -12,18 +16,18 @@ export function useAudiobookActions(
   audiobook: Audiobook | null,
   refetch: () => void
 ) {
+  // Granular hooks. currentTime is returned to the detail page for the
+  // progress display, so this hook intentionally subscribes to time ticks.
   const {
     currentAudiobook,
     playbackType,
-    isPlaying,
-    pause,
-    resume,
-    playAudiobook,
-    currentTime,
-    updateCurrentTime,
-    seek,
-  } = useAudio();
-  const { setCurrentAudiobook, setPlaybackType } = useAudioState();
+    setCurrentAudiobook,
+    setPlaybackType,
+  } = useAudioState();
+  const { isPlaying } = useAudioPlaybackState();
+  const { currentTime } = useAudioPlaybackTime();
+  const { pause, resume, playAudiobook, updateCurrentTime, seek } =
+    useCastAwareAudioControls();
   const { toast } = useToast();
 
   const isThisBookPlaying =

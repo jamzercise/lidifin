@@ -13,10 +13,20 @@ import {
 import { useAudioState } from "./audio-state-context";
 import { playbackStateMachine, type PlaybackState } from "./audio";
 
-interface AudioPlaybackContextType {
+/**
+ * Playback state is split into two contexts so that components which only
+ * care about play/pause/buffering state don't re-render on every 250ms
+ * currentTime tick:
+ *
+ * - AudioPlaybackStateContext — isPlaying/isBuffering/errors (low churn)
+ * - AudioPlaybackTimeContext  — currentTime/duration (ticks at ~4Hz)
+ *
+ * useAudioPlayback() merges both for backwards compatibility; prefer the
+ * granular hooks in new code.
+ */
+
+interface AudioPlaybackStateContextType {
     isPlaying: boolean;
-    currentTime: number;
-    duration: number;
     isBuffering: boolean;
     targetSeekPosition: number | null;
     canSeek: boolean;
@@ -25,9 +35,6 @@ interface AudioPlaybackContextType {
     audioError: string | null; // Error message from state machine
     playbackState: PlaybackState; // Raw state machine state for advanced use
     setIsPlaying: (playing: boolean) => void;
-    setCurrentTime: (time: number) => void;
-    setCurrentTimeFromEngine: (time: number) => void; // For timeupdate events - respects seek lock
-    setDuration: (duration: number) => void;
     setIsBuffering: (buffering: boolean) => void;
     setTargetSeekPosition: (position: number | null) => void;
     setCanSeek: (canSeek: boolean) => void;
@@ -35,10 +42,31 @@ interface AudioPlaybackContextType {
     lockSeek: (targetTime: number) => void; // Lock updates during seek
     unlockSeek: () => void; // Unlock after seek completes
     clearAudioError: () => void; // Clear the audio error state
+    /** Stable getter for the latest playback position. Use inside event
+     * handlers/callbacks instead of subscribing to currentTime, so the
+     * component doesn't re-render on every 250ms tick. */
+    getCurrentTime: () => number;
+    /** Stable getter for the latest duration (same rationale). */
+    getDuration: () => number;
 }
 
-const AudioPlaybackContext = createContext<
-    AudioPlaybackContextType | undefined
+interface AudioPlaybackTimeContextType {
+    currentTime: number;
+    duration: number;
+    setCurrentTime: (time: number) => void;
+    setCurrentTimeFromEngine: (time: number) => void; // For timeupdate events - respects seek lock
+    setDuration: (duration: number) => void;
+}
+
+type AudioPlaybackContextType = AudioPlaybackStateContextType &
+    AudioPlaybackTimeContextType;
+
+const AudioPlaybackStateContext = createContext<
+    AudioPlaybackStateContextType | undefined
+>(undefined);
+
+const AudioPlaybackTimeContext = createContext<
+    AudioPlaybackTimeContextType | undefined
 >(undefined);
 
 // LocalStorage keys
@@ -70,6 +98,18 @@ export function AudioPlaybackProvider({ children }: { children: ReactNode }) {
     const [isHydrated] = useState(() => typeof window !== "undefined");
     const lastSaveTimeRef = useRef<number>(0);
 
+    // Latest position/duration for stable getters (no tick re-renders).
+    // Refs are synced in an effect (not during render) per react-hooks/refs;
+    // getters are only called from event handlers, which run post-commit.
+    const currentTimeRef = useRef(currentTime);
+    const durationRef = useRef(duration);
+    useEffect(() => {
+        currentTimeRef.current = currentTime;
+        durationRef.current = duration;
+    }, [currentTime, duration]);
+    const getCurrentTime = useCallback(() => currentTimeRef.current, []);
+    const getDuration = useCallback(() => durationRef.current, []);
+
     // Clear audio error
     const clearAudioError = useCallback(() => {
         setAudioError(null);
@@ -79,19 +119,40 @@ export function AudioPlaybackProvider({ children }: { children: ReactNode }) {
         }
     }, []);
 
-    // Subscribe to state machine changes
+    // Subscribe to state machine changes.
+    //
+    // The machine is the single source of truth for engine state. The
+    // mapping below is deliberately transition-aware:
+    // - LOADING/BUFFERING/SEEKING preserve the previous isPlaying value so
+    //   the play/pause button doesn't flicker during track changes or
+    //   transient stalls (play intent survives until confirmed/denied).
+    // - READY only means "paused" when we actually came from PLAYING or
+    //   SEEKING; READY reached from LOADING is just "load complete" and
+    //   must not cancel a pending autoplay.
     useEffect(() => {
         const unsubscribe = playbackStateMachine.subscribe((ctx) => {
             setPlaybackState(ctx.state);
 
-            // Derive isPlaying and isBuffering from state machine
-            // This creates a single source of truth
-            const machineIsPlaying = ctx.state === "PLAYING";
-            const machineIsBuffering = ctx.state === "BUFFERING" || ctx.state === "LOADING";
+            setIsPlaying((prev) => {
+                switch (ctx.state) {
+                    case "PLAYING":
+                        return true;
+                    case "IDLE":
+                    case "ERROR":
+                        return false;
+                    case "READY":
+                        return ctx.previousState === "LOADING" ? prev : false;
+                    // LOADING / BUFFERING / SEEKING: keep current value
+                    default:
+                        return prev;
+                }
+            });
 
-            // Only update if different to prevent unnecessary renders
-            setIsPlaying((prev) => prev !== machineIsPlaying ? machineIsPlaying : prev);
-            setIsBuffering((prev) => prev !== machineIsBuffering ? machineIsBuffering : prev);
+            const machineIsBuffering =
+                ctx.state === "BUFFERING" || ctx.state === "LOADING";
+            setIsBuffering((prev) =>
+                prev !== machineIsBuffering ? machineIsBuffering : prev
+            );
 
             // Update error state
             if (ctx.state === "ERROR" && ctx.error) {
@@ -213,11 +274,9 @@ export function AudioPlaybackProvider({ children }: { children: ReactNode }) {
     }, [currentTime, isHydrated]);
 
     // Memoize to prevent re-renders when values haven't changed
-    const value = useMemo(
+    const stateValue = useMemo(
         () => ({
             isPlaying,
-            currentTime,
-            duration,
             isBuffering,
             targetSeekPosition,
             canSeek,
@@ -226,9 +285,6 @@ export function AudioPlaybackProvider({ children }: { children: ReactNode }) {
             audioError,
             playbackState,
             setIsPlaying,
-            setCurrentTime,
-            setCurrentTimeFromEngine,
-            setDuration,
             setIsBuffering,
             setTargetSeekPosition,
             setCanSeek,
@@ -236,11 +292,11 @@ export function AudioPlaybackProvider({ children }: { children: ReactNode }) {
             lockSeek,
             unlockSeek,
             clearAudioError,
+            getCurrentTime,
+            getDuration,
         }),
         [
             isPlaying,
-            currentTime,
-            duration,
             isBuffering,
             targetSeekPosition,
             canSeek,
@@ -248,26 +304,70 @@ export function AudioPlaybackProvider({ children }: { children: ReactNode }) {
             isSeekLocked,
             audioError,
             playbackState,
-            setCurrentTimeFromEngine,
             lockSeek,
             unlockSeek,
             clearAudioError,
+            getCurrentTime,
+            getDuration,
         ]
     );
 
+    const timeValue = useMemo(
+        () => ({
+            currentTime,
+            duration,
+            setCurrentTime,
+            setCurrentTimeFromEngine,
+            setDuration,
+        }),
+        [currentTime, duration, setCurrentTimeFromEngine]
+    );
+
     return (
-        <AudioPlaybackContext.Provider value={value}>
-            {children}
-        </AudioPlaybackContext.Provider>
+        <AudioPlaybackStateContext.Provider value={stateValue}>
+            <AudioPlaybackTimeContext.Provider value={timeValue}>
+                {children}
+            </AudioPlaybackTimeContext.Provider>
+        </AudioPlaybackStateContext.Provider>
     );
 }
 
-export function useAudioPlayback() {
-    const context = useContext(AudioPlaybackContext);
+/**
+ * Play/pause/buffering state only — does NOT re-render on currentTime
+ * ticks. Prefer this in components that just need to know whether audio
+ * is playing (play buttons, track highlighting, etc.).
+ */
+export function useAudioPlaybackState() {
+    const context = useContext(AudioPlaybackStateContext);
     if (!context) {
         throw new Error(
-            "useAudioPlayback must be used within AudioPlaybackProvider"
+            "useAudioPlaybackState must be used within AudioPlaybackProvider"
         );
     }
     return context;
+}
+
+/**
+ * currentTime/duration — re-renders ~4x per second while audio plays.
+ * Only use in components that display or manipulate playback position.
+ */
+export function useAudioPlaybackTime() {
+    const context = useContext(AudioPlaybackTimeContext);
+    if (!context) {
+        throw new Error(
+            "useAudioPlaybackTime must be used within AudioPlaybackProvider"
+        );
+    }
+    return context;
+}
+
+/**
+ * Combined playback hook (state + time). Re-renders on every time tick.
+ * Kept for backwards compatibility; prefer useAudioPlaybackState() /
+ * useAudioPlaybackTime() in new code.
+ */
+export function useAudioPlayback(): AudioPlaybackContextType {
+    const state = useAudioPlaybackState();
+    const time = useAudioPlaybackTime();
+    return useMemo(() => ({ ...state, ...time }), [state, time]);
 }

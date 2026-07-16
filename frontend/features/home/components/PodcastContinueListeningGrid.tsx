@@ -6,9 +6,9 @@ import { Play, Pause, Mic2 } from "lucide-react";
 import { memo } from "react";
 import { api } from "@/lib/api";
 import { HorizontalCarousel, CarouselItem } from "@/components/ui/HorizontalCarousel";
-import { useAudio } from "@/lib/audio-context";
 import { useAudioState } from "@/lib/audio-state-context";
-import { formatDuration } from "@/utils/formatTime";
+import { useAudioPlaybackState } from "@/lib/audio-playback-context";
+import { useCastAwareAudioControls } from "@/lib/useCastAwareAudioControls";
 import { formatDate } from "@/features/podcast/utils";
 
 export interface EpisodeWithPodcast {
@@ -51,8 +51,10 @@ const EpisodeCard = memo(function EpisodeCard({
     episode: EpisodeWithPodcast;
     index: number;
 }) {
-    const { playPodcast, currentPodcast, isPlaying, pause, resume } = useAudio();
-    const { setPodcastEpisodeQueue } = useAudioState();
+    // Granular hooks — avoids re-rendering every card on currentTime ticks.
+    const { currentPodcast, setPodcastEpisodeQueue } = useAudioState();
+    const { isPlaying } = useAudioPlaybackState();
+    const { playPodcast, pause, resume } = useCastAwareAudioControls();
 
     const coverUrl = episode.coverUrl ?? episode.podcast.coverUrl;
     const imageUrl = getProxiedImageUrl(coverUrl);

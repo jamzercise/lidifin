@@ -1,6 +1,8 @@
 "use client";
 
-import { useAudio } from "@/lib/audio-context";
+import { useAudioState } from "@/lib/audio-state-context";
+import { useAudioPlaybackState } from "@/lib/audio-playback-context";
+import { useAudioControls } from "@/lib/audio-controls-context";
 import { useIsMobile, useIsTablet } from "@/hooks/useMediaQuery";
 import { QueuePanelProvider } from "@/lib/queue-panel-context";
 import { MiniPlayer } from "./MiniPlayer";
@@ -20,8 +22,12 @@ import { useEffect, useRef } from "react";
  * - No full-width player on mobile
  */
 export function UniversalPlayer() {
-    const { playerMode, setPlayerMode, currentTrack, currentAudiobook, currentPodcast, isPlaying } =
-        useAudio();
+    // Granular hooks — avoids re-rendering the whole player shell on every
+    // currentTime tick (only the child player that shows progress needs it).
+    const { playerMode, currentTrack, currentAudiobook, currentPodcast } =
+        useAudioState();
+    const { isPlaying } = useAudioPlaybackState();
+    const { setPlayerMode } = useAudioControls();
     const isMobile = useIsMobile();
     const isTablet = useIsTablet();
     const isMobileOrTablet = isMobile || isTablet;

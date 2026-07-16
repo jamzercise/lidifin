@@ -3,6 +3,7 @@
 import { useAudioState } from "@/lib/audio-state-context";
 import { useAudioPlayback } from "@/lib/audio-playback-context";
 import { useAudioControls } from "@/lib/audio-controls-context";
+import { useCast } from "@/lib/cast-context";
 import { api } from "@/lib/api";
 import { howlerEngine } from "@/lib/howler-engine";
 import { audioSeekEmitter } from "@/lib/audio-seek-emitter";
@@ -96,13 +97,17 @@ export const HowlerAudioElement = memo(function HowlerAudioElement() {
         shuffleIndices,
     } = useAudioState();
 
-    // Playback context
+    // Playback context.
+    // Note: isPlaying/isBuffering are DERIVED from the playback state
+    // machine by AudioPlaybackProvider — this component transitions the
+    // machine and never writes those flags directly (setIsBuffering is
+    // kept only as a fallback for the cache-poll timeout, where no engine
+    // event fires to normalize state).
     const {
         isPlaying,
         setCurrentTime,
         setCurrentTimeFromEngine,
         setDuration,
-        setIsPlaying,
         isBuffering,
         setIsBuffering,
         setTargetSeekPosition,
@@ -114,12 +119,18 @@ export const HowlerAudioElement = memo(function HowlerAudioElement() {
     // Controls context
     const { pause, next, nextPodcastEpisode } = useAudioControls();
 
+    // While casting, the Cast receiver is the active audio sink. Local
+    // Howler must never start playing in response to shared isPlaying
+    // state (which then reflects the *cast* player), or both would play.
+    const { isCasting } = useCast();
+    const isCastingRef = useRef(isCasting);
+    isCastingRef.current = isCasting;
+
     // Refs
     const lastTrackIdRef = useRef<string | null>(null);
     const lastPlayingStateRef = useRef<boolean>(isPlaying);
     const progressSaveIntervalRef = useRef<NodeJS.Timeout | null>(null);
     const lastProgressSaveRef = useRef<number>(0);
-    const isUserInitiatedRef = useRef<boolean>(false);
     const isLoadingRef = useRef<boolean>(false);
     const loadIdRef = useRef<number>(0);
     const cachePollingRef = useRef<NodeJS.Timeout | null>(null);
@@ -180,7 +191,10 @@ export const HowlerAudioElement = memo(function HowlerAudioElement() {
         setPlaybackType,
     };
 
-    // Initialize heartbeat monitor
+    // Initialize heartbeat monitor.
+    // State machine transitions are the single writer for isPlaying /
+    // isBuffering — the AudioPlaybackProvider subscription derives the
+    // React flags, so handlers here only transition the machine.
     useEffect(() => {
         heartbeatRef.current = new HeartbeatMonitor(
             {
@@ -190,7 +204,6 @@ export const HowlerAudioElement = memo(function HowlerAudioElement() {
                 if (!transitioned) {
                     playbackStateMachine.forceTransition("BUFFERING");
                 }
-                setIsBuffering(true);
                 const t = howlerEngine.getCurrentTime();
                 if (t > 0) howlerEngine.seek(t);
                 heartbeatRef.current?.startBufferTimeout();
@@ -199,8 +212,6 @@ export const HowlerAudioElement = memo(function HowlerAudioElement() {
                 // Howler stopped without us knowing
                 console.warn("[HowlerAudioElement] Heartbeat detected unexpected stop");
                 if (playbackStateMachine.isPlaying) {
-                    // Sync React state to actual state
-                    setIsPlaying(false);
                     playbackStateMachine.forceTransition("READY");
                 }
             },
@@ -211,8 +222,6 @@ export const HowlerAudioElement = memo(function HowlerAudioElement() {
                     error: "Connection lost - audio stream timed out",
                     errorCode: 408,
                 });
-                setIsPlaying(false);
-                setIsBuffering(false);
                 lastTrackIdRef.current = null;
                 isLoadingRef.current = false;
 
@@ -237,7 +246,6 @@ export const HowlerAudioElement = memo(function HowlerAudioElement() {
                 } else if (!playbackStateMachine.isPlaying && howlerEngine.isPlaying()) {
                     playbackStateMachine.forceTransition("PLAYING");
                 }
-                setIsBuffering(false);
             },
             getCurrentTime: () => howlerEngine.getCurrentTime(),
             isActuallyPlaying: () => howlerEngine.isPlaying(),
@@ -249,7 +257,7 @@ export const HowlerAudioElement = memo(function HowlerAudioElement() {
             heartbeatRef.current?.destroy();
             heartbeatRef.current = null;
         };
-    }, [setIsBuffering, setIsPlaying]);
+    }, []);
 
     // Start/stop heartbeat based on playback state
     useEffect(() => {
@@ -411,15 +419,13 @@ export const HowlerAudioElement = memo(function HowlerAudioElement() {
         const handleError = (data: { error: unknown }) => {
             console.error("[HowlerAudioElement] Playback error:", data.error);
 
-            // Transition state machine to ERROR
+            // Transition state machine to ERROR — the playback provider's
+            // subscription clears isPlaying/isBuffering from this.
             const errorMessage = data.error instanceof Error
                 ? data.error.message
                 : String(data.error);
             playbackStateMachine.forceTransition("ERROR", { error: errorMessage });
 
-            setIsPlaying(false);
-            setIsBuffering(false);
-            isUserInitiatedRef.current = false;
             heartbeatRef.current?.stop();
 
             if (playbackType === "track") {
@@ -443,13 +449,9 @@ export const HowlerAudioElement = memo(function HowlerAudioElement() {
         };
 
         const handlePlay = () => {
-            // Transition state machine to PLAYING
+            // Machine transition is the single writer; React isPlaying
+            // follows via the playback provider subscription.
             playbackStateMachine.transition("PLAYING");
-
-            if (!isUserInitiatedRef.current) {
-                setIsPlaying(true);
-            }
-            isUserInitiatedRef.current = false;
         };
 
         const handlePause = () => {
@@ -460,11 +462,6 @@ export const HowlerAudioElement = memo(function HowlerAudioElement() {
             if (playbackStateMachine.isPlaying) {
                 playbackStateMachine.transition("READY");
             }
-
-            if (!isUserInitiatedRef.current) {
-                setIsPlaying(false);
-            }
-            isUserInitiatedRef.current = false;
         };
 
         howlerEngine.on("timeupdate", handleTimeUpdate);
@@ -484,7 +481,7 @@ export const HowlerAudioElement = memo(function HowlerAudioElement() {
             howlerEngine.off("play", handlePlay);
             howlerEngine.off("pause", handlePause);
         };
-    }, [playbackType, currentTrack, currentAudiobook, currentPodcast, repeatMode, next, nextPodcastEpisode, pause, setCurrentTimeFromEngine, setDuration, setIsPlaying, setIsBuffering, queue, setCurrentTrack, setCurrentAudiobook, setCurrentPodcast, setPlaybackType, saveAudiobookProgress, savePodcastProgress]);
+    }, [playbackType, currentTrack, currentAudiobook, currentPodcast, repeatMode, next, nextPodcastEpisode, pause, setCurrentTimeFromEngine, setDuration, queue, setCurrentTrack, setCurrentAudiobook, setCurrentPodcast, setPlaybackType, saveAudiobookProgress, savePodcastProgress]);
 
     // Load and play audio when track changes
     useEffect(() => {
@@ -627,11 +624,11 @@ export const HowlerAudioElement = memo(function HowlerAudioElement() {
                 // Consume the auto-advance flag
                 wantAutoPlayRef.current = false;
 
-                if (shouldAutoPlay) {
+                if (shouldAutoPlay && !isCastingRef.current) {
+                    // The engine's play event transitions the machine to
+                    // PLAYING, which updates React isPlaying via the
+                    // provider subscription — no direct setIsPlaying here.
                     howlerEngine.play();
-                    if (!lastPlayingStateRef.current) {
-                        setIsPlaying(true);
-                    }
                 }
 
                 // Clean up both listeners
@@ -667,8 +664,6 @@ export const HowlerAudioElement = memo(function HowlerAudioElement() {
                 isLoadingRef.current = false;
                 lastTrackIdRef.current = null;
                 playbackStateMachine.forceTransition("ERROR", { error: "Stream load timeout" });
-                setIsPlaying(false);
-                setIsBuffering(false);
                 howlerEngine.off("load", handleLoaded);
                 howlerEngine.off("loaderror", handleLoadError);
                 loadListenerRef.current = null;
@@ -819,10 +814,11 @@ export const HowlerAudioElement = memo(function HowlerAudioElement() {
     // Handle play/pause changes from UI
     // Skip if a track change is in progress -- the track-change effect handles playback.
     // This prevents doubled audio when next() sets both currentTrack and isPlaying simultaneously.
+    // Skip while casting -- isPlaying then mirrors the Cast receiver's state
+    // and must not start/stop the local Howler engine.
     useEffect(() => {
         if (isLoadingRef.current) return;
-
-        isUserInitiatedRef.current = true;
+        if (isCastingRef.current) return;
 
         if (isPlaying) {
             howlerEngine.play();
@@ -935,6 +931,9 @@ export const HowlerAudioElement = memo(function HowlerAudioElement() {
 
                             howlerEngine.seek(targetTime);
                             setCurrentTime(targetTime);
+                            // The engine's play event drives the machine to
+                            // PLAYING, which clears isBuffering and sets
+                            // isPlaying via the provider subscription.
                             howlerEngine.play();
                             podcastDebugLog("post-reload seek+play", {
                                 podcastId,
@@ -944,9 +943,7 @@ export const HowlerAudioElement = memo(function HowlerAudioElement() {
                                 actualTime: howlerEngine.getActualCurrentTime(),
                             });
 
-                            setIsBuffering(false);
                             setTargetSeekPosition(null);
-                            setIsPlaying(true);
                         };
 
                         cachePollingLoadListenerRef.current = onLoad;
@@ -971,7 +968,7 @@ export const HowlerAudioElement = memo(function HowlerAudioElement() {
                 }
             }, 2000);
         },
-        [setCurrentTime, setIsBuffering, setTargetSeekPosition, setIsPlaying]
+        [setCurrentTime, setIsBuffering, setTargetSeekPosition]
     );
 
     // Handle seeking via event emitter
@@ -1114,8 +1111,10 @@ export const HowlerAudioElement = memo(function HowlerAudioElement() {
                                         howlerEngine.seek(seekTime);
 
                                         if (wasPlayingAtSeekStart) {
+                                            // Machine PLAYING transition (via
+                                            // the engine play event) updates
+                                            // React isPlaying.
                                             howlerEngine.play();
-                                            setIsPlaying(true);
                                         }
                                     };
 
@@ -1218,7 +1217,7 @@ export const HowlerAudioElement = memo(function HowlerAudioElement() {
 
         const unsubscribe = audioSeekEmitter.subscribe(handleSeek);
         return unsubscribe;
-    }, [playbackType, currentPodcast, setIsBuffering, setTargetSeekPosition, setIsPlaying, startCachePolling]);
+    }, [playbackType, currentPodcast, setIsBuffering, setTargetSeekPosition, startCachePolling]);
 
     // Cleanup cache polling, seek timeout, and seek-reload listener on unmount
     useEffect(() => {

@@ -14,14 +14,17 @@
  *      - Hook: useAudioState()
  *
  *   2. audio-playback-context.tsx
- *      - Frequently-changing values: isPlaying, currentTime,
- *        duration, isBuffering, audioError, playbackState.
- *      - Hook: useAudioPlayback()
- *      - NOTE: isPlaying and currentTime currently share a context,
- *        which means consumers of isPlaying still re-render on each
- *        time tick. A future PR could split these into separate
- *        contexts (or use useSyncExternalStore selectors) for
- *        further per-render-cost reduction.
+ *      - Split into two nested contexts:
+ *        - useAudioPlaybackState(): isPlaying, isBuffering,
+ *          audioError, playbackState — low churn, safe everywhere.
+ *          Also exposes getCurrentTime()/getDuration() stable getters
+ *          for event handlers that need position without ticks.
+ *        - useAudioPlaybackTime(): currentTime, duration — updates
+ *          ~4x/second while playing; only for progress displays.
+ *        - useAudioPlayback(): both combined (legacy; tick cost).
+ *      - isPlaying/isBuffering are DERIVED from the playback state
+ *        machine (lib/audio/playback-state-machine.ts); the machine
+ *        is the single source of truth for engine state.
  *
  *   3. audio-controls-context.tsx
  *      - Stable callbacks (memoized): playTrack, pause, next, etc.
@@ -52,7 +55,11 @@ export { AudioPlaybackProvider } from "./audio-playback-context";
 export { AudioControlsProvider } from "./audio-controls-context";
 
 export { useAudioState } from "./audio-state-context";
-export { useAudioPlayback } from "./audio-playback-context";
+export {
+    useAudioPlayback,
+    useAudioPlaybackState,
+    useAudioPlaybackTime,
+} from "./audio-playback-context";
 export { useAudioControls } from "./audio-controls-context";
 
 // Backward-compatibility unified hook. Discouraged for new code; see
