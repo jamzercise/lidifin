@@ -266,6 +266,26 @@ router.get("/import/:jobId/status", async (req, res) => {
 });
 
 /**
+ * GET /api/spotify/imports/active
+ * In-flight imports for the current user, so the UI can pick an import back up
+ * after a refresh or a navigation away from the import page.
+ */
+router.get("/imports/active", async (req, res) => {
+    try {
+        if (!req.user) {
+            return res.status(401).json({ error: "Unauthorized" });
+        }
+        const jobs = await spotifyImportService.getActiveJobs(req.user.id);
+        res.json(jobs);
+    } catch (error: any) {
+        logger.error("Spotify active imports error:", error);
+        res.status(500).json({
+            error: error.message || "Failed to get active imports",
+        });
+    }
+});
+
+/**
  * GET /api/spotify/imports
  * Get all import jobs for the current user
  */

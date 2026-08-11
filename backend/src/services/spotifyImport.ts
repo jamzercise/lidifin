@@ -105,6 +105,30 @@ export interface ImportJob {
     }>;
 }
 
+/**
+ * Statuses in which an import is still doing work. Everything else is terminal.
+ */
+export const ACTIVE_IMPORT_STATUSES = [
+    "pending",
+    "downloading",
+    "scanning",
+    "creating_playlist",
+    "matching_tracks",
+] as const;
+
+/**
+ * An import that goes this long without writing a status update is treated as
+ * dead rather than in-flight, so a job orphaned by a restart can't linger as a
+ * permanent spinner. Mirrors the stale-cleanup threshold in staleJobCleanup.
+ */
+const ACTIVE_IMPORT_MAX_IDLE_MS = 2 * 60 * 60 * 1000;
+
+/**
+ * An import job without the pendingTracks payload, which can run to thousands
+ * of entries and has no business in a response the client polls.
+ */
+export type ActiveImportJob = Omit<ImportJob, "pendingTracks" | "userId">;
+
 // Redis key pattern for import jobs
 const IMPORT_JOB_KEY = (id: string) => `import:job:${id}`;
 const IMPORT_JOB_TTL = 24 * 60 * 60; // 24 hours
@@ -2529,6 +2553,45 @@ class SpotifyImportService {
                 pendingTracks: (dbJob.pendingTracks as any) || [],
             }))
             .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    }
+
+    /**
+     * In-flight imports for a user. Kept deliberately lightweight because the
+     * client polls this to keep an import visible after a refresh or a
+     * navigation away from the import page.
+     */
+    async getActiveJobs(userId: string): Promise<ActiveImportJob[]> {
+        const cutoff = new Date(Date.now() - ACTIVE_IMPORT_MAX_IDLE_MS);
+
+        const dbJobs = await prisma.spotifyImportJob.findMany({
+            where: {
+                userId,
+                status: { in: [...ACTIVE_IMPORT_STATUSES] },
+                updatedAt: { gte: cutoff },
+            },
+            orderBy: { createdAt: "desc" },
+            select: {
+                id: true,
+                spotifyPlaylistId: true,
+                playlistName: true,
+                status: true,
+                progress: true,
+                albumsTotal: true,
+                albumsCompleted: true,
+                tracksMatched: true,
+                tracksTotal: true,
+                tracksDownloadable: true,
+                createdPlaylistId: true,
+                error: true,
+                createdAt: true,
+                updatedAt: true,
+            },
+        });
+
+        return dbJobs.map((job) => ({
+            ...job,
+            status: job.status as ImportJob["status"],
+        }));
     }
 
     /**

@@ -17,6 +17,12 @@ import {
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useToast } from "@/lib/toast-context";
+import {
+    useActiveImports,
+    isImportFinished,
+    importStatusLabel,
+    type ImportStatus,
+} from "@/hooks/useActiveImports";
 
 // Deezer icon
 const DeezerIcon = ({ className }: { className?: string }) => (
@@ -104,15 +110,7 @@ interface ImportPreview {
 
 interface ImportJob {
     id: string;
-    status:
-        | "pending"
-        | "downloading"
-        | "scanning"
-        | "creating_playlist"
-        | "matching_tracks"
-        | "completed"
-        | "failed"
-        | "cancelled";
+    status: ImportStatus;
     progress: number;
     albumsTotal: number;
     albumsCompleted: number;
@@ -130,6 +128,15 @@ function SpotifyImportPageContent() {
     const searchParams = useSearchParams();
     const { toast } = useToast();
     const hasAutoFetched = useRef(false);
+    // Which job the ?job= param has already been resolved for. Keyed by id
+    // rather than a flag because navigating from the Activity panel swaps the
+    // param without remounting this page.
+    const restoredJobId = useRef<string | null>(null);
+    const {
+        imports: activeImports,
+        forget: forgetActiveImport,
+        refetch: refetchActiveImports,
+    } = useActiveImports();
 
     // State
     const [step, setStep] = useState<Step>("input");
@@ -148,10 +155,32 @@ function SpotifyImportPageContent() {
         "matched" | "download" | "notfound" | null
     >("matched");
 
+    // Pick a job back up when the page is loaded with one in the URL. This is
+    // what makes a refresh mid-import land back on the progress view instead of
+    // an empty form, and it's the target of the Activity panel's import links.
+    useEffect(() => {
+        const jobParam = searchParams.get("job");
+        if (!jobParam || restoredJobId.current === jobParam) return;
+        restoredJobId.current = jobParam;
+
+        (async () => {
+            try {
+                const job = await api.get<ImportJob>(
+                    `/spotify/import/${jobParam}/status`
+                );
+                setImportJob(job);
+                setStep(isImportFinished(job.status) ? "complete" : "importing");
+            } catch {
+                // Job is gone, or belongs to someone else. Leave the user on the
+                // input step rather than showing an error for a stale link.
+            }
+        })();
+    }, [searchParams]);
+
     // Auto-fetch preview if URL is provided in query params
     useEffect(() => {
         const urlParam = searchParams.get("url");
-        if (urlParam && !hasAutoFetched.current) {
+        if (urlParam && !hasAutoFetched.current && !searchParams.get("job")) {
             hasAutoFetched.current = true;
             setUrl(urlParam);
             // Auto-trigger preview fetch
@@ -187,41 +216,40 @@ function SpotifyImportPageContent() {
         }
     }, [searchParams, toast]);
 
+    // Only the id and liveness matter here; depending on the whole job object
+    // would tear down and rebuild the interval on every poll.
+    const pollingJobId =
+        importJob && !isImportFinished(importJob.status) ? importJob.id : null;
+
+    // In-flight imports other than the one this page is already showing.
+    const otherActiveImports = activeImports.filter(
+        (job) => job.id !== importJob?.id
+    );
+
     // Poll for import job status
     useEffect(() => {
-        if (
-            !importJob ||
-            importJob.status === "completed" ||
-            importJob.status === "failed" ||
-            importJob.status === "cancelled"
-        ) {
-            return;
-        }
+        if (!pollingJobId) return;
 
         const interval = setInterval(async () => {
             try {
                 const job = await api.get<ImportJob>(
-                    `/spotify/import/${importJob.id}/status`
+                    `/spotify/import/${pollingJobId}/status`
                 );
                 setImportJob(job);
 
-                if (job.status === "completed") {
+                if (isImportFinished(job.status)) {
                     setStep("complete");
+                    // Drop it from the shared cache so the Activity panel stops
+                    // advertising it as in-flight before its next poll.
+                    forgetActiveImport(pollingJobId);
                     window.dispatchEvent(
                         new CustomEvent("notifications-changed")
                     );
-                    window.dispatchEvent(new CustomEvent("playlist-created"));
-                } else if (job.status === "cancelled") {
-                    setStep("complete");
-                    window.dispatchEvent(
-                        new CustomEvent("notifications-changed")
-                    );
-                    window.dispatchEvent(new CustomEvent("playlist-created"));
-                } else if (job.status === "failed") {
-                    setStep("complete");
-                    window.dispatchEvent(
-                        new CustomEvent("notifications-changed")
-                    );
+                    if (job.status !== "failed") {
+                        window.dispatchEvent(
+                            new CustomEvent("playlist-created")
+                        );
+                    }
                 }
             } catch (err) {
                 console.error("Failed to poll job status:", err);
@@ -229,7 +257,7 @@ function SpotifyImportPageContent() {
         }, 2000);
 
         return () => clearInterval(interval);
-    }, [importJob, toast]);
+    }, [pollingJobId, forgetActiveImport]);
 
     // Handle URL paste/change
     const handleUrlChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -297,6 +325,15 @@ function SpotifyImportPageContent() {
                 error: null,
             });
             setStep("importing");
+
+            // Put the job in the URL so a refresh comes back to this progress
+            // view, and let the Activity panel know about it immediately.
+            restoredJobId.current = response.jobId;
+            router.replace(
+                `/import/spotify?job=${encodeURIComponent(response.jobId)}`,
+                { scroll: false }
+            );
+            refetchActiveImports();
         } catch (err) {
             const message =
                 err instanceof Error ? err.message : "Failed to start import";
@@ -359,6 +396,7 @@ function SpotifyImportPageContent() {
                     : prev
             );
             setStep("complete");
+            forgetActiveImport(importJob.id);
 
             // Only dispatch notifications-changed, not playlist-created since no playlist was made
             window.dispatchEvent(new CustomEvent("notifications-changed"));
@@ -405,6 +443,38 @@ function SpotifyImportPageContent() {
                         </p>
                     </div>
                 </div>
+
+                {/* Imports running that aren't the one on screen, so leaving and
+                    coming back doesn't make them vanish */}
+                {otherActiveImports.length > 0 && (
+                    <div className="mb-6 space-y-2">
+                        {otherActiveImports.map((job) => (
+                            <div
+                                key={job.id}
+                                className="flex items-center gap-3 p-3 rounded-lg bg-[#B1D2C3]/10 border border-[#B1D2C3]/20"
+                            >
+                                <Loader2 className="w-4 h-4 text-[#B1D2C3] animate-spin shrink-0" />
+                                <div className="min-w-0 flex-1">
+                                    <p className="text-sm text-white truncate">
+                                        {job.playlistName}
+                                    </p>
+                                    <p className="text-xs text-gray-400">
+                                        {importStatusLabel(job.status)} •{" "}
+                                        {job.progress}%
+                                    </p>
+                                </div>
+                                <Link
+                                    href={`/import/spotify?job=${encodeURIComponent(
+                                        job.id
+                                    )}`}
+                                    className="shrink-0 px-3 py-1.5 rounded-full text-xs font-medium bg-[#B1D2C3] text-black hover:brightness-110 transition-all"
+                                >
+                                    View
+                                </Link>
+                            </div>
+                        ))}
+                    </div>
+                )}
 
                 {/* Browse Link */}
                 <div className="mb-6 p-4 bg-white/5 rounded-lg border border-white/10">
@@ -1034,6 +1104,11 @@ function SpotifyImportPageContent() {
                                     setPreview(null);
                                     setImportJob(null);
                                     setRefreshStatusMessage(null);
+                                    // Drop ?job= so a refresh doesn't drag the
+                                    // finished import back onto the screen.
+                                    router.replace("/import/spotify", {
+                                        scroll: false,
+                                    });
                                 }}
                                 className="px-5 py-2.5 rounded-full text-sm font-medium text-gray-300 hover:text-white hover:bg-white/5 transition-colors"
                             >

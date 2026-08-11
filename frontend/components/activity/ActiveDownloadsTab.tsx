@@ -6,10 +6,13 @@ import { api } from "@/lib/api";
 import { cn } from "@/utils/cn";
 import { GradientSpinner } from "../ui/GradientSpinner";
 import { useActiveDownloads } from "@/hooks/useNotifications";
+import { useActiveImports } from "@/hooks/useActiveImports";
+import { ActiveImportsSection } from "./ActiveImportsSection";
 
 export function ActiveDownloadsTab() {
     // Use shared React Query hook instead of duplicate polling
     const { downloads, isLoading: loading, refetch } = useActiveDownloads();
+    const { imports } = useActiveImports();
     const [cancelling, setCancelling] = useState<Set<string>>(new Set());
 
     const handleCancel = async (id: string) => {
@@ -63,33 +66,43 @@ export function ActiveDownloadsTab() {
         );
     }
 
-    if (downloads.length === 0) {
+    if (downloads.length === 0 && imports.length === 0) {
         return (
             <div className="flex flex-col items-center justify-center py-12 text-center">
                 <Download className="w-8 h-8 text-white/20 mb-3" />
                 <p className="text-sm text-white/40">No active downloads</p>
                 <p className="text-xs text-white/30 mt-1">
-                    Downloads will appear here
+                    Downloads and playlist imports will appear here
                 </p>
             </div>
         );
     }
 
+    const summary = [
+        imports.length > 0 &&
+            `${imports.length} ${
+                imports.length === 1 ? "import" : "imports"
+            }`,
+        downloads.length > 0 && `${downloads.length} downloading`,
+    ]
+        .filter(Boolean)
+        .join(" • ");
+
     return (
         <div className="flex flex-col h-full">
             {/* Header */}
             <div className="flex items-center justify-between px-3 py-2 border-b border-white/5">
-                <span className="text-xs text-white/40">
-                    {downloads.length} downloading
-                </span>
+                <span className="text-xs text-white/40">{summary}</span>
                 <div className="flex items-center gap-3">
-                    <button
-                        onClick={handleCancelAll}
-                        className="text-xs text-white/40 hover:text-red-400 transition-colors"
-                        title="Cancel all downloads"
-                    >
-                        Cancel all
-                    </button>
+                    {downloads.length > 0 && (
+                        <button
+                            onClick={handleCancelAll}
+                            className="text-xs text-white/40 hover:text-red-400 transition-colors"
+                            title="Cancel all downloads"
+                        >
+                            Cancel all
+                        </button>
+                    )}
                     <span className="flex items-center gap-1.5 text-xs text-green-400">
                         <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
                         Active
@@ -97,8 +110,9 @@ export function ActiveDownloadsTab() {
                 </div>
             </div>
 
-            {/* Download list */}
+            {/* Import + download list */}
             <div className="flex-1 overflow-y-auto">
+                <ActiveImportsSection imports={imports} />
                 {downloads.map((download) => (
                     <div
                         key={download.id}

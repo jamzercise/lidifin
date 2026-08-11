@@ -29,7 +29,9 @@ export const apiLimiter = rateLimit({
             // Soulseek search polling: /api/soulseek/search/:searchId (no /status suffix)
             /^\/api\/soulseek\/search\/[a-f0-9-]+$/.test(path) ||
             // Spotify import status: /api/spotify/import/:jobId/status
-            /^\/api\/spotify\/import\/[a-zA-Z0-9_-]+\/status$/.test(path)
+            /^\/api\/spotify\/import\/[a-zA-Z0-9_-]+\/status$/.test(path) ||
+            // In-flight import polling: /api/spotify/imports/active
+            path === "/api/spotify/imports/active"
         );
     },
     ...trustProxyValidation,

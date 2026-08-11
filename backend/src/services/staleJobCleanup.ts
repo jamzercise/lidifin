@@ -2,6 +2,7 @@ import { prisma } from "../utils/db";
 import { logger } from "../utils/logger";
 import { queues } from "../workers/queues";
 import { audioAnalysisCleanupService } from "./audioAnalysisCleanup";
+import { ACTIVE_IMPORT_STATUSES } from "./spotifyImport";
 
 const STALE_THRESHOLDS = {
     discoveryBatch: 60 * 60 * 1000, // 1 hour
@@ -141,14 +142,7 @@ class StaleJobCleanupService {
 
         const staleJobs = await prisma.spotifyImportJob.findMany({
             where: {
-                status: {
-                    in: [
-                        "pending",
-                        "downloading",
-                        "scanning",
-                        "creating_playlist",
-                    ],
-                },
+                status: { in: [...ACTIVE_IMPORT_STATUSES] },
                 createdAt: { lt: cutoff },
             },
             select: { id: true, playlistName: true, createdAt: true },

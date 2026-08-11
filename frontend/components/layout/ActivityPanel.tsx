@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useNotifications } from "@/hooks/useNotifications";
 import { useActiveDownloads } from "@/hooks/useNotifications";
+import { useActiveImports } from "@/hooks/useActiveImports";
 import { NotificationsTab } from "@/components/activity/NotificationsTab";
 import { ActiveDownloadsTab } from "@/components/activity/ActiveDownloadsTab";
 import { HistoryTab } from "@/components/activity/HistoryTab";
@@ -44,15 +45,16 @@ export function ActivityPanel({
     const setResolvedActiveTab = onTabChange ?? setInternalActiveTab;
     const { unreadCount } = useNotifications();
     const { downloads: activeDownloads } = useActiveDownloads();
+    const { imports: activeImports } = useActiveImports();
     const isMobile = useIsMobile();
     const isTablet = useIsTablet();
     const isMobileOrTablet = isMobile || isTablet;
 
     // Badge counts
     const notificationBadge = unreadCount > 0 ? unreadCount : null;
-    const activeBadge =
-        activeDownloads.length > 0 ? activeDownloads.length : null;
-    const hasActivity = unreadCount > 0 || activeDownloads.length > 0;
+    const activeCount = activeDownloads.length + activeImports.length;
+    const activeBadge = activeCount > 0 ? activeCount : null;
+    const hasActivity = unreadCount > 0 || activeCount > 0;
 
     // Mobile/Tablet: Full-screen overlay
     if (isMobileOrTablet) {
@@ -252,6 +254,7 @@ export function ActivityPanel({
 export function ActivityPanelToggle() {
     const { unreadCount } = useNotifications();
     const { downloads: activeDownloads } = useActiveDownloads();
+    const { imports: activeImports } = useActiveImports();
     const isMobile = useIsMobile();
     const isTablet = useIsTablet();
 
@@ -259,7 +262,8 @@ export function ActivityPanelToggle() {
         return null;
     }
 
-    const hasActivity = unreadCount > 0 || activeDownloads.length > 0;
+    const hasActivity =
+        unreadCount > 0 || activeDownloads.length + activeImports.length > 0;
 
     return (
         <button
