@@ -22,6 +22,10 @@ services:
       - lidifin_data:/data
     environment:
       - TZ=${TZ:-UTC}
+      # Run the app processes as the account that owns your music path.
+      # Check with: ls -ldn /path/to/your/music
+      - PUID=${PUID:-}
+      - PGID=${PGID:-}
       - SESSION_SECRET=${SESSION_SECRET:-}
       - INTERNAL_API_SECRET=${INTERNAL_API_SECRET:-lidify-internal-secret-change-me}
       - JELLYFIN_API_KEY=${JELLYFIN_API_KEY:-}

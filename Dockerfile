@@ -306,6 +306,58 @@ if [ -z "$PG_BIN" ]; then
 fi
 echo "Using PostgreSQL from: $PG_BIN"
 
+# ---------------------------------------------------------
+# Optional PUID/PGID remap of the unprivileged `node` user.
+#
+# Bind-mounted media is normally owned by an existing host account
+# (for example 568:568, the `apps` user on TrueNAS). Remapping `node`
+# to match is cleaner than layering ACLs onto the media tree, and it
+# means files this container creates are owned exactly like the ones
+# Lidarr and Jellyfin already produce.
+#
+# This must happen before supervisord starts. Supervisord resolves a
+# program's uid, gid, and supplementary groups from /etc/passwd and
+# /etc/group at spawn time and calls setgroups() with that result, so
+# identity changes made afterwards - or supplementary groups injected
+# via the container runtime - are ignored.
+# ---------------------------------------------------------
+if [ -n "${PUID:-}" ] || [ -n "${PGID:-}" ]; then
+    if ! command -v usermod >/dev/null 2>&1 || ! command -v groupmod >/dev/null 2>&1; then
+        echo "ERROR: PUID/PGID was set but usermod/groupmod are not available in this image."
+        exit 1
+    fi
+
+    CURRENT_UID=$(id -u node)
+    CURRENT_GID=$(id -g node)
+    TARGET_UID="${PUID:-$CURRENT_UID}"
+    TARGET_GID="${PGID:-$CURRENT_GID}"
+
+    case "$TARGET_UID$TARGET_GID" in
+        *[!0-9]*)
+            echo "ERROR: PUID/PGID must be numeric (got PUID='${PUID:-}' PGID='${PGID:-}')."
+            exit 1
+            ;;
+    esac
+
+    # -o permits a duplicate id, in case the target collides with an
+    # account that already exists inside the image.
+    if [ "$TARGET_GID" != "$CURRENT_GID" ]; then
+        groupmod -o -g "$TARGET_GID" node
+        echo "Remapped group 'node': ${CURRENT_GID} -> ${TARGET_GID}"
+    fi
+    if [ "$TARGET_UID" != "$CURRENT_UID" ]; then
+        usermod -o -u "$TARGET_UID" node
+        echo "Remapped user 'node': ${CURRENT_UID} -> ${TARGET_UID}"
+    fi
+
+    # Re-own only what the app actually writes to. Deliberately not a
+    # recursive chown of /app: node_modules is world-readable, so reads
+    # keep working, and rewriting it would recreate the slow layer that
+    # copying with --chown=node:node was introduced to avoid.
+    chown "$TARGET_UID:$TARGET_GID" /app /app/backend /app/frontend 2>/dev/null || true
+    chown -R "$TARGET_UID:$TARGET_GID" /app/backend/logs 2>/dev/null || true
+fi
+
 # Prepare data directories (bind-mount safe)
 echo "Preparing data directories..."
 mkdir -p /data/postgres /data/redis /run/postgresql /data/secrets
@@ -332,6 +384,42 @@ if id redis >/dev/null 2>&1; then
         echo "ERROR: /data/redis is not writable by redis (${REDIS_UID}:${REDIS_GID})."
         echo "If you bind-mount /data, ensure the host path is writable by that UID/GID."
         exit 1
+    fi
+fi
+
+# Downloads are written to /music by the backend as the unprivileged `node`
+# user (Soulseek transfers, single-track grabs, the Singles organizer).
+# Jellyfin-only deployments stream from Jellyfin and never write here, so an
+# unwritable /music is a warning rather than a fatal error. Without this
+# check the first symptom is a per-download "Cannot create destination
+# directory: EACCES" buried in the Activity panel.
+if id node >/dev/null 2>&1 && [ -d /music ]; then
+    NODE_UID=$(id -u node)
+    NODE_GID=$(id -g node)
+    if gosu node test -w /music; then
+        echo "Music path /music is writable by node (${NODE_UID}:${NODE_GID})"
+    else
+        MUSIC_OWNER=$(stat -c '%U:%G (%u:%g), mode %a' /music 2>/dev/null || echo "unknown")
+        echo ""
+        echo "WARNING: /music is not writable by the app user node (${NODE_UID}:${NODE_GID})."
+        echo "         Playback from Jellyfin is unaffected, but every download will"
+        echo "         fail with: Cannot create destination directory: EACCES"
+        echo ""
+        echo "         /music inside the container is owned by: ${MUSIC_OWNER}"
+        echo ""
+        echo "         Simplest fix - run the app as whoever owns that path, by"
+        echo "         setting PUID and PGID on the container. For the owner shown"
+        echo "         above that means:"
+        echo "           PUID=$(stat -c '%u' /music 2>/dev/null || echo '<uid>')  PGID=$(stat -c '%g' /music 2>/dev/null || echo '<gid>')"
+        echo ""
+        echo "         Alternatively, grant uid ${NODE_UID} write access on the host."
+        echo "         POSIX ACL filesystems (ext4, xfs):"
+        echo "           setfacl -R    -m u:${NODE_UID}:rwX /path/to/music"
+        echo "           setfacl -R -d -m u:${NODE_UID}:rwX /path/to/music"
+        echo "         ZFS datasets with acltype=nfsv4 (TrueNAS) do not support"
+        echo "         setfacl - use the dataset ACL editor or nfs4xdr_setfacl."
+        echo "         Matching PUID/PGID avoids the problem entirely."
+        echo ""
     fi
 fi
 

@@ -46,6 +46,13 @@ services:
       - ${POSTGRES_DATA_PATH:-lidifin_postgres}:/data/postgres
     environment:
       - TZ=${TZ:-UTC}
+      # Run the app processes as the account that owns your music path, so
+      # downloads can be written and land with the same ownership Jellyfin
+      # and Lidarr already use. Check with: ls -ldn /path/to/your/music
+      # On TrueNAS the apps user is usually 568:568. Leave unset to keep the
+      # image default (1000:1000).
+      - PUID=${PUID:-}
+      - PGID=${PGID:-}
       # Generate with: openssl rand -base64 32
       - SESSION_SECRET=${SESSION_SECRET:-}
       # Internal API secret (backend ↔ vibe worker); set in production for security.
