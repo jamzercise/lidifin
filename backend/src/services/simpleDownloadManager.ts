@@ -139,10 +139,23 @@ class SimpleDownloadManager {
                         `   Could not extract artist MBID from release group`
                     );
                 }
-            } catch (mbError) {
+            } catch (mbError: any) {
+                // Lidarr matches the artist purely by foreignArtistId, so without an
+                // artistMbid addAlbum can only ever report "album not found" — which is
+                // wrong and would send this job into the same-artist fallback below.
+                // Fail with the real cause instead; recoverable so Soulseek can still try.
+                const status = mbError?.response?.status;
+                const detail = status
+                    ? `HTTP ${status}`
+                    : mbError?.code || mbError?.message || "unknown error";
                 logger.error(
-                    `   Failed to fetch artist MBID from MusicBrainz:`,
-                    mbError
+                    `   MusicBrainz lookup failed for release group ${albumMbid}: ${detail}`
+                );
+                throw new AcquisitionError(
+                    `MusicBrainz was unreachable (${detail}), so the artist could not be identified. This is usually temporary — retry shortly.`,
+                    AcquisitionErrorType.METADATA_ERROR,
+                    true,
+                    mbError instanceof Error ? mbError : undefined
                 );
             }
 
