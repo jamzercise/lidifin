@@ -1,6 +1,6 @@
 {
     "name": "lidifin-backend",
-    "version": "1.4.3",
+    "version": "1.0.6",
     "description": "Lidifin backend API server",
     "license": "GPL-3.0",
     "repository": {
