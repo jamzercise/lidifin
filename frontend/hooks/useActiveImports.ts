@@ -36,6 +36,7 @@ export interface ActiveImport {
 }
 
 export const ACTIVE_IMPORTS_QUERY_KEY = ["active-imports"] as const;
+export const IMPORT_HISTORY_QUERY_KEY = ["import-history"] as const;
 
 const TERMINAL_IMPORT_STATUSES: ReadonlySet<ImportStatus> = new Set([
     "completed",
@@ -121,5 +122,42 @@ export function useActiveImports() {
         error: error instanceof Error ? error.message : null,
         refetch,
         forget,
+    };
+}
+
+/**
+ * Recent imports, running and finished together, so progress and history can be
+ * shown side by side where imports are started.
+ */
+export function useImportHistory(limit = 20) {
+    const fetchHistory = useCallback(
+        () => api.get<ActiveImport[]>(`/spotify/imports/recent?limit=${limit}`),
+        [limit]
+    );
+
+    const {
+        data: imports = [],
+        isLoading,
+        error,
+        refetch,
+    } = useQuery<ActiveImport[]>({
+        queryKey: [...IMPORT_HISTORY_QUERY_KEY, limit],
+        queryFn: fetchHistory,
+        // Follow running imports closely; otherwise just watch for one started
+        // from somewhere else.
+        refetchInterval: (query) =>
+            query.state.data?.some((job) => !isImportFinished(job.status))
+                ? 3000
+                : 15000,
+        refetchIntervalInBackground: false,
+        placeholderData: keepPreviousData,
+        retry: 0,
+    });
+
+    return {
+        imports,
+        isLoading,
+        error: error instanceof Error ? error.message : null,
+        refetch,
     };
 }

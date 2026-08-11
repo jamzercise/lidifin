@@ -7,6 +7,7 @@ import { Search, Loader2, Music2, Link2, X, ChevronRight, Info } from "lucide-re
 import { api } from "@/lib/api";
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/lib/toast-context";
+import { ImportHistorySection } from "@/features/import/components/ImportHistorySection";
 
 // Types
 interface PlaylistPreview {
@@ -360,6 +361,9 @@ export default function BrowsePlaylistsPage() {
                         <span className="hidden sm:inline">Import URL</span>
                     </button>
                 </div>
+
+                {/* Progress and history for imports started from here */}
+                <ImportHistorySection />
 
                 {/* Tabs */}
                 {!selectedGenre && !hasSearched && (

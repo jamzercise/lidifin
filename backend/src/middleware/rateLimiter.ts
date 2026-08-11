@@ -31,7 +31,9 @@ export const apiLimiter = rateLimit({
             // Spotify import status: /api/spotify/import/:jobId/status
             /^\/api\/spotify\/import\/[a-zA-Z0-9_-]+\/status$/.test(path) ||
             // In-flight import polling: /api/spotify/imports/active
-            path === "/api/spotify/imports/active"
+            path === "/api/spotify/imports/active" ||
+            // Import progress/history polling: /api/spotify/imports/recent
+            path === "/api/spotify/imports/recent"
         );
     },
     ...trustProxyValidation,

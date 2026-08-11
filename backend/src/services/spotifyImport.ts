@@ -109,6 +109,27 @@ export interface ImportJob {
 }
 
 /**
+ * Everything about an import job except the pendingTracks payload, which is far
+ * too large to ship to a client that only wants to show progress.
+ */
+const IMPORT_JOB_SUMMARY_SELECT = {
+    id: true,
+    spotifyPlaylistId: true,
+    playlistName: true,
+    status: true,
+    progress: true,
+    albumsTotal: true,
+    albumsCompleted: true,
+    tracksMatched: true,
+    tracksTotal: true,
+    tracksDownloadable: true,
+    createdPlaylistId: true,
+    error: true,
+    createdAt: true,
+    updatedAt: true,
+} as const;
+
+/**
  * Statuses in which an import is still doing work. Everything else is terminal.
  */
 export const ACTIVE_IMPORT_STATUSES = [
@@ -2591,22 +2612,31 @@ class SpotifyImportService {
                 updatedAt: { gte: cutoff },
             },
             orderBy: { createdAt: "desc" },
-            select: {
-                id: true,
-                spotifyPlaylistId: true,
-                playlistName: true,
-                status: true,
-                progress: true,
-                albumsTotal: true,
-                albumsCompleted: true,
-                tracksMatched: true,
-                tracksTotal: true,
-                tracksDownloadable: true,
-                createdPlaylistId: true,
-                error: true,
-                createdAt: true,
-                updatedAt: true,
-            },
+            select: IMPORT_JOB_SUMMARY_SELECT,
+        });
+
+        return dbJobs.map((job) => ({
+            ...job,
+            status: job.status as ImportJob["status"],
+        }));
+    }
+
+    /**
+     * A user's most recent imports, running and finished alike, newest first.
+     *
+     * Shares the lightweight shape with getActiveJobs so the UI can show
+     * progress and history from one list, and can be polled while something is
+     * still running.
+     */
+    async getRecentJobs(
+        userId: string,
+        limit = 20
+    ): Promise<ActiveImportJob[]> {
+        const dbJobs = await prisma.spotifyImportJob.findMany({
+            where: { userId },
+            orderBy: { createdAt: "desc" },
+            take: Math.min(Math.max(limit, 1), 100),
+            select: IMPORT_JOB_SUMMARY_SELECT,
         });
 
         return dbJobs.map((job) => ({

@@ -303,6 +303,30 @@ router.get("/imports/active", async (req, res) => {
 });
 
 /**
+ * GET /api/spotify/imports/recent
+ * Recent imports, running and finished, so progress and history can be shown
+ * together where the user starts imports rather than only in the Activity panel.
+ */
+router.get("/imports/recent", async (req, res) => {
+    try {
+        if (!req.user) {
+            return res.status(401).json({ error: "Unauthorized" });
+        }
+        const limit = Number.parseInt(String(req.query.limit ?? "20"), 10);
+        const jobs = await spotifyImportService.getRecentJobs(
+            req.user.id,
+            Number.isFinite(limit) ? limit : 20
+        );
+        res.json(jobs);
+    } catch (error: any) {
+        logger.error("Spotify recent imports error:", error);
+        res.status(500).json({
+            error: error.message || "Failed to get recent imports",
+        });
+    }
+});
+
+/**
  * GET /api/spotify/imports
  * Get all import jobs for the current user
  */
