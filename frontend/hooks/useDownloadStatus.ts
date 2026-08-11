@@ -3,7 +3,7 @@ import { api } from "@/lib/api";
 
 export interface DownloadJob {
     id: string;
-    type: "artist" | "album";
+    type: "artist" | "album" | "track";
     subject: string;
     targetMbid: string;
     status: "pending" | "processing" | "completed" | "failed";
@@ -19,8 +19,16 @@ export interface DownloadJob {
         soulseekAttempts?: number;
         /** Soulseek: search query shown in UI (e.g. "Artist - Album") */
         soulseekSearchQuery?: string;
-        /** Soulseek: "searching" | "downloading" */
+        /** Soulseek: "searching" | "selecting" | "downloading" | "completed" | "failed" */
         soulseekPhase?: string;
+        /** Single-track: candidate peers being tried, of which soulseekAttempts is current */
+        soulseekCandidates?: number;
+        /** Single-track: peer currently serving the transfer */
+        soulseekUser?: string;
+        /** Single-track: filename being transferred */
+        soulseekFilename?: string;
+        /** Single-track: absolute path written on success */
+        filePath?: string;
         /** Soulseek: number of tracks that had search results */
         soulseekMatchesFound?: number;
         /** Soulseek: tracks finished (downloaded or failed) */

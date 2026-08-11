@@ -7,8 +7,15 @@ import { logger } from "../utils/logger";
 
 import { Router } from "express";
 import { requireAuth } from "../middleware/auth";
-import { soulseekService, SearchResult } from "../services/soulseek";
+import {
+    soulseekService,
+    SearchResult,
+    SoulseekProgress,
+    TrackMatch,
+} from "../services/soulseek";
 import { getSystemSettings } from "../utils/systemSettings";
+import { prisma } from "../utils/db";
+import { Prisma } from "@prisma/client";
 import { randomUUID } from "crypto";
 
 const router = Router();
@@ -266,8 +273,151 @@ router.get("/search/:searchId", requireAuth, async (req, res) => {
 });
 
 /**
+ * Synthetic targetMbid for track jobs with no MusicBrainz id, matching the
+ * convention in discoverWeekly so every `type: "track"` job looks alike in the DB.
+ */
+function syntheticTrackMbid(artist: string, title: string): string {
+    return `track:${artist}:${title}`.toLowerCase().slice(0, 180);
+}
+
+/**
+ * Run a Soulseek acquisition to completion and record progress on the job.
+ *
+ * Deliberately not awaited by the request handler: a search alone takes 45s and
+ * each of up to five transfer attempts adds 30-60s, so the work routinely
+ * outlives both the frontend proxy timeout and the backend request timeout.
+ */
+async function runSoulseekDownload(opts: {
+    jobId: string;
+    artist: string;
+    title: string;
+    album: string;
+    musicPath: string;
+    /** Set when the caller picked an exact file from search results. */
+    chosen?: TrackMatch;
+}): Promise<void> {
+    const { jobId, artist, title, album, musicPath, chosen } = opts;
+
+    const mergeMetadata = async (patch: Record<string, unknown>) => {
+        const job = await prisma.downloadJob.findUnique({
+            where: { id: jobId },
+            select: { metadata: true },
+        });
+        // The user can dismiss a job while its transfer is still running.
+        if (!job) return;
+
+        const existing = (job.metadata as Record<string, unknown>) || {};
+        await prisma.downloadJob.update({
+            where: { id: jobId },
+            data: {
+                metadata: { ...existing, ...patch } as Prisma.InputJsonObject,
+            },
+        });
+    };
+
+    const onProgress = async (progress: SoulseekProgress) => {
+        await mergeMetadata({
+            statusText: progress.message,
+            soulseekPhase: progress.phase,
+            soulseekAttempts: progress.attempt,
+            soulseekCandidates: progress.totalAttempts,
+            soulseekUser: progress.username,
+            soulseekFilename: progress.filename,
+            updatedAt: new Date().toISOString(),
+        });
+    };
+
+    try {
+        await prisma.downloadJob.update({
+            where: { id: jobId },
+            data: { status: "processing", startedAt: new Date(), attempts: 1 },
+        });
+
+        let result: { success: boolean; filePath?: string; error?: string };
+
+        if (chosen) {
+            await onProgress({
+                phase: "downloading",
+                message: `Downloading "${chosen.filename}" from ${chosen.username}`,
+                attempt: 1,
+                totalAttempts: 1,
+                username: chosen.username,
+                filename: chosen.filename,
+            });
+
+            // Honour the exact file the user picked rather than re-searching, but
+            // reuse downloadBestMatch so the destination layout stays identical
+            // to every other Soulseek acquisition.
+            result = await soulseekService.downloadBestMatch(
+                artist,
+                title,
+                album,
+                [chosen],
+                musicPath
+            );
+
+            await onProgress({
+                phase: result.success ? "completed" : "failed",
+                message: result.success
+                    ? `Downloaded "${chosen.filename}" from ${chosen.username}`
+                    : result.error || "Download failed",
+                username: chosen.username,
+                filename: chosen.filename,
+            });
+        } else {
+            result = await soulseekService.searchAndDownload(
+                artist,
+                title,
+                album,
+                musicPath,
+                onProgress
+            );
+        }
+
+        if (result.success) {
+            logger.debug(
+                `[Soulseek] Job ${jobId} completed: ${result.filePath}`
+            );
+            await prisma.downloadJob.update({
+                where: { id: jobId },
+                data: {
+                    status: "completed",
+                    completedAt: new Date(),
+                    error: null,
+                },
+            });
+            await mergeMetadata({ filePath: result.filePath });
+        } else {
+            logger.warn(`[Soulseek] Job ${jobId} failed: ${result.error}`);
+            await prisma.downloadJob.update({
+                where: { id: jobId },
+                data: {
+                    status: "failed",
+                    completedAt: new Date(),
+                    error: result.error || "Download failed",
+                },
+            });
+        }
+    } catch (error: any) {
+        logger.error(`[Soulseek] Job ${jobId} errored:`, error.message);
+        await prisma.downloadJob
+            .update({
+                where: { id: jobId },
+                data: {
+                    status: "failed",
+                    completedAt: new Date(),
+                    error: error.message || "Download failed",
+                },
+            })
+            .catch(() => {
+                // Job may have been deleted while the transfer was running.
+            });
+    }
+}
+
+/**
  * POST /soulseek/download
- * Download a track directly
+ * Queue a track download. Returns 202 with a job id to poll via GET /downloads/:id.
  */
 router.post(
     "/download",
@@ -275,7 +425,16 @@ router.post(
     requireSoulseekConfigured,
     async (req, res) => {
         try {
-            const { artist, title, album, filepath, filename } = req.body;
+            const {
+                artist,
+                title,
+                album,
+                filepath,
+                filename,
+                username,
+                size,
+                bitrate,
+            } = req.body;
 
             // Derive artist/title from filename if not provided
             let resolvedArtist = artist;
@@ -302,26 +461,79 @@ router.post(
                 });
             }
 
-            logger.debug(`[Soulseek] Downloading: "${resolvedArtist} - ${resolvedTitle}"`);
+            const resolvedAlbum = album || "Unknown Album";
 
-            const result = await soulseekService.searchAndDownload(
-                resolvedArtist,
-                resolvedTitle,
-                album || "Unknown Album",
-                musicPath,
+            // When the caller came from search results it already knows which
+            // peer and file it wants; searching again could pick a different one.
+            const chosen: TrackMatch | undefined =
+                username && filepath
+                    ? {
+                          username,
+                          filename:
+                              filename ||
+                              filepath.split(/[/\\]/).pop() ||
+                              filepath,
+                          fullPath: filepath,
+                          size: typeof size === "number" ? size : 0,
+                          bitRate: typeof bitrate === "number" ? bitrate : undefined,
+                          quality: "user-selected",
+                          score: 0,
+                      }
+                    : undefined;
+
+            const job = await prisma.downloadJob.create({
+                data: {
+                    userId: req.user!.id,
+                    subject: `${resolvedArtist} - ${resolvedTitle}`,
+                    type: "track",
+                    targetMbid: syntheticTrackMbid(resolvedArtist, resolvedTitle),
+                    status: "pending",
+                    metadata: {
+                        downloadType: "library",
+                        currentSource: "soulseek",
+                        artistName: resolvedArtist,
+                        trackTitle: resolvedTitle,
+                        albumTitle: resolvedAlbum,
+                        soulseekPhase: "searching",
+                        soulseekSearchQuery: `${resolvedArtist} - ${resolvedTitle}`,
+                        statusText: chosen
+                            ? `Queued "${chosen.filename}" from ${chosen.username}`
+                            : `Queued search for "${resolvedArtist} - ${resolvedTitle}"`,
+                        ...(chosen
+                            ? {
+                                  soulseekUser: chosen.username,
+                                  soulseekFilename: chosen.filename,
+                              }
+                            : {}),
+                    },
+                },
+            });
+
+            logger.debug(
+                `[Soulseek] Queued job ${job.id}: "${resolvedArtist} - ${resolvedTitle}"`
             );
 
-            if (result.success) {
-                res.json({
-                    success: true,
-                    filePath: result.filePath,
-                });
-            } else {
-                res.status(404).json({
-                    success: false,
-                    error: result.error || "Download failed",
-                });
-            }
+            runSoulseekDownload({
+                jobId: job.id,
+                artist: resolvedArtist,
+                title: resolvedTitle,
+                album: resolvedAlbum,
+                musicPath,
+                chosen,
+            }).catch((error) => {
+                logger.error(
+                    `[Soulseek] Unhandled failure for job ${job.id}:`,
+                    error?.message
+                );
+            });
+
+            res.status(202).json({
+                success: true,
+                queued: true,
+                jobId: job.id,
+                subject: job.subject,
+                message: `Queued "${resolvedTitle}" — track progress in Activity`,
+            });
         } catch (error: any) {
             logger.error("Soulseek download error:", error.message);
             res.status(500).json({

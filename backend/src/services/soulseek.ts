@@ -48,6 +48,27 @@ export interface SearchTrackResult {
     allMatches: TrackMatch[]; // All ranked matches for retry
 }
 
+/**
+ * Stage of a single-track acquisition.
+ *
+ * A Soulseek download can legitimately run for minutes (45s search plus up to
+ * five transfer attempts), which is far longer than any HTTP request should be
+ * held open. Callers run it in the background and surface these updates instead.
+ */
+export interface SoulseekProgress {
+    phase: "searching" | "selecting" | "downloading" | "completed" | "failed";
+    message: string;
+    /** 1-based transfer attempt, when in the downloading phase. */
+    attempt?: number;
+    totalAttempts?: number;
+    username?: string;
+    filename?: string;
+}
+
+export type SoulseekProgressCallback = (
+    progress: SoulseekProgress
+) => void | Promise<void>;
+
 class SoulseekService {
     private client: SlskClient | null = null;
     private connecting = false;
@@ -990,12 +1011,35 @@ class SoulseekService {
         artistName: string,
         trackTitle: string,
         albumName: string,
-        musicPath: string
+        musicPath: string,
+        onProgress?: SoulseekProgressCallback
     ): Promise<{ success: boolean; filePath?: string; error?: string }> {
+        const report = async (progress: SoulseekProgress) => {
+            try {
+                await onProgress?.(progress);
+            } catch (err: any) {
+                // Progress reporting must never abort an in-flight download.
+                sessionLog(
+                    "SOULSEEK",
+                    `Progress callback failed: ${err.message}`,
+                    "WARN"
+                );
+            }
+        };
+
+        await report({
+            phase: "searching",
+            message: `Searching Soulseek for "${artistName} - ${trackTitle}"`,
+        });
+
         // Search for the track
         const searchResult = await this.searchTrack(artistName, trackTitle);
 
         if (!searchResult.found || searchResult.allMatches.length === 0) {
+            await report({
+                phase: "failed",
+                message: "No suitable match found on the Soulseek network",
+            });
             return { success: false, error: "No suitable match found" };
         }
 
@@ -1009,6 +1053,12 @@ class SoulseekService {
             this.MAX_DOWNLOAD_RETRIES
         );
 
+        await report({
+            phase: "selecting",
+            message: `Found ${searchResult.allMatches.length} candidates; trying up to ${matchesToTry.length}`,
+            totalAttempts: matchesToTry.length,
+        });
+
         for (let attempt = 0; attempt < matchesToTry.length; attempt++) {
             const match = matchesToTry[attempt];
 
@@ -1018,6 +1068,15 @@ class SoulseekService {
                     match.username
                 } for ${match.filename}`
             );
+
+            await report({
+                phase: "downloading",
+                message: `Downloading "${match.filename}" from ${match.username}`,
+                attempt: attempt + 1,
+                totalAttempts: matchesToTry.length,
+                username: match.username,
+                filename: match.filename,
+            });
 
             // Build destination path: Artist/Album/filename (Lidarr format)
             const destPath = path.join(
@@ -1039,6 +1098,14 @@ class SoulseekService {
                         })`
                     );
                 }
+                await report({
+                    phase: "completed",
+                    message: `Downloaded "${match.filename}" from ${match.username}`,
+                    attempt: attempt + 1,
+                    totalAttempts: matchesToTry.length,
+                    username: match.username,
+                    filename: match.filename,
+                });
                 return { success: true, filePath: destPath };
             }
 
@@ -1060,6 +1127,13 @@ class SoulseekService {
             `All ${matchesToTry.length} download attempts failed for: ${artistName} - ${trackTitle}`,
             "ERROR"
         );
+        await report({
+            phase: "failed",
+            message: `All ${matchesToTry.length} candidate${
+                matchesToTry.length === 1 ? "" : "s"
+            } failed to transfer`,
+            totalAttempts: matchesToTry.length,
+        });
         return {
             success: false,
             error: `All ${matchesToTry.length} attempts failed: ${errors.join(

@@ -38,7 +38,7 @@ export function useSingleTrackDownload() {
             setIsDownloading(true);
             setDownloadingTrackId(trackId);
             const toastId = `download-track-${trackId}`;
-            toast.loading(`Searching for "${trackTitle}"...`, { id: toastId });
+            toast.loading(`Queueing "${trackTitle}"...`, { id: toastId });
 
             try {
                 const result = await api.downloadTrackByArtistTitle(
@@ -48,7 +48,12 @@ export function useSingleTrackDownload() {
                 );
 
                 if (result?.success) {
-                    toast.success(`Downloaded "${trackTitle}"`, { id: toastId });
+                    // The transfer runs in the background and can take minutes;
+                    // Activity is where its progress and outcome show up.
+                    toast.success(
+                        `Searching for "${trackTitle}" — see Activity for progress`,
+                        { id: toastId }
+                    );
                     if (typeof window !== "undefined") {
                         window.dispatchEvent(
                             new CustomEvent("set-activity-panel-tab", { detail: { tab: "active" } })

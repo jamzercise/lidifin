@@ -1,5 +1,19 @@
 import { ApiClient, ApiData, ServiceTestResult } from "./client";
 
+/**
+ * Soulseek downloads are accepted, not completed, by the API. A search takes 45s
+ * and each transfer attempt adds 30-60s, so the backend queues a DownloadJob and
+ * returns immediately; progress is polled via getDownloadStatus(jobId).
+ */
+export interface SoulseekQueuedDownload {
+    success: boolean;
+    queued?: boolean;
+    jobId?: string;
+    subject?: string;
+    message?: string;
+    error?: string;
+}
+
 declare module "./client" {
     interface ApiClient {
         getSettings(): Promise<ApiData>;
@@ -38,8 +52,8 @@ declare module "./client" {
         getSlskdStatus(): Promise<{ enabled: boolean; connected: boolean; username?: string; message?: string }>;
         searchSoulseek(query: string): Promise<{ searchId: string; message: string }>;
         getSoulseekResults(searchId: string): Promise<{ results: ApiData[]; count: number }>;
-        downloadFromSoulseek(username: string, filepath: string, filename?: string, size?: number, artist?: string, album?: string, title?: string): Promise<{ success: boolean; message: string; filename: string }>;
-        downloadTrackByArtistTitle(artist: string, title: string, album?: string): Promise<{ success: boolean; filePath?: string; error?: string }>;
+        downloadFromSoulseek(username: string, filepath: string, filename?: string, size?: number, artist?: string, album?: string, title?: string): Promise<SoulseekQueuedDownload>;
+        downloadTrackByArtistTitle(artist: string, title: string, album?: string): Promise<SoulseekQueuedDownload>;
         getSlskdDownloads(): Promise<{ downloads: ApiData[]; count: number }>;
         getEnrichmentSettings(): Promise<ApiData>;
         updateEnrichmentSettings(settings: ApiData): Promise<ApiData>;
