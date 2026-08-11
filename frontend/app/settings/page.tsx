@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useState, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { RestartModal } from "@/components/ui/RestartModal";
@@ -71,20 +71,8 @@ export default function SettingsPage() {
         testService,
     } = useSystemSettings();
 
-    // Handle initial hash for section scrolling
-    useEffect(() => {
-        if (typeof window !== "undefined") {
-            const hash = window.location.hash.substring(1);
-            if (hash) {
-                setTimeout(() => {
-                    const element = document.getElementById(hash);
-                    if (element) {
-                        element.scrollIntoView({ behavior: "smooth", block: "start" });
-                    }
-                }, 100);
-            }
-        }
-    }, []);
+    // Initial hash handling lives in SettingsLayout, which also has to expand
+    // the target section before scrolling to it.
 
     // Unified save function
     const handleSaveAll = useCallback(async () => {
