@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, Suspense } from "react";
+import { useState, useEffect, useRef, useCallback, Suspense } from "react";
 import { formatTime } from "@/utils/formatTime";
 import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
@@ -23,6 +23,10 @@ import {
     importStatusLabel,
     type ImportStatus,
 } from "@/hooks/useActiveImports";
+import {
+    EditableTrackRow,
+    type TrackEdit,
+} from "@/features/import/components/EditableTrackRow";
 
 // Deezer icon
 const DeezerIcon = ({ className }: { className?: string }) => (
@@ -152,8 +156,40 @@ function SpotifyImportPageContent() {
         string | null
     >(null);
     const [expandedSection, setExpandedSection] = useState<
-        "matched" | "download" | "notfound" | null
+        "matched" | "download" | null
     >("matched");
+    // Corrections the user has made, keyed by source track id. Sent with the
+    // re-check and with the import so the backend applies them before matching.
+    const [trackEdits, setTrackEdits] = useState<Record<string, TrackEdit>>({});
+    const [expandedAlbums, setExpandedAlbums] = useState<Set<string>>(
+        new Set()
+    );
+    const [editingTrackId, setEditingTrackId] = useState<string | null>(null);
+    const [isRechecking, setIsRechecking] = useState(false);
+    // Which corrections the preview on screen was actually built with, so we can
+    // tell when what's displayed no longer reflects the pending edits.
+    const [previewEditSignature, setPreviewEditSignature] = useState("[]");
+
+    // Adopt a freshly fetched preview, dropping anything tied to whatever
+    // playlist was loaded before it.
+    const applyFreshPreview = useCallback((result: ImportPreview) => {
+        setPreview(result);
+        setPlaylistName(result.playlist.name);
+        // Select every album: Soulseek can search for any track, even without an
+        // MBID, so nothing is inherently unavailable.
+        setSelectedAlbums(
+            new Set(
+                result.albumsToDownload.map(
+                    (a) => a.albumMbid || a.spotifyAlbumId
+                )
+            )
+        );
+        setTrackEdits({});
+        setPreviewEditSignature("[]");
+        setExpandedAlbums(new Set());
+        setEditingTrackId(null);
+        setStep("preview");
+    }, []);
 
     // Pick a job back up when the page is loaded with one in the URL. This is
     // what makes a refresh mid-import land back on the progress view instead of
@@ -193,16 +229,7 @@ function SpotifyImportPageContent() {
                             url: urlParam,
                         }
                     );
-                    setPreview(result);
-                    setPlaylistName(result.playlist.name);
-
-                    // Auto-select all albums (Soulseek can search for any track, even without MBID)
-                    const downloadableAlbumIds = result.albumsToDownload.map(
-                        (a) => a.albumMbid || a.spotifyAlbumId
-                    );
-                    setSelectedAlbums(new Set(downloadableAlbumIds));
-
-                    setStep("preview");
+                    applyFreshPreview(result);
                 } catch (err) {
                     const message =
                         err instanceof Error
@@ -214,7 +241,7 @@ function SpotifyImportPageContent() {
                 }
             })();
         }
-    }, [searchParams, toast]);
+    }, [searchParams, toast, applyFreshPreview]);
 
     // Only the id and liveness matter here; depending on the whole job object
     // would tear down and rebuild the interval on every poll.
@@ -225,6 +252,16 @@ function SpotifyImportPageContent() {
     const otherActiveImports = activeImports.filter(
         (job) => job.id !== importJob?.id
     );
+
+    const editList = Object.values(trackEdits);
+    const editSignature = JSON.stringify(
+        editList
+            .map((e) => [e.spotifyId, e.artist, e.title, e.album])
+            .sort((a, b) => String(a[0]).localeCompare(String(b[0])))
+    );
+    // True while the preview on screen was built from a different set of
+    // corrections than the ones currently pending.
+    const hasUncheckedEdits = editSignature !== previewEditSignature;
 
     // Poll for import job status
     useEffect(() => {
@@ -276,16 +313,7 @@ function SpotifyImportPageContent() {
             const result = await api.post<ImportPreview>("/spotify/preview", {
                 url,
             });
-            setPreview(result);
-            setPlaylistName(result.playlist.name);
-
-            // Auto-select all albums (Soulseek can search for any track, even without MBID)
-            const downloadableAlbumIds = result.albumsToDownload.map(
-                (a) => a.albumMbid || a.spotifyAlbumId
-            );
-            setSelectedAlbums(new Set(downloadableAlbumIds));
-
-            setStep("preview");
+            applyFreshPreview(result);
         } catch (err) {
             const message =
                 err instanceof Error ? err.message : "Failed to fetch playlist";
@@ -309,6 +337,7 @@ function SpotifyImportPageContent() {
                     url,
                     playlistName: playlistName || preview.playlist.name,
                     albumMbidsToDownload: Array.from(selectedAlbums),
+                    trackEdits: editList,
                 }
             );
 
@@ -340,6 +369,99 @@ function SpotifyImportPageContent() {
             toast.error(message);
         } finally {
             setIsLoading(false);
+        }
+    };
+
+    const toggleAlbumExpanded = (albumKey: string) => {
+        setExpandedAlbums((prev) => {
+            const next = new Set(prev);
+            if (next.has(albumKey)) {
+                next.delete(albumKey);
+            } else {
+                next.add(albumKey);
+            }
+            return next;
+        });
+    };
+
+    const saveTrackEdit = (
+        track: SpotifyTrack,
+        values: { artist: string; title: string; album: string },
+        groupTracks: SpotifyTrack[],
+        applyAlbumToGroup: boolean
+    ) => {
+        setTrackEdits((prev) => {
+            const next = { ...prev };
+            next[track.spotifyId] = {
+                spotifyId: track.spotifyId,
+                artist: values.artist.trim(),
+                title: values.title.trim(),
+                album: values.album.trim(),
+            };
+
+            if (applyAlbumToGroup) {
+                // Fixing one track's album usually means the whole group was
+                // labelled wrong, so carry it across without touching titles.
+                for (const sibling of groupTracks) {
+                    if (sibling.spotifyId === track.spotifyId) continue;
+                    const existing = next[sibling.spotifyId];
+                    next[sibling.spotifyId] = {
+                        spotifyId: sibling.spotifyId,
+                        artist: existing?.artist ?? sibling.artist,
+                        title: existing?.title ?? sibling.title,
+                        album: values.album.trim(),
+                    };
+                }
+            }
+
+            return next;
+        });
+        setEditingTrackId(null);
+    };
+
+    const revertTrackEdit = (spotifyId: string) => {
+        setTrackEdits((prev) => {
+            const next = { ...prev };
+            delete next[spotifyId];
+            return next;
+        });
+    };
+
+    // Re-run the preview with the corrections applied so the user can see
+    // whether a fix actually found the track before committing to an import.
+    const handleRecheckMatches = async () => {
+        if (!preview) return;
+
+        const signatureForThisRun = editSignature;
+        setIsRechecking(true);
+        try {
+            const result = await api.post<ImportPreview>("/spotify/preview", {
+                url:
+                    url ||
+                    `https://open.spotify.com/playlist/${preview.playlist.id}`,
+                trackEdits: editList,
+            });
+            setPreview(result);
+            setSelectedAlbums(
+                new Set(
+                    result.albumsToDownload.map(
+                        (a) => a.albumMbid || a.spotifyAlbumId
+                    )
+                )
+            );
+            setEditingTrackId(null);
+            setPreviewEditSignature(signatureForThisRun);
+            toast.success(
+                `${result.summary.inLibrary} of ${result.summary.total} songs now match your library`
+            );
+        } catch (err) {
+            const message =
+                err instanceof Error
+                    ? err.message
+                    : "Failed to re-check matches";
+            toast.error(message);
+        } finally {
+            setIsRechecking(false);
         }
     };
 
@@ -637,36 +759,56 @@ function SpotifyImportPageContent() {
                             </div>
                             <div className="text-center py-3 bg-[#1DB954]/10 rounded-lg">
                                 <div className="text-xl font-bold text-[#1DB954]">
-                                    {
-                                        preview.albumsToDownload.filter(
-                                            (a) => a.albumMbid
-                                        ).length
-                                    }
+                                    {preview.albumsToDownload.length}
                                 </div>
                                 <div className="text-xs text-gray-500">
-                                    To Download
+                                    Albums to get
                                 </div>
                             </div>
-                            {preview.summary.notFound > 0 ? (
-                                <div className="text-center py-3 bg-red-500/10 rounded-lg">
-                                    <div className="text-xl font-bold text-red-400">
-                                        {preview.summary.notFound}
-                                    </div>
-                                    <div className="text-xs text-gray-500">
-                                        Not Found
-                                    </div>
+                            <div className="text-center py-3 bg-[#1DB954]/10 rounded-lg">
+                                <div className="text-xl font-bold text-[#1DB954]">
+                                    {preview.summary.downloadable}
                                 </div>
-                            ) : (
-                                <div className="text-center py-3 bg-green-500/10 rounded-lg">
-                                    <div className="text-xl font-bold text-green-400">
-                                        ✓
-                                    </div>
-                                    <div className="text-xs text-gray-500">
-                                        All Matched
-                                    </div>
+                                <div className="text-xs text-gray-500">
+                                    Songs to get
                                 </div>
-                            )}
+                            </div>
                         </div>
+
+                        {/* Corrections the displayed preview doesn't reflect yet */}
+                        {hasUncheckedEdits && (
+                            <div className="flex items-center gap-3 p-3 rounded-lg bg-[#B1D2C3]/10 border border-[#B1D2C3]/20">
+                                <div className="flex-1 min-w-0">
+                                    <p className="text-sm text-white">
+                                        {editList.length > 0
+                                            ? `${editList.length} correction${
+                                                  editList.length === 1
+                                                      ? ""
+                                                      : "s"
+                                              } not applied to what's shown`
+                                            : "Corrections removed"}
+                                    </p>
+                                    <p className="text-xs text-gray-400">
+                                        Re-check to see what they match. The
+                                        import uses them either way.
+                                    </p>
+                                </div>
+                                <button
+                                    onClick={handleRecheckMatches}
+                                    disabled={isRechecking}
+                                    className="shrink-0 px-3 py-1.5 rounded-full text-xs font-medium bg-[#B1D2C3] text-black hover:brightness-110 disabled:opacity-50 transition-all inline-flex items-center gap-1.5"
+                                >
+                                    {isRechecking ? (
+                                        <>
+                                            <Loader2 className="w-3 h-3 animate-spin" />
+                                            Re-checking...
+                                        </>
+                                    ) : (
+                                        "Re-check matches"
+                                    )}
+                                </button>
+                            </div>
+                        )}
 
                         {/* Tracks already in library */}
                         {preview.summary.inLibrary > 0 && (
@@ -739,8 +881,7 @@ function SpotifyImportPageContent() {
                         )}
 
                         {/* Albums to download */}
-                        {preview.albumsToDownload.filter((a) => a.albumMbid)
-                            .length > 0 && (
+                        {preview.albumsToDownload.length > 0 && (
                             <div className="bg-white/5 rounded-lg overflow-hidden">
                                 <button
                                     onClick={() =>
@@ -755,15 +896,11 @@ function SpotifyImportPageContent() {
                                     <div className="flex items-center gap-2">
                                         <Download className="w-4 h-4 text-[#1DB954]" />
                                         <span className="text-sm font-medium text-white">
-                                            {
-                                                preview.albumsToDownload.filter(
-                                                    (a) =>
-                                                        a.albumMbid ||
-                                                        a.albumName ===
-                                                            "Unknown Album"
-                                                ).length
-                                            }{" "}
+                                            {preview.albumsToDownload.length}{" "}
                                             albums to download
+                                        </span>
+                                        <span className="text-xs text-gray-500">
+                                            — expand to fix details
                                         </span>
                                     </div>
                                     {expandedSection === "download" ? (
@@ -791,126 +928,172 @@ function SpotifyImportPageContent() {
                                         <div
                                             role="group"
                                             aria-label="Albums to download"
-                                            className="max-h-48 overflow-y-auto"
+                                            className="max-h-96 overflow-y-auto"
                                         >
                                             {preview.albumsToDownload.map(
                                                 (album, index) => {
                                                     const albumKey =
                                                         album.albumMbid ||
                                                         album.spotifyAlbumId;
+                                                    const rowKey =
+                                                        albumKey ||
+                                                        `album-${index}`;
+                                                    const isExpanded =
+                                                        expandedAlbums.has(
+                                                            rowKey
+                                                        );
+                                                    const editedCount =
+                                                        album.tracksNeeded.filter(
+                                                            (t) =>
+                                                                trackEdits[
+                                                                    t.spotifyId
+                                                                ]
+                                                        ).length;
+
                                                     return (
-                                                        <label
-                                                            key={
-                                                                albumKey ||
-                                                                `album-${index}`
-                                                            }
-                                                            className="flex items-center gap-3 px-4 py-2.5 hover:bg-white/5 cursor-pointer border-b border-white/5 last:border-0"
+                                                        <div
+                                                            key={rowKey}
+                                                            className="border-b border-white/5 last:border-0"
                                                         >
-                                                            <input
-                                                                type="checkbox"
-                                                                checked={selectedAlbums.has(
-                                                                    albumKey
-                                                                )}
-                                                                onChange={() =>
-                                                                    toggleAlbum(
+                                                            <div className="flex items-center gap-3 px-4 py-2.5 hover:bg-white/5">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={selectedAlbums.has(
                                                                         albumKey
-                                                                    )
-                                                                }
-                                                                className="w-4 h-4 rounded border-white/20 bg-transparent text-[#1DB954] focus:ring-[#1DB954] focus:ring-offset-0"
-                                                            />
-                                                            {album.coverUrl && (
-                                                                <div className="relative w-10 h-10">
-                                                                    <Image
-                                                                        src={album.coverUrl}
-                                                                        alt={album.albumName}
-                                                                        fill
-                                                                        sizes="40px"
-                                                                        className="rounded object-cover"
-                                                                        unoptimized
-                                                                    />
+                                                                    )}
+                                                                    onChange={() =>
+                                                                        toggleAlbum(
+                                                                            albumKey
+                                                                        )
+                                                                    }
+                                                                    aria-label={`Download ${album.albumName} by ${album.artistName}`}
+                                                                    className="w-4 h-4 rounded border-white/20 bg-transparent text-[#1DB954] focus:ring-[#1DB954] focus:ring-offset-0"
+                                                                />
+                                                                {album.coverUrl && (
+                                                                    <div className="relative w-10 h-10 shrink-0">
+                                                                        <Image
+                                                                            src={album.coverUrl}
+                                                                            alt={album.albumName}
+                                                                            fill
+                                                                            sizes="40px"
+                                                                            className="rounded object-cover"
+                                                                            unoptimized
+                                                                        />
+                                                                    </div>
+                                                                )}
+                                                                <button
+                                                                    onClick={() =>
+                                                                        toggleAlbumExpanded(
+                                                                            rowKey
+                                                                        )
+                                                                    }
+                                                                    aria-expanded={
+                                                                        isExpanded
+                                                                    }
+                                                                    className="flex-1 min-w-0 flex items-center gap-2 text-left"
+                                                                >
+                                                                    <span className="flex-1 min-w-0">
+                                                                        <span className="block text-sm text-white truncate">
+                                                                            {
+                                                                                album.albumName
+                                                                            }
+                                                                        </span>
+                                                                        <span className="block text-xs text-gray-500 truncate">
+                                                                            {
+                                                                                album.artistName
+                                                                            }{" "}
+                                                                            ·{" "}
+                                                                            {
+                                                                                album.tracksNeeded
+                                                                                    .length
+                                                                            }{" "}
+                                                                            songs
+                                                                            needed
+                                                                            {editedCount >
+                                                                                0 && (
+                                                                                <span className="text-[#B1D2C3]">
+                                                                                    {" "}
+                                                                                    ·{" "}
+                                                                                    {
+                                                                                        editedCount
+                                                                                    }{" "}
+                                                                                    edited
+                                                                                </span>
+                                                                            )}
+                                                                        </span>
+                                                                    </span>
+                                                                    {isExpanded ? (
+                                                                        <ChevronUp className="w-4 h-4 text-gray-500 shrink-0" />
+                                                                    ) : (
+                                                                        <ChevronDown className="w-4 h-4 text-gray-500 shrink-0" />
+                                                                    )}
+                                                                </button>
+                                                            </div>
+
+                                                            {isExpanded && (
+                                                                <div className="bg-black/20 border-t border-white/5">
+                                                                    {album.tracksNeeded.map(
+                                                                        (
+                                                                            trackNeeded
+                                                                        ) => (
+                                                                            <EditableTrackRow
+                                                                                key={
+                                                                                    trackNeeded.spotifyId
+                                                                                }
+                                                                                track={
+                                                                                    trackNeeded
+                                                                                }
+                                                                                albumTrackCount={
+                                                                                    album
+                                                                                        .tracksNeeded
+                                                                                        .length
+                                                                                }
+                                                                                isEdited={Boolean(
+                                                                                    trackEdits[
+                                                                                        trackNeeded
+                                                                                            .spotifyId
+                                                                                    ]
+                                                                                )}
+                                                                                isEditing={
+                                                                                    editingTrackId ===
+                                                                                    trackNeeded.spotifyId
+                                                                                }
+                                                                                onStartEdit={() =>
+                                                                                    setEditingTrackId(
+                                                                                        trackNeeded.spotifyId
+                                                                                    )
+                                                                                }
+                                                                                onCancelEdit={() =>
+                                                                                    setEditingTrackId(
+                                                                                        null
+                                                                                    )
+                                                                                }
+                                                                                onSave={(
+                                                                                    values,
+                                                                                    applyAlbumToGroup
+                                                                                ) =>
+                                                                                    saveTrackEdit(
+                                                                                        trackNeeded,
+                                                                                        values,
+                                                                                        album.tracksNeeded,
+                                                                                        applyAlbumToGroup
+                                                                                    )
+                                                                                }
+                                                                                onRevert={() =>
+                                                                                    revertTrackEdit(
+                                                                                        trackNeeded.spotifyId
+                                                                                    )
+                                                                                }
+                                                                            />
+                                                                        )
+                                                                    )}
                                                                 </div>
                                                             )}
-                                                            <div className="flex-1 min-w-0">
-                                                                <div className="text-sm text-white truncate">
-                                                                    {
-                                                                        album.albumName
-                                                                    }
-                                                                </div>
-                                                                <div className="text-xs text-gray-500 truncate">
-                                                                    {
-                                                                        album.artistName
-                                                                    }{" "}
-                                                                    ·{" "}
-                                                                    {
-                                                                        album.trackCount
-                                                                    }{" "}
-                                                                    songs
-                                                                </div>
-                                                            </div>
-                                                        </label>
+                                                        </div>
                                                     );
                                                 }
                                             )}
                                         </div>
-                                    </div>
-                                )}
-                            </div>
-                        )}
-
-                        {/* Tracks not found */}
-                        {preview.summary.notFound > 0 && (
-                            <div className="bg-white/5 rounded-lg overflow-hidden">
-                                <button
-                                    onClick={() =>
-                                        setExpandedSection(
-                                            expandedSection === "notfound"
-                                                ? null
-                                                : "notfound"
-                                        )
-                                    }
-                                    className="w-full flex items-center justify-between px-4 py-3 hover:bg-white/5 transition-colors"
-                                >
-                                    <div className="flex items-center gap-2">
-                                        <X className="w-4 h-4 text-red-400" />
-                                        <span className="text-sm font-medium text-white">
-                                            {preview.summary.notFound} songs not
-                                            found
-                                        </span>
-                                    </div>
-                                    {expandedSection === "notfound" ? (
-                                        <ChevronUp className="w-4 h-4 text-gray-500" />
-                                    ) : (
-                                        <ChevronDown className="w-4 h-4 text-gray-500" />
-                                    )}
-                                </button>
-                                {expandedSection === "notfound" && (
-                                    <div className="border-t border-white/5 max-h-48 overflow-y-auto">
-                                        {preview.albumsToDownload
-                                            .filter(
-                                                (a) =>
-                                                    !a.albumMbid &&
-                                                    a.albumName !==
-                                                        "Unknown Album"
-                                            )
-                                            .flatMap(
-                                                (album) => album.tracksNeeded
-                                            )
-                                            .map((track) => (
-                                                <div
-                                                    key={track.spotifyId}
-                                                    className="flex items-center gap-3 px-4 py-2 hover:bg-white/5"
-                                                >
-                                                    <div className="flex-1 min-w-0">
-                                                        <div className="text-sm text-gray-400 truncate">
-                                                            {track.title}
-                                                        </div>
-                                                        <div className="text-xs text-gray-600 truncate">
-                                                            {track.artist} ·{" "}
-                                                            {track.album}
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            ))}
                                     </div>
                                 )}
                             </div>

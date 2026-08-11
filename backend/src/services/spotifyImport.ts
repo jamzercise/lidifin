@@ -14,6 +14,9 @@ import { redisClient } from "../utils/redis";
 import PQueue from "p-queue";
 import { acquisitionService } from "./acquisitionService";
 import { extractPrimaryArtist } from "../utils/artistNormalization";
+import { applyTrackEdits, type TrackEdit } from "../utils/trackEdits";
+
+export type { TrackEdit };
 
 // Store loggers for each job
 const jobLoggers = new Map<string, ReturnType<typeof createPlaylistLogger>>();
@@ -935,7 +938,8 @@ class SpotifyImportService {
             imageUrl: string | null;
             trackCount: number;
         },
-        source: "Spotify" | "Deezer" | "YouTube Music"
+        source: "Spotify" | "Deezer" | "YouTube Music",
+        trackEdits?: TrackEdit[]
     ): Promise<ImportPreview> {
         const sourceKey: PlaylistSource =
             source === "Spotify"
@@ -949,6 +953,15 @@ class SpotifyImportService {
                 : source === "Deezer"
                 ? "[Deezer Import]"
                 : "[YouTube Music Import]";
+
+        // Corrections come first: an edited album name should be grouped and
+        // looked up as the user typed it, not enriched from the original.
+        if (trackEdits?.length) {
+            const applied = applyTrackEdits(tracks, trackEdits);
+            logger?.info(
+                `${logPrefix} Applied ${applied} user metadata correction(s) to the tracklist`
+            );
+        }
 
         // PHASE 0: Early MusicBrainz resolution for "Unknown Album" tracks
         // This MUST happen BEFORE grouping so tracks get grouped by actual albums
@@ -1183,7 +1196,10 @@ class SpotifyImportService {
     /**
      * Generate a preview of what will be imported
      */
-    async generatePreview(spotifyUrl: string): Promise<ImportPreview> {
+    async generatePreview(
+        spotifyUrl: string,
+        trackEdits?: TrackEdit[]
+    ): Promise<ImportPreview> {
         // Clear any stale null cache entries before processing
         // This ensures we retry previously failed lookups
         await musicBrainzService.clearStaleRecordingCaches();
@@ -1205,7 +1221,8 @@ class SpotifyImportService {
                 imageUrl: playlist.imageUrl,
                 trackCount: playlist.trackCount,
             },
-            "Spotify"
+            "Spotify",
+            trackEdits
         );
     }
 
@@ -1214,7 +1231,8 @@ class SpotifyImportService {
      * Converts Deezer tracks to Spotify format and processes them
      */
     async generatePreviewFromDeezer(
-        deezerPlaylist: any
+        deezerPlaylist: any,
+        trackEdits?: TrackEdit[]
     ): Promise<ImportPreview> {
         // Clear any stale null cache entries before processing
         await musicBrainzService.clearStaleRecordingCaches();
@@ -1255,7 +1273,8 @@ class SpotifyImportService {
                 imageUrl: deezerPlaylist.imageUrl || null,
                 trackCount: deezerPlaylist.trackCount || spotifyTracks.length,
             },
-            "Deezer"
+            "Deezer",
+            trackEdits
         );
     }
 
@@ -1264,7 +1283,8 @@ class SpotifyImportService {
      * Converts YouTube Music tracks to Spotify format and processes them
      */
     async generatePreviewFromYouTubeMusic(
-        ytPlaylist: YouTubeMusicPlaylist
+        ytPlaylist: YouTubeMusicPlaylist,
+        trackEdits?: TrackEdit[]
     ): Promise<ImportPreview> {
         await musicBrainzService.clearStaleRecordingCaches();
 
@@ -1294,7 +1314,8 @@ class SpotifyImportService {
                 imageUrl: ytPlaylist.imageUrl || null,
                 trackCount: ytPlaylist.trackCount || spotifyTracks.length,
             },
-            "YouTube Music"
+            "YouTube Music",
+            trackEdits
         );
     }
 

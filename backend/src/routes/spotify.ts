@@ -3,7 +3,11 @@ import { logger } from "../utils/logger";
 import { requireAuthOrToken } from "../middleware/auth";
 import { z } from "zod";
 import { spotifyService } from "../services/spotify";
-import { spotifyImportService } from "../services/spotifyImport";
+import {
+    spotifyImportService,
+    type ImportPreview,
+    type TrackEdit,
+} from "../services/spotifyImport";
 import { deezerService } from "../services/deezer";
 import { youtubeMusicService } from "../services/youtubeMusic";
 import { readSessionLog, getSessionLogPath } from "../utils/playlistLogger";
@@ -18,12 +22,95 @@ const parseUrlSchema = z.object({
     url: z.string().url(),
 });
 
+/**
+ * A user correction to one track, keyed by the source track id. Capped in count
+ * and length because it is applied to a playlist we re-fetch server side.
+ */
+const trackEditSchema = z.object({
+    spotifyId: z.string().min(1).max(200),
+    artist: z.string().trim().max(300).optional(),
+    title: z.string().trim().max(300).optional(),
+    album: z.string().trim().max(300).optional(),
+});
+
+const trackEditsSchema = z.array(trackEditSchema).max(2000).optional();
+
+const previewSchema = z.object({
+    url: z.string().url(),
+    trackEdits: trackEditsSchema,
+});
+
 const importSchema = z.object({
     spotifyPlaylistId: z.string(),
     url: z.string().url().optional(),
     playlistName: z.string().min(1).max(200),
     albumMbidsToDownload: z.array(z.string()),
+    trackEdits: trackEditsSchema,
 });
+
+type PreviewOutcome =
+    | { ok: true; preview: ImportPreview }
+    | { ok: false; status: number; error: string };
+
+/**
+ * Fetch a playlist from whichever service the URL points at and build the
+ * preview. Shared by /preview and /import so the import can't drift from what
+ * the user was shown — in particular so both apply the same corrections.
+ */
+async function buildPreviewForUrl(
+    url: string,
+    trackEdits?: TrackEdit[]
+): Promise<PreviewOutcome> {
+    if (url.includes("deezer.com")) {
+        const deezerMatch = url.match(/playlist[\/:](\d+)/);
+        if (!deezerMatch) {
+            return {
+                ok: false,
+                status: 400,
+                error: "Invalid Deezer playlist URL",
+            };
+        }
+        const deezerPlaylist = await deezerService.getPlaylist(deezerMatch[1]);
+        if (!deezerPlaylist) {
+            return {
+                ok: false,
+                status: 404,
+                error: "Deezer playlist not found",
+            };
+        }
+        return {
+            ok: true,
+            preview: await spotifyImportService.generatePreviewFromDeezer(
+                deezerPlaylist,
+                trackEdits
+            ),
+        };
+    }
+
+    const ytParsed = youtubeMusicService.parseUrl(url);
+    if (ytParsed?.type === "playlist") {
+        const ytPlaylist = await youtubeMusicService.getPlaylist(ytParsed.id);
+        if (!ytPlaylist) {
+            return {
+                ok: false,
+                status: 502,
+                error: "Could not fetch YouTube Music playlist. Ensure yt-dlp is installed (e.g. pip install yt-dlp) and the playlist is public.",
+            };
+        }
+        return {
+            ok: true,
+            preview: await spotifyImportService.generatePreviewFromYouTubeMusic(
+                ytPlaylist,
+                trackEdits
+            ),
+        };
+    }
+
+    return {
+        ok: true,
+        preview: await spotifyImportService.generatePreview(url, trackEdits),
+    };
+}
 
 /**
  * POST /api/spotify/parse
@@ -67,63 +154,19 @@ router.post("/parse", async (req, res) => {
  */
 router.post("/preview", async (req, res) => {
     try {
-        const { url } = parseUrlSchema.parse(req.body);
+        const { url, trackEdits } = previewSchema.parse(req.body);
 
         logger.debug(`[Playlist Import] Generating preview for: ${url}`);
 
-        // Detect if it's a Deezer URL
-        if (url.includes("deezer.com")) {
-            const deezerMatch = url.match(/playlist[\/:](\d+)/);
-            if (!deezerMatch) {
-                return res
-                    .status(400)
-                    .json({ error: "Invalid Deezer playlist URL" });
-            }
-            const playlistId = deezerMatch[1];
-            const deezerPlaylist = await deezerService.getPlaylist(playlistId);
-            if (!deezerPlaylist) {
-                return res
-                    .status(404)
-                    .json({ error: "Deezer playlist not found" });
-            }
-            const preview =
-                await spotifyImportService.generatePreviewFromDeezer(
-                    deezerPlaylist
-                );
-            logger.debug(
-                `[Playlist Import] Deezer preview generated: ${preview.summary.total} tracks, ${preview.summary.inLibrary} in library`
-            );
-            res.json(preview);
-            return;
+        const outcome = await buildPreviewForUrl(url, trackEdits);
+        if (!outcome.ok) {
+            return res.status(outcome.status).json({ error: outcome.error });
         }
 
-        // Detect if it's a YouTube Music URL
-        const ytParsed = youtubeMusicService.parseUrl(url);
-        if (ytParsed && ytParsed.type === "playlist") {
-            const ytPlaylist = await youtubeMusicService.getPlaylist(ytParsed.id);
-            if (!ytPlaylist) {
-                return res.status(502).json({
-                    error:
-                        "Could not fetch YouTube Music playlist. Ensure yt-dlp is installed (e.g. pip install yt-dlp) and the playlist is public.",
-                });
-            }
-            const preview =
-                await spotifyImportService.generatePreviewFromYouTubeMusic(
-                    ytPlaylist
-                );
-            logger.debug(
-                `[Playlist Import] YouTube Music preview generated: ${preview.summary.total} tracks, ${preview.summary.inLibrary} in library`
-            );
-            res.json(preview);
-            return;
-        }
-
-        // Handle Spotify URL
-        const preview = await spotifyImportService.generatePreview(url);
         logger.debug(
-            `[Spotify Import] Preview generated: ${preview.summary.total} tracks, ${preview.summary.inLibrary} in library`
+            `[Playlist Import] Preview generated: ${outcome.preview.summary.total} tracks, ${outcome.preview.summary.inLibrary} in library`
         );
-        res.json(preview);
+        res.json(outcome.preview);
     } catch (error: any) {
         logger.error("Playlist preview error:", error);
         if (error.name === "ZodError") {
@@ -155,8 +198,13 @@ router.post("/import", async (req, res) => {
         if (!req.user) {
             return res.status(401).json({ error: "Unauthorized" });
         }
-        const { spotifyPlaylistId, url, playlistName, albumMbidsToDownload } =
-            importSchema.parse(req.body);
+        const {
+            spotifyPlaylistId,
+            url,
+            playlistName,
+            albumMbidsToDownload,
+            trackEdits,
+        } = importSchema.parse(req.body);
         const userId = req.user.id;
 
         // Re-generate preview to ensure fresh data
@@ -164,42 +212,11 @@ router.post("/import", async (req, res) => {
             url?.trim() ||
             `https://open.spotify.com/playlist/${spotifyPlaylistId}`;
 
-        let preview;
-        if (effectiveUrl.includes("deezer.com")) {
-            const deezerMatch = effectiveUrl.match(/playlist[\/:](\d+)/);
-            if (!deezerMatch) {
-                return res
-                    .status(400)
-                    .json({ error: "Invalid Deezer playlist URL" });
-            }
-            const playlistId = deezerMatch[1];
-            const deezerPlaylist = await deezerService.getPlaylist(playlistId);
-            if (!deezerPlaylist) {
-                return res
-                    .status(404)
-                    .json({ error: "Deezer playlist not found" });
-            }
-            preview = await spotifyImportService.generatePreviewFromDeezer(
-                deezerPlaylist
-            );
-        } else {
-            const ytParsed = youtubeMusicService.parseUrl(effectiveUrl);
-            if (ytParsed?.type === "playlist") {
-                const ytPlaylist = await youtubeMusicService.getPlaylist(ytParsed.id);
-                if (!ytPlaylist) {
-                    return res.status(502).json({
-                        error:
-                            "Could not fetch YouTube Music playlist. Ensure yt-dlp is installed and the playlist is public.",
-                    });
-                }
-                preview =
-                    await spotifyImportService.generatePreviewFromYouTubeMusic(
-                        ytPlaylist
-                    );
-            } else {
-                preview = await spotifyImportService.generatePreview(effectiveUrl);
-            }
+        const outcome = await buildPreviewForUrl(effectiveUrl, trackEdits);
+        if (!outcome.ok) {
+            return res.status(outcome.status).json({ error: outcome.error });
         }
+        const preview = outcome.preview;
 
         logger.debug(
             `[Spotify Import] Starting import for user ${userId}: ${playlistName}`
