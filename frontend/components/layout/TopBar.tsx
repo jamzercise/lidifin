@@ -21,6 +21,7 @@ import { useNotifications } from "@/hooks/useNotifications";
 import { useDownloadContext } from "@/lib/download-context";
 import { useIsMobile, useIsTablet } from "@/hooks/useMediaQuery";
 import { useAuth } from "@/lib/auth-context";
+import { useSettingsToggle } from "@/hooks/useSettingsToggle";
 import { useQueryClient } from "@tanstack/react-query";
 import Image from "next/image";
 import { APP_VERSION } from "@/lib/version";
@@ -29,6 +30,8 @@ export function TopBar() {
     const pathname = usePathname();
     const router = useRouter();
     const { logout } = useAuth();
+    const { isOpen: isSettingsOpen, toggle: toggleSettings } =
+        useSettingsToggle();
     const isMobile = useIsMobile();
     const isTablet = useIsTablet();
     const isMobileOrTablet = isMobile || isTablet;
@@ -385,19 +388,22 @@ export function TopBar() {
                             />
                         </button>
                         <ActivityPanelToggle />
-                        <Link
-                            href="/settings"
+                        <button
+                            onClick={toggleSettings}
                             className={cn(
                                 "w-10 h-10 rounded-full flex items-center justify-center transition-all",
-                                pathname === "/settings"
+                                isSettingsOpen
                                     ? "bg-white text-black"
                                     : "text-white/60 hover:text-white"
                             )}
-                            aria-label="Settings"
-                            title="Settings"
+                            aria-label={
+                                isSettingsOpen ? "Close settings" : "Settings"
+                            }
+                            aria-expanded={isSettingsOpen}
+                            title={isSettingsOpen ? "Close settings" : "Settings"}
                         >
                             <Settings className="w-5 h-5" />
-                        </Link>
+                        </button>
                         <button
                             onClick={handleLogout}
                             className="w-10 h-10 rounded-full flex items-center justify-center transition-all text-red-400 hover:text-red-300"

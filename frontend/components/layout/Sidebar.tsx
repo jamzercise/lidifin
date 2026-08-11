@@ -10,6 +10,7 @@ import { useAuth } from "@/lib/auth-context";
 import { useAudioState } from "@/lib/audio-state-context";
 import { useAudioControls } from "@/lib/audio-controls-context";
 import { useIsMobile, useIsTablet } from "@/hooks/useMediaQuery";
+import { useSettingsToggle } from "@/hooks/useSettingsToggle";
 import { useToast } from "@/lib/toast-context";
 import Image from "next/image";
 import { MobileSidebar } from "./MobileSidebar";
@@ -56,6 +57,8 @@ interface Playlist {
 export function Sidebar() {
     const pathname = usePathname();
     const { isAuthenticated } = useAuth();
+    const { isOpen: isSettingsOpen, toggle: toggleSettings } =
+        useSettingsToggle();
     const { toast } = useToast();
     const { currentTrack, currentAudiobook, currentPodcast, playbackType } =
         useAudioState();
@@ -294,19 +297,22 @@ export function Sidebar() {
                             />
                         </button>
 
-                        <Link
-                            href="/settings"
+                        <button
+                            onClick={toggleSettings}
                             className={cn(
                                 "w-10 h-10 flex items-center justify-center rounded-full transition-all",
-                                pathname === "/settings" ?
+                                isSettingsOpen ?
                                     "bg-white text-black"
                                 :   "bg-white/10 text-gray-400 hover:text-white hover:bg-white/15 active:scale-95",
                             )}
-                            aria-label="Settings"
-                            title="Settings"
+                            aria-label={
+                                isSettingsOpen ? "Close settings" : "Settings"
+                            }
+                            aria-expanded={isSettingsOpen}
+                            title={isSettingsOpen ? "Close settings" : "Settings"}
                         >
                             <Settings className="w-4 h-4" />
-                        </Link>
+                        </button>
                     </div>
                 </div>
             )}
