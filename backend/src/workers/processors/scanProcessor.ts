@@ -146,6 +146,66 @@ export interface ScanJobData {
     spotifyImportJobId?: string; // Optional: Spotify Import job ID
 }
 
+/**
+ * Finish the work a scan was queued on behalf of.
+ *
+ * A scan is how an import or discovery batch learns that its downloads have
+ * landed, so whoever queued it is waiting on this to run. It has to happen on
+ * every path out of the scan — a Jellyfin library has nothing to scan locally,
+ * but the import that queued the scan is parked at "scanning" until its
+ * playlist is built either way.
+ */
+async function runPostScanHandoffs(input: {
+    jobId: string;
+    source?: string;
+    discoveryBatchId?: string;
+    spotifyImportJobId?: string;
+}): Promise<void> {
+    const { jobId, source, discoveryBatchId, spotifyImportJobId } = input;
+
+    if (source === "discover-weekly-completion" && discoveryBatchId) {
+        logger.debug(
+            `[ScanJob ${jobId}]  Building Discovery Weekly playlist for batch ${discoveryBatchId}...`
+        );
+        try {
+            const { discoverWeeklyService } = await import(
+                "../../services/discoverWeekly"
+            );
+            await discoverWeeklyService.buildFinalPlaylist(discoveryBatchId);
+            logger.debug(
+                `[ScanJob ${jobId}] Discovery Weekly playlist complete!`
+            );
+        } catch (error: any) {
+            logger.error(
+                `[ScanJob ${jobId}]  Failed to build Discovery playlist:`,
+                error.message
+            );
+        }
+    }
+
+    if (source === "spotify-import" && spotifyImportJobId) {
+        logger.debug(
+            `[ScanJob ${jobId}]  Building Spotify Import playlist for job ${spotifyImportJobId}...`
+        );
+        try {
+            const { spotifyImportService } = await import(
+                "../../services/spotifyImport"
+            );
+            await spotifyImportService.buildPlaylistAfterScan(
+                spotifyImportJobId
+            );
+            logger.debug(
+                `[ScanJob ${jobId}] Spotify Import playlist complete!`
+            );
+        } catch (error: any) {
+            logger.error(
+                `[ScanJob ${jobId}]  Failed to build Spotify Import playlist:`,
+                error.message
+            );
+        }
+    }
+}
+
 export interface ScanJobResult {
     tracksAdded: number;
     tracksUpdated: number;
@@ -227,6 +287,16 @@ export async function processScan(
         } catch (err: any) {
             logger.warn(`[ScanJob ${job.id}] rgMbid cache refresh failed (non-fatal):`, err?.message);
         }
+
+        // Jellyfin now knows about the new files, so whoever queued this scan
+        // can be finished off exactly as it would be after a local scan.
+        await runPostScanHandoffs({
+            jobId: String(job.id),
+            source,
+            discoveryBatchId,
+            spotifyImportJobId,
+        });
+
         return {
             tracksAdded: 0,
             tracksUpdated: 0,
@@ -449,51 +519,12 @@ export async function processScan(
             }
         }
 
-        // If this scan was for Discovery Weekly, build the final playlist
-        if (source === "discover-weekly-completion" && discoveryBatchId) {
-            logger.debug(
-                `[ScanJob ${job.id}]  Building Discovery Weekly playlist for batch ${discoveryBatchId}...`
-            );
-            try {
-                const { discoverWeeklyService } = await import(
-                    "../../services/discoverWeekly"
-                );
-                await discoverWeeklyService.buildFinalPlaylist(
-                    discoveryBatchId
-                );
-                logger.debug(
-                    `[ScanJob ${job.id}] Discovery Weekly playlist complete!`
-                );
-            } catch (error: any) {
-                logger.error(
-                    `[ScanJob ${job.id}]  Failed to build Discovery playlist:`,
-                    error.message
-                );
-            }
-        }
-
-        // If this scan was for Spotify Import, build the final playlist
-        if (source === "spotify-import" && spotifyImportJobId) {
-            logger.debug(
-                `[ScanJob ${job.id}]  Building Spotify Import playlist for job ${spotifyImportJobId}...`
-            );
-            try {
-                const { spotifyImportService } = await import(
-                    "../../services/spotifyImport"
-                );
-                await spotifyImportService.buildPlaylistAfterScan(
-                    spotifyImportJobId
-                );
-                logger.debug(
-                    `[ScanJob ${job.id}] Spotify Import playlist complete!`
-                );
-            } catch (error: any) {
-                logger.error(
-                    `[ScanJob ${job.id}]  Failed to build Spotify Import playlist:`,
-                    error.message
-                );
-            }
-        }
+        await runPostScanHandoffs({
+            jobId: String(job.id),
+            source,
+            discoveryBatchId,
+            spotifyImportJobId,
+        });
 
         // Phase 2 Fix for #31: Reconcile download jobs with newly scanned albums
         // This runs after EVERY scan to catch albums that were downloaded but webhooks failed

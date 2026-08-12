@@ -384,6 +384,46 @@ router.post("/import/:jobId/skip-downloads", async (req, res) => {
 });
 
 /**
+ * POST /api/spotify/import/:jobId/finish
+ * Build the playlist now with whatever is available. Abandons anything still
+ * outstanding, which is the only way past a download that will never arrive.
+ */
+router.post("/import/:jobId/finish", async (req, res) => {
+    try {
+        if (!req.user) {
+            return res.status(401).json({ error: "Unauthorized" });
+        }
+        const { jobId } = req.params;
+
+        const job = await spotifyImportService.getJob(jobId);
+        if (!job) {
+            return res.status(404).json({ error: "Import job not found" });
+        }
+        if (job.userId !== req.user.id) {
+            return res
+                .status(403)
+                .json({ error: "Not authorized to modify this job" });
+        }
+
+        const result = await spotifyImportService.finishNow(jobId);
+
+        res.json({
+            ...result,
+            message: result.alreadyFinished
+                ? "This import already has a playlist"
+                : `Playlist created with ${result.matched} song${
+                      result.matched === 1 ? "" : "s"
+                  }`,
+        });
+    } catch (error: any) {
+        logger.error("Spotify finish import error:", error);
+        res.status(500).json({
+            error: error.message || "Failed to finish import",
+        });
+    }
+});
+
+/**
  * GET /api/spotify/imports/active
  * In-flight imports for the current user, so the UI can pick an import back up
  * after a refresh or a navigation away from the import page.
@@ -471,13 +511,22 @@ router.post("/import/:jobId/refresh", async (req, res) => {
 
         const result = await spotifyImportService.refreshJobMatches(jobId);
 
+        // Before a playlist exists the re-check records matches on the import
+        // rather than adding to anything, so say which happened.
+        const addedToPlaylist = Boolean(job.createdPlaylistId);
+
         res.json({
             message:
-                result.added > 0
-                    ? `Added ${result.added} newly downloaded track(s)`
-                    : "No new tracks found yet. Albums may still be downloading.",
+                result.added === 0
+                    ? "No new songs found yet. Albums may still be downloading."
+                    : addedToPlaylist
+                      ? `Added ${result.added} newly downloaded track(s)`
+                      : `Found ${result.added} song${
+                            result.added === 1 ? "" : "s"
+                        } that arrived since the import started`,
             added: result.added,
             total: result.total,
+            addedToPlaylist,
         });
     } catch (error: any) {
         logger.error("Spotify refresh error:", error);

@@ -1834,6 +1834,18 @@ class SpotifyImportService {
             return;
         }
 
+        // A download reporting in after the import has already produced its
+        // playlist must not drag the job back into "scanning", which it would
+        // then never leave because the playlist build is a one-time thing.
+        if (job.createdPlaylistId || !ACTIVE_IMPORT_STATUSES.includes(
+            job.status as (typeof ACTIVE_IMPORT_STATUSES)[number]
+        )) {
+            logger?.debug(
+                `   Job ${importJobId} is already ${job.status}; nothing to complete`
+            );
+            return;
+        }
+
         const jobLogger = jobLoggers.get(importJobId);
 
         // Check download jobs for this import
@@ -1979,6 +1991,17 @@ class SpotifyImportService {
      */
     private async buildPlaylist(job: ImportJob): Promise<void> {
         const logger = jobLoggers.get(job.id);
+
+        // A playlist is created outright rather than updated, so a second build
+        // would produce a duplicate. Several things can ask for one — the scan
+        // that finished, a user finishing the import by hand — and only the
+        // first should win.
+        if (job.createdPlaylistId) {
+            logger?.debug(
+                `[Spotify Import] Job ${job.id} already built playlist ${job.createdPlaylistId}; skipping`
+            );
+            return;
+        }
 
         job.status = "creating_playlist";
         job.progress = 90;
@@ -2597,8 +2620,12 @@ class SpotifyImportService {
         if (!job) {
             throw new Error("Import job not found");
         }
+        // Before the playlist exists there is nothing to add to, but this is
+        // exactly when a re-check is most useful: a download that failed may
+        // have arrived by other means, and the user wants to know before
+        // deciding to finish without it.
         if (!job.createdPlaylistId) {
-            throw new Error("No playlist created for this job");
+            return this.resolvePendingMatches(job);
         }
 
         let added = 0;
@@ -2676,6 +2703,136 @@ class SpotifyImportService {
         );
 
         return { added, total: job.tracksMatched };
+    }
+
+    /**
+     * Re-match the tracks of an import that hasn't built its playlist yet, and
+     * remember anything that has since turned up.
+     *
+     * Recording the match on the job is what makes it stick: the track shows as
+     * in the library from then on, and the playlist build will use it.
+     */
+    private async resolvePendingMatches(
+        job: ImportJob
+    ): Promise<{ added: number; total: number }> {
+        const logger = jobLoggers.get(job.id);
+
+        await this.refreshJellyfinBeforeRematch(logger);
+        const jellyfinIndex = await this.loadJellyfinIndexIfSource(
+            "[Import re-check]"
+        );
+
+        let added = 0;
+        for (const pendingTrack of job.pendingTracks) {
+            if (pendingTrack.preMatchedTrackId) continue;
+
+            const matchedId = jellyfinIndex
+                ? this.lookupInJellyfin(jellyfinIndex, pendingTrack)?.entry
+                      .jellyfinId
+                : (
+                      await prisma.track.findFirst({
+                          where: {
+                              title: {
+                                  equals: pendingTrack.title,
+                                  mode: "insensitive",
+                              },
+                              album: {
+                                  artist: {
+                                      normalizedName: artistLookupKey(
+                                          pendingTrack.artist
+                                      ),
+                                  },
+                              },
+                          },
+                          select: { id: true },
+                      })
+                  )?.id;
+
+            if (matchedId) {
+                pendingTrack.preMatchedTrackId = matchedId;
+                added++;
+            }
+        }
+
+        const total = job.pendingTracks.filter(
+            (t) => t.preMatchedTrackId
+        ).length;
+
+        if (added > 0) {
+            job.updatedAt = new Date();
+            await saveImportJob(job);
+        }
+
+        logger?.info(
+            `Re-check: ${added} newly available, ${total}/${job.pendingTracks.length} now in the library`
+        );
+
+        return { added, total };
+    }
+
+    /**
+     * Build the playlist now with whatever is available, abandoning anything
+     * still outstanding.
+     *
+     * An import waits on every download it queued, so one album that can't be
+     * found holds back a playlist whose other songs are all sitting in the
+     * library. This is the way out of that, and the way to accept a download
+     * that has genuinely failed.
+     */
+    async finishNow(jobId: string): Promise<{
+        skipped: number;
+        matched: number;
+        playlistId: string | null;
+        alreadyFinished: boolean;
+    }> {
+        const job = await getImportJob(jobId);
+        if (!job) {
+            throw new Error("Import job not found");
+        }
+
+        // A playlist is created, never updated in place, so building a second
+        // time would duplicate it.
+        if (job.createdPlaylistId) {
+            return {
+                skipped: 0,
+                matched: job.tracksMatched,
+                playlistId: job.createdPlaylistId,
+                alreadyFinished: true,
+            };
+        }
+        if (job.status === "creating_playlist") {
+            throw new Error("This import is already building its playlist");
+        }
+        if (job.status === "cancelled" || job.status === "failed") {
+            throw new Error(`This import was ${job.status}`);
+        }
+
+        const skipped = await prisma.downloadJob.updateMany({
+            where: {
+                status: { in: ["pending", "processing"] },
+                metadata: {
+                    path: ["spotifyImportJobId"],
+                    equals: jobId,
+                },
+            },
+            data: {
+                status: "failed",
+                error: "Skipped by user",
+                completedAt: new Date(),
+            },
+        });
+
+        // Count anything that did land, including a download that finished
+        // moments ago and hasn't reached the metadata index yet.
+        await this.refreshJellyfinBeforeRematch(jobLoggers.get(jobId));
+        await this.buildPlaylist(job);
+
+        return {
+            skipped: skipped.count,
+            matched: job.tracksMatched,
+            playlistId: job.createdPlaylistId ?? null,
+            alreadyFinished: false,
+        };
     }
 
     /**

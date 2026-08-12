@@ -50,6 +50,7 @@ export default function ImportJobPage() {
     const [skippingId, setSkippingId] = useState<string | null>(null);
     const [isCancelling, setIsCancelling] = useState(false);
     const [isRefreshing, setIsRefreshing] = useState(false);
+    const [isFinishing, setIsFinishing] = useState(false);
 
     const visibleTracks = useMemo(() => {
         if (!detail) return [];
@@ -59,7 +60,11 @@ export default function ImportJobPage() {
     }, [detail, filter]);
 
     const finished = detail ? isImportFinished(detail.status) : false;
-    const canSkip = (detail?.skippableDownloadIds.length ?? 0) > 0;
+    const waitingCount = detail?.skippableDownloadIds.length ?? 0;
+    // Offered whenever the playlist hasn't been built, not just while downloads
+    // are outstanding: an import also parks after a download has failed
+    // outright, and that is precisely when it needs a way out.
+    const canFinishNow = Boolean(detail && !finished && !detail.createdPlaylistId);
 
     const skipDownloads = async (
         downloadJobIds: string[] | null,
@@ -81,6 +86,28 @@ export default function ImportJobPage() {
             );
         } finally {
             setSkippingId(null);
+        }
+    };
+
+    const handleFinishNow = async () => {
+        if (!jobId) return;
+        setIsFinishing(true);
+        try {
+            const result = await api.post<{
+                message: string;
+                playlistId: string | null;
+            }>(`/spotify/import/${jobId}/finish`, {});
+            toast.success(result.message);
+            await refetch();
+            refetchActiveImports();
+        } catch (err) {
+            toast.error(
+                err instanceof Error
+                    ? err.message
+                    : "Failed to finish this import"
+            );
+        } finally {
+            setIsFinishing(false);
         }
     };
 
@@ -108,17 +135,12 @@ export default function ImportJobPage() {
         if (!jobId) return;
         setIsRefreshing(true);
         try {
-            const result = await api.post<{ added: number; total: number }>(
-                `/spotify/import/${jobId}/refresh`,
-                {}
-            );
-            toast.success(
-                result.added > 0
-                    ? `Added ${result.added} newly available song${
-                          result.added === 1 ? "" : "s"
-                      }`
-                    : "No new songs available yet"
-            );
+            const result = await api.post<{
+                added: number;
+                total: number;
+                message: string;
+            }>(`/spotify/import/${jobId}/refresh`, {});
+            toast.success(result.message);
             await refetch();
         } catch (err) {
             toast.error(
@@ -235,20 +257,24 @@ export default function ImportJobPage() {
 
                         {/* Actions */}
                         <div className="flex flex-wrap items-center gap-2 mb-5">
-                            {canSkip && (
+                            {canFinishNow && (
                                 <button
-                                    onClick={() => skipDownloads(null, "all")}
-                                    disabled={skippingId !== null}
+                                    onClick={handleFinishNow}
+                                    disabled={isFinishing || skippingId !== null}
                                     className="px-4 py-2 rounded-full text-sm font-medium bg-[#B1D2C3] text-black hover:brightness-110 transition-all disabled:opacity-50"
-                                    title="Stop waiting for every outstanding download and finish with what has arrived"
+                                    title="Create the playlist from the songs that are ready, leaving the rest behind"
                                 >
-                                    {skippingId === "all" ? (
+                                    {isFinishing ? (
                                         <>
                                             <Loader2 className="w-3.5 h-3.5 animate-spin inline mr-2" />
-                                            Finishing…
+                                            Creating playlist…
                                         </>
+                                    ) : waitingCount > 0 ? (
+                                        `Finish now (skip ${waitingCount} download${
+                                            waitingCount === 1 ? "" : "s"
+                                        })`
                                     ) : (
-                                        `Finish now (skip ${detail.skippableDownloadIds.length})`
+                                        "Create playlist now"
                                     )}
                                 </button>
                             )}

@@ -4,7 +4,6 @@ import {
     AlertCircle,
     Check,
     CircleDashed,
-    Download,
     Library,
     Loader2,
     XCircle,
@@ -127,9 +126,6 @@ export function ImportTrackListRow({
                             "Stop waiting"
                         )}
                     </button>
-                )}
-                {track.state === "download_failed" && (
-                    <Download className="w-3.5 h-3.5 text-gray-600" />
                 )}
             </div>
         </div>
