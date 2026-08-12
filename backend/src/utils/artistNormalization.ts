@@ -296,6 +296,13 @@ export function extractPrimaryArtist(artistName: string): string {
         / feat\.? /i, // "feat." or "feat "
         / ft\.? /i, // "ft." or "ft "
         / featuring /i,
+        // " x " is a collaboration convention ("Ric Wilson x Chromeo x
+        // A-Trak") and, unlike "&" or "and", is not a word that turns up
+        // inside a band's own name — so it needs none of the guesswork below.
+        // It lived among the ambiguous patterns before, where those guards
+        // rejected every real case: a one-word collaborator like "Chromeo"
+        // reads as too short, and "Artist A x Artist B" as truncated.
+        / x /i,
     ];
 
     for (const pattern of definiteCollaborationPatterns) {
@@ -311,7 +318,6 @@ export function extractPrimaryArtist(artistName: string): string {
         { pattern: / \& /, name: "&" }, // "Earth, Wind & Fire" shouldn't split
         { pattern: / and /i, name: "and" }, // "The Naked and Famous" shouldn't split
         { pattern: / with /i, name: "with" },
-        { pattern: / x /i, name: "x" }, // "Artist x Chromeo" - applies same heuristics as & and "and"
         { pattern: /, /, name: "," },
     ];
 
