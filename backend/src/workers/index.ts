@@ -29,7 +29,7 @@ import { runDataIntegrityCheck } from "./dataIntegrity";
 import { simpleDownloadManager } from "../services/simpleDownloadManager";
 import { queueCleaner } from "../jobs/queueCleaner";
 import { enrichmentStateService } from "../services/enrichmentState";
-import { runSyncAndEnrich } from "../services/jellyfinMetadataJob";
+import { reclaimInterruptedJob, runSyncAndEnrich } from "../services/jellyfinMetadataJob";
 import {
     startLibraryListCacheRefresh,
     stopLibraryListCacheRefresh,
@@ -155,6 +155,10 @@ startUnifiedEnrichmentWorker().catch((err) => {
 // Jellyfin track metadata sync + enrichment (for By Vibe radio when Jellyfin is music source)
 (async () => {
     try {
+        // A job only lives in the process that started it, so clear anything a
+        // restart left marked as running before scheduling work of our own.
+        await reclaimInterruptedJob();
+
         const { isJellyfinMusicSource } = await import("../services/jellyfin");
         if (!(await isJellyfinMusicSource())) {
             logger.debug("Jellyfin metadata sync skipped – Jellyfin is not music source");

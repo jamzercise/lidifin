@@ -35,10 +35,21 @@ type EnrichmentProgressData = {
     trackTags: { enriched: number; total: number; progress: number };
     jellyfinJobStatus?: {
         status: string;
+        startedAt?: number;
         lastSynced?: number;
         lastEnriched?: number;
+        lastError?: string;
     };
 };
+
+function formatElapsed(since: number): string {
+    const seconds = Math.max(0, Math.round((Date.now() - since) / 1000));
+    if (seconds < 60) return `${seconds}s`;
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m`;
+    const hours = Math.floor(minutes / 60);
+    return `${hours}h ${minutes % 60}m`;
+}
 
 // Progress bar component
 function ProgressBar({
@@ -478,6 +489,9 @@ export function CacheSection({ settings, onUpdate }: CacheSectionProps) {
         enrichmentState?.status === "running" ||
         enrichmentState?.status === "paused";
     const totalFailures = failureCounts?.total || 0;
+    const jellyfinJob = (enrichmentProgress as EnrichmentProgressData)?.jellyfinJobStatus;
+    const jellyfinJobRunning =
+        jellyfinJob?.status === "syncing" || jellyfinJob?.status === "enriching";
 
     return (
         <>
@@ -686,17 +700,28 @@ export function CacheSection({ settings, onUpdate }: CacheSectionProps) {
                         </div>
 
                         {/* Status Message: native enrichment or Jellyfin job */}
-                        {((enrichmentProgress as EnrichmentProgressData)?.jellyfinJobStatus?.status === "syncing" ||
-                            (enrichmentProgress as EnrichmentProgressData)?.jellyfinJobStatus?.status === "enriching") && (
+                        {jellyfinJobRunning && (
                             <div className="mt-3 p-2 bg-white/5 rounded text-xs">
                                 <div className="flex items-center gap-2">
                                     <Loader2 className="w-3 h-3 animate-spin text-[#B1D2C3]" />
                                     <span className="text-white/70">
-                                        {(enrichmentProgress as EnrichmentProgressData)?.jellyfinJobStatus?.status === "syncing"
+                                        {jellyfinJob?.status === "syncing"
                                             ? "Syncing Jellyfin library..."
                                             : "Enriching mood tags..."}
                                     </span>
+                                    {/* Elapsed time, so a job that has quietly died is
+                                        visible instead of looking like normal progress. */}
+                                    {jellyfinJob?.startedAt && (
+                                        <span className="text-white/40">
+                                            running for {formatElapsed(jellyfinJob.startedAt)}
+                                        </span>
+                                    )}
                                 </div>
+                            </div>
+                        )}
+                        {!jellyfinJobRunning && jellyfinJob?.lastError && (
+                            <div className="mt-3 p-2 bg-red-500/10 rounded text-xs text-red-300">
+                                Last Jellyfin sync: {jellyfinJob.lastError}
                             </div>
                         )}
                         {enrichmentState &&

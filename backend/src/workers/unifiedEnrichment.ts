@@ -1215,7 +1215,13 @@ export async function getEnrichmentProgress() {
     let artistFailed = 0;
     let trackTotal = 0;
     let trackTagsEnriched = 0;
-    let jellyfinJobStatus: { status: string; lastSynced?: number; lastEnriched?: number } | null = null;
+    let jellyfinJobStatus: {
+        status: string;
+        startedAt?: number;
+        lastSynced?: number;
+        lastEnriched?: number;
+        lastError?: string;
+    } | null = null;
 
     if (isJellyfin) {
         // Jellyfin: use JellyfinTrackMetadata for Mood Tags
@@ -1243,8 +1249,10 @@ export async function getEnrichmentProgress() {
         if (jobState) {
             jellyfinJobStatus = {
                 status: jobState.status,
+                startedAt: jobState.startedAt,
                 lastSynced: jobState.lastSynced,
                 lastEnriched: jobState.lastEnriched,
+                lastError: jobState.lastError,
             };
         }
     } else {
