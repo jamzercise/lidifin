@@ -1,9 +1,105 @@
 # Changelog
 
-All notable changes to Lidify will be documented in this file.
+All notable changes to Lidifin will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+> **A note on version numbers.** Lidifin began as a fork of
+> [Lidify](https://github.com/Chevron7Locked/lidify). Every entry from `1.4.3`
+> downwards was inherited from that project, whose numbering had already run
+> ahead of ours. Lidifin's own releases are tagged `1.0.0` through `1.0.6`, so
+> the inherited entries sit *below* Lidifin's releases numerically while
+> predating them chronologically. Issue links in those entries point at the
+> upstream repository.
+
+## [Unreleased]
+
+Everything below has landed on `main` since `1.0.6` (2026-03-08) and is not yet
+tagged. The headline change is that Lidifin became Jellyfin-first: Jellyfin is
+now the authoritative library, and the local database holds only what Jellyfin
+cannot.
+
+### Added
+
+- **Jellyfin-first library:** artist, album, and library routes read Jellyfin
+  directly rather than a mirrored copy. Adds Jellyfin-backed mix generators,
+  metadata resolvers, per-track analysis storage, and MusicBrainz IDs for
+  Jellyfin tracks.
+- **Playlist import overhaul:** imports survive refresh and navigation, report
+  per-track status on a dedicated job page, and let track details be corrected
+  before acquisition. Import progress and history now appear where imports
+  start, and generated playlists are mirrored into Jellyfin so they show up in
+  every Jellyfin client.
+- **Discover hub:** shelves for Artists For You, Explore By Mood, and Hidden
+  Gems, plus per-track Song Radio, a songs-vs-albums mode toggle, track-first
+  acquisition ([ADR 0007](adr/0007-track-first-discover.md)), and
+  trust/feedback controls.
+- **Release Radar** with direct downloads and a notification badge.
+- **Mobile API:** a dedicated OpenAPI surface and integration guide.
+- **Chromecast support** via the Default Media Receiver, including podcasts.
+- **Two-way Jellyfin playlist editing**, with Jellyfin renames treated as
+  authoritative.
+- **Saved discovery albums**, kept separately from the owned library.
+- **Collapsible settings sections**, and a settings icon that closes the panel
+  it opened.
+- **Container permissions:** `PUID`/`PGID` support and a `/music` writability
+  preflight check, so downloads can be written to host-owned media volumes.
+- **Shared page design system:** unified hero anatomy, artwork backdrops, stat
+  chips, and a sidebar grouped by intent with collapsible playlists.
+
+### Changed
+
+- Rebranded from Lidify to Lidifin throughout.
+- Decomposed the largest files: `index.ts` into `src/server/*`, and the
+  `discover`, `mixes`, `playlists`, `podcasts`, and `enrichment` routes into
+  focused modules.
+- Unified downloads on Postgres plus BullMQ and removed the parallel in-memory
+  queue; migrated the remaining Bull usage to BullMQ.
+- Made the playback state machine the single source of truth for player state.
+- Slimmed the Prisma schema by dropping the mirror ownership tables that the
+  Jellyfin-first reads replaced.
+- Hardened the all-in-one Docker image: multi-stage build, generated secrets,
+  loopback-only internal services, consolidated compose files.
+
+### Fixed
+
+- **Import matching against a Jellyfin library:** tracks were compared against
+  database tables that stay empty in Jellyfin mode, so nothing was ever found
+  in the library. Matching now runs through a Jellyfin index and additionally
+  handles artist punctuation, compilation tracks credited to a performing
+  artist, and titles that differ only in spelling.
+- **Imports stalling at "scanning":** the playlist a Jellyfin scan was queued
+  for is now actually built when the scan finishes.
+- **Jellyfin metadata sync wedged by a restart:** a sync interrupted mid-run
+  left the job marked running forever, disabling further syncs.
+- **Soulseek downloads** are queued instead of holding an HTTP request open for
+  their full duration, and the login timeout no longer trips spuriously.
+- **Transient upstream failures** (MusicBrainz 5xx, socket resets) are retried
+  with backoff rather than failing the job outright.
+- Playback stalls mid-track, the stuck loading spinner, and playlist
+  auto-advance failing to start the next track.
+- Jellyfin ownership mismatches on album and artist pages, including alias
+  artists and box sets, and albums split across alias records.
+- Search is case-insensitive and tolerates special characters and malformed
+  pagination parameters.
+- Discovery no longer gets stuck on "Importing tracks" or leaves downloads in
+  `processing` indefinitely.
+- Backend recovery from event-loop stalls, and reconciliation pile-up under
+  long uptime.
+
+### Security
+
+- API keys are hashed at rest, outbound fetches are SSRF-safe, and secret
+  handling was tightened across the board.
+- Production hardening pass, with TypeScript strict mode enabled.
+
+### Performance
+
+- Batched Jellyfin album lookups in `getJellyfinTracks`.
+- Moved homepage genre aggregation from Node into Postgres.
+- Removed metadata parsing from the streaming hot path.
+- Dropped redundant indexes and moved heavy reconciliation into idle windows.
 
 ## [1.4.3] - 2026-02-08
 
