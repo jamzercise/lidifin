@@ -1705,6 +1705,7 @@ export async function getJellyfinTracksForSync(
     items: {
         jellyfinId: string;
         artistName: string;
+        trackArtists: string[];
         trackTitle: string;
         albumTitle: string | null;
         artistMbid: string | null;
@@ -1763,9 +1764,24 @@ export async function getJellyfinTracksForSync(
         const albumTitle = albumItem?.Name ?? null;
         const artistMbid = artistItem ? extractArtistMbid(artistItem.ProviderIds) ?? null : null;
         const rgMbid = albumItem ? extractRgMbid(albumItem.ProviderIds) ?? null : null;
+
+        // Who actually played this track. On a compilation the album artist is
+        // the compiler, so this is the only way to find the track by its artist.
+        const trackArtists = [
+            ...new Set(
+                [
+                    ...(item.ArtistItems ?? []).map((a) => a.Name),
+                    ...(item.Artists ?? []),
+                ]
+                    .map((name) => name?.trim())
+                    .filter((name): name is string => !!name)
+            ),
+        ];
+
         return {
             jellyfinId: `${JELLYFIN_PREFIX}${item.Id}`,
             artistName,
+            trackArtists,
             trackTitle: item.Name,
             albumTitle,
             artistMbid: artistMbid ?? null,

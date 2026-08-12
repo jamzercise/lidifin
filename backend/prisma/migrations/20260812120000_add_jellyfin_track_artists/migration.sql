@@ -1,0 +1,13 @@
+-- Record the performing artists of each Jellyfin track, not just the album artist.
+--
+-- JellyfinTrackMetadata only stored the album artist, which on a compilation is
+-- "Various Artists" or the compiler rather than whoever actually played the
+-- track. Playlist imports match on the track's own artist, so any track on a
+-- compilation was unfindable and got queued for download despite already being
+-- in the library.
+--
+-- Existing rows start empty and are filled in by the next metadata sync, which
+-- runs at startup and every six hours. Until then, matching falls back to the
+-- album artist exactly as before.
+-- AlterTable
+ALTER TABLE "JellyfinTrackMetadata" ADD COLUMN     "trackArtists" TEXT[] DEFAULT ARRAY[]::TEXT[];

@@ -30,7 +30,13 @@ import {
 export interface JellyfinLibraryEntry {
     /** `jellyfin:UUID`, usable directly as a PlaylistItem.trackId. */
     jellyfinId: string;
+    /** Album artist, which on a compilation is the compiler. */
     artistName: string;
+    /**
+     * Performing artists. Empty for rows written before this was recorded, in
+     * which case only the album artist is available.
+     */
+    trackArtists?: string[];
     trackTitle: string;
     albumTitle: string | null;
     rgMbid: string | null;
@@ -113,19 +119,22 @@ export function buildJellyfinTrackIndex(
     const byArtistBareTitle = new Map<string, JellyfinLibraryEntry[]>();
 
     for (const entry of entries) {
-        const artistKey = artistLookupKey(entry.artistName);
-        if (!artistKey) continue;
+        // Every artist this track can reasonably be searched by: the album
+        // artist, each performing artist, and each of those without a leading
+        // article. A compilation track is only findable via its performers.
+        const artistKeys = new Set<string>();
+        for (const name of [entry.artistName, ...(entry.trackArtists ?? [])]) {
+            if (!name) continue;
+            artistKeys.add(artistLookupKey(name));
+            artistKeys.add(artistKeyWithoutArticle(name));
+        }
+        artistKeys.delete("");
+        if (artistKeys.size === 0) continue;
 
-        // Index under both artist spellings so either reaches these tracks.
-        const artistKeys = new Set([
-            artistKey,
-            artistKeyWithoutArticle(entry.artistName),
-        ]);
         const titleKey = trackTitleKey(entry.trackTitle);
         const bareKey = trackTitleBareKey(entry.trackTitle);
 
         for (const key of artistKeys) {
-            if (!key) continue;
             pushTo(byArtist, key, entry);
             if (titleKey) pushTo(byArtistTitle, `${key}|${titleKey}`, entry);
             if (bareKey && bareKey !== titleKey) {
@@ -351,6 +360,7 @@ export async function loadJellyfinTrackIndex(): Promise<JellyfinTrackIndex> {
             select: {
                 jellyfinId: true,
                 artistName: true,
+                trackArtists: true,
                 trackTitle: true,
                 albumTitle: true,
                 rgMbid: true,

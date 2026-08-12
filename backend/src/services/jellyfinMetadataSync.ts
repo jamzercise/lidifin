@@ -64,6 +64,7 @@ export async function syncRecentJellyfinTracks(
                 create: {
                     jellyfinId: item.jellyfinId,
                     artistName: item.artistName,
+                    trackArtists: item.trackArtists,
                     trackTitle: item.trackTitle,
                     albumTitle: item.albumTitle,
                     artistMbid: item.artistMbid,
@@ -71,6 +72,7 @@ export async function syncRecentJellyfinTracks(
                 },
                 update: {
                     artistName: item.artistName,
+                    trackArtists: item.trackArtists,
                     trackTitle: item.trackTitle,
                     albumTitle: item.albumTitle,
                     artistMbid: item.artistMbid,
@@ -130,6 +132,7 @@ export async function syncJellyfinTrackMetadata(): Promise<SyncResult | null> {
                     create: {
                         jellyfinId: item.jellyfinId,
                         artistName: item.artistName,
+                        trackArtists: item.trackArtists,
                         trackTitle: item.trackTitle,
                         albumTitle: item.albumTitle,
                         artistMbid: item.artistMbid,
@@ -137,6 +140,7 @@ export async function syncJellyfinTrackMetadata(): Promise<SyncResult | null> {
                     },
                     update: {
                         artistName: item.artistName,
+                        trackArtists: item.trackArtists,
                         trackTitle: item.trackTitle,
                         albumTitle: item.albumTitle,
                         artistMbid: item.artistMbid,

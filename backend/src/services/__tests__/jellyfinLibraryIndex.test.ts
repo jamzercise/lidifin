@@ -359,6 +359,101 @@ describe("lookupJellyfinTrack", () => {
     });
 });
 
+// On a compilation, Jellyfin's album artist is the compiler, not the performer.
+// Matching an imported track by its own artist has to go through trackArtists.
+describe("compilation tracks", () => {
+    const compilation: JellyfinLibraryEntry = {
+        jellyfinId: "jellyfin:comp-1",
+        artistName: "Various Artists",
+        trackArtists: ["Doom Regulator"],
+        trackTitle: "Raid",
+        albumTitle: "Aggro Reggae Vol. 1",
+        rgMbid: null,
+    };
+
+    it("finds the track by its performing artist", () => {
+        const index = buildJellyfinTrackIndex([compilation]);
+
+        const match = lookupJellyfinTrack(index, {
+            artist: "Doom Regulator",
+            title: "Raid",
+        });
+
+        expect(match?.entry.jellyfinId).toBe("jellyfin:comp-1");
+    });
+
+    it("still finds it by the album artist", () => {
+        const index = buildJellyfinTrackIndex([compilation]);
+
+        expect(
+            lookupJellyfinTrack(index, {
+                artist: "Various Artists",
+                title: "Raid",
+            })
+        ).not.toBeNull();
+    });
+
+    it("finds it when the source names a different album", () => {
+        const index = buildJellyfinTrackIndex([compilation]);
+
+        const match = lookupJellyfinTrack(index, {
+            artist: "Doom Regulator",
+            title: "Raid",
+            album: "Raid",
+        });
+
+        expect(match?.entry.jellyfinId).toBe("jellyfin:comp-1");
+        // The album disagrees, so this should not claim full confidence.
+        expect(match!.confidence).toBeLessThan(100);
+    });
+
+    it("indexes every performing artist on a collaboration", () => {
+        const index = buildJellyfinTrackIndex([
+            {
+                ...compilation,
+                trackArtists: ["Doom Regulator", "The Slackers"],
+            },
+        ]);
+
+        for (const artist of ["Doom Regulator", "The Slackers"]) {
+            expect(
+                lookupJellyfinTrack(index, { artist, title: "Raid" })
+            ).not.toBeNull();
+        }
+    });
+
+    it("tolerates a row synced before track artists were recorded", () => {
+        const index = buildJellyfinTrackIndex([
+            { ...compilation, trackArtists: undefined },
+        ]);
+
+        expect(
+            lookupJellyfinTrack(index, {
+                artist: "Various Artists",
+                title: "Raid",
+            })
+        ).not.toBeNull();
+        expect(
+            lookupJellyfinTrack(index, {
+                artist: "Doom Regulator",
+                title: "Raid",
+            })
+        ).toBeNull();
+    });
+
+    it("does not list the same track twice for one artist", () => {
+        const index = buildJellyfinTrackIndex([
+            {
+                ...compilation,
+                artistName: "Doom Regulator",
+                trackArtists: ["Doom Regulator"],
+            },
+        ]);
+
+        expect(index.byArtist.get("doom regulator")).toHaveLength(1);
+    });
+});
+
 describe("explainJellyfinMiss", () => {
     it("reports an artist that is not in the library", () => {
         const index = buildJellyfinTrackIndex([entry("The Specials", "Ghost Town")]);

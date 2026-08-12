@@ -408,7 +408,11 @@ model JellyfinTrackAnalysis {
 /// Jellyfin track metadata for mood/vibe and genre radio when Jellyfin is music source.
 model JellyfinTrackMetadata {
   jellyfinId   String    @id // jellyfin:uuid format
-  artistName   String
+  artistName   String // album artist; differs from trackArtists on compilations
+  /// Performing artists for this track. On a compilation the album artist is
+  /// "Various Artists" or the compiler, so matching a track by its own artist
+  /// needs these. Populated by the metadata sync.
+  trackArtists String[]  @default([])
   trackTitle   String
   albumTitle   String?
   artistMbid   String? // MusicBrainz artist ID from Jellyfin ProviderIds
