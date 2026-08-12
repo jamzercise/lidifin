@@ -1,18 +1,24 @@
 /**
- * Download Job Deduplication Test
- * 
- * Tests the entire download flow to verify:
+ * Download Job Deduplication Check
+ *
+ * Exercises the download flow end to end to verify:
  * 1. Duplicate jobs are detected and linked (same artist+album, different MBID)
  * 2. Only ONE notification per album
  * 3. Completion merges duplicate jobs
  * 4. Stale cleanup detects completed duplicates
- * 
- * Run with: npx tsx src/tests/downloadDedup.test.ts
+ *
+ * This is an integration script, not a unit test: it writes to the live
+ * database, needs at least one real user to exist, reaches Lidarr for the
+ * reconciliation checks, and exits the process with its result. That is why it
+ * lives in scripts/ rather than under a __tests__ directory — Jest would run it
+ * on import and process.exit would take the worker down with it.
+ *
+ * Run with: npm run check:download-dedup
  */
 
-import { logger } from "../utils/logger";
-import { prisma } from "../utils/db";
-import { simpleDownloadManager } from "../services/simpleDownloadManager";
+import { logger } from "../src/utils/logger";
+import { prisma } from "../src/utils/db";
+import { simpleDownloadManager } from "../src/services/simpleDownloadManager";
 
 // Will be set dynamically to a real user from the database
 let TEST_USER_ID = "";
