@@ -1,5 +1,6 @@
 import {
     buildJellyfinTrackIndex,
+    explainJellyfinMiss,
     lookupJellyfinTrack,
     type JellyfinLibraryEntry,
 } from "../jellyfinLibraryIndex";
@@ -227,6 +228,105 @@ describe("lookupJellyfinTrack", () => {
         expect(match!.confidence).toBeLessThanOrEqual(89);
     });
 
+    // Title spellings that differ between catalogues. Each of these was a
+    // reported miss: the playlist said one thing, the library said the other.
+    describe("title spelling differences", () => {
+        it.each([
+            ["Rude and Reckless", "Rude & Reckless"],
+            ["Rude & Reckless", "Rude and Reckless"],
+            ["Ghost Town", "Ghost Town (feat. Rico Rodriguez)"],
+            ["Ghost Town (feat. Rico Rodriguez)", "Ghost Town"],
+            ["Ghost Town", "Ghost Town feat. Rico Rodriguez"],
+            ["Raid", "Raid (Original Mix)"],
+            ["Raid (Original Mix)", "Raid"],
+            ["Pt. 2", "Part 2"],
+            ["Part 2", "Pt. 2"],
+            ["Nite Klub", "Nite Klub - Remastered"],
+            ["A Message To You Rudy", "A Message to You, Rudy"],
+            ["Too Much Too Young [Live]", "Too Much Too Young"],
+            ["Simmer Down", "Simmer Down (with The Wailers)"],
+        ])("finds %s when the library says %s", (sourceTitle, libraryTitle) => {
+            const index = buildJellyfinTrackIndex([
+                entry("The Specials", libraryTitle),
+            ]);
+
+            const match = lookupJellyfinTrack(index, {
+                artist: "The Specials",
+                title: sourceTitle,
+            });
+
+            expect(match).not.toBeNull();
+            expect(match!.entry.trackTitle).toBe(libraryTitle);
+        });
+
+        it("ranks a parenthetical-only difference below an exact title", () => {
+            const index = buildJellyfinTrackIndex([
+                entry("The Slackers", "Redlight (Original Mix)"),
+            ]);
+
+            const match = lookupJellyfinTrack(index, {
+                artist: "The Slackers",
+                title: "Redlight",
+            });
+
+            expect(match!.confidence).toBeLessThan(100);
+        });
+
+        it("prefers the exact title over one with a parenthetical", () => {
+            const index = buildJellyfinTrackIndex([
+                entry("The Slackers", "Redlight (Live)", "Live", "jellyfin:live"),
+                entry("The Slackers", "Redlight", "Redlight", "jellyfin:studio"),
+            ]);
+
+            const match = lookupJellyfinTrack(index, {
+                artist: "The Slackers",
+                title: "Redlight",
+            });
+
+            expect(match?.entry.jellyfinId).toBe("jellyfin:studio");
+        });
+
+        it("still refuses two genuinely different songs", () => {
+            const index = buildJellyfinTrackIndex([
+                entry("The Specials", "Ghost Town"),
+            ]);
+
+            expect(
+                lookupJellyfinTrack(index, {
+                    artist: "The Specials",
+                    title: "Gangsters",
+                })
+            ).toBeNull();
+        });
+    });
+
+    describe("artist article differences", () => {
+        it.each([
+            ["The Slackers", "Slackers"],
+            ["Slackers", "The Slackers"],
+            ["the Slackers", "The Slackers"],
+        ])("finds %s when the library says %s", (sourceArtist, libraryArtist) => {
+            const index = buildJellyfinTrackIndex([
+                entry(libraryArtist, "Redlight"),
+            ]);
+
+            const match = lookupJellyfinTrack(index, {
+                artist: sourceArtist,
+                title: "Redlight",
+            });
+
+            expect(match?.entry.artistName).toBe(libraryArtist);
+        });
+
+        it("does not conflate two different artists sharing a word", () => {
+            const index = buildJellyfinTrackIndex([entry("The Specials", "X")]);
+
+            expect(
+                lookupJellyfinTrack(index, { artist: "The Special AKA", title: "X" })
+            ).toBeNull();
+        });
+    });
+
     it("handles an empty library without throwing", () => {
         const index = buildJellyfinTrackIndex([]);
 
@@ -256,6 +356,46 @@ describe("lookupJellyfinTrack", () => {
         });
 
         expect(match?.entry.jellyfinId).toMatch(/^jellyfin:/);
+    });
+});
+
+describe("explainJellyfinMiss", () => {
+    it("reports an artist that is not in the library", () => {
+        const index = buildJellyfinTrackIndex([entry("The Specials", "Ghost Town")]);
+
+        const miss = explainJellyfinMiss(index, {
+            artist: "Aggro Reggae",
+            title: "Whatever",
+        });
+
+        expect(miss.artistFound).toBe(false);
+        expect(miss.artistTrackCount).toBe(0);
+        expect(miss.closestTitle).toBeNull();
+    });
+
+    it("reports the closest title when the artist is present", () => {
+        const index = buildJellyfinTrackIndex([
+            entry("The Specials", "Ghost Town"),
+            entry("The Specials", "Gangsters"),
+        ]);
+
+        const miss = explainJellyfinMiss(index, {
+            artist: "The Specials",
+            title: "Ghost Towns of the Future",
+        });
+
+        expect(miss.artistFound).toBe(true);
+        expect(miss.closestTitle).toBe("Ghost Town");
+        expect(miss.closestScore).toBeGreaterThan(0);
+    });
+
+    it("finds the artist even when only the article differs", () => {
+        const index = buildJellyfinTrackIndex([entry("Slackers", "Redlight")]);
+
+        expect(
+            explainJellyfinMiss(index, { artist: "The Slackers", title: "Nope" })
+                .artistFound
+        ).toBe(true);
     });
 });
 

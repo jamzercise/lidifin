@@ -33,6 +33,7 @@ import {
     type ImportTrackSummary,
 } from "./importTrackStatus";
 import {
+    explainJellyfinMiss,
     loadJellyfinTrackIndex,
     lookupJellyfinTrack,
     type JellyfinTrackIndex,
@@ -1092,8 +1093,30 @@ class SpotifyImportService {
             const matched = await this.matchTrack(track, jellyfinIndex);
             matchedTracks.push(matched);
 
+            // Say why a track the user may well own wasn't found, so a miss can
+            // be classified from the log instead of guessed at.
+            if (!matched.localTrack && jellyfinIndex) {
+                const miss = explainJellyfinMiss(jellyfinIndex, track);
+                logger?.info(
+                    miss.artistFound
+                        ? `${logPrefix} No library match for "${track.title}" by ${
+                              track.artist
+                          } — artist has ${
+                              miss.artistTrackCount
+                          } track(s), closest was "${
+                              miss.closestTitle ?? "none"
+                          }" at ${miss.closestScore}%`
+                        : `${logPrefix} No library match for "${track.title}" by ${track.artist} — that artist is not in the Jellyfin library at all`
+                );
+            }
+
             if (!matched.localTrack) {
-                const key = `${track.artist}|||${track.album}`;
+                // Group on normalized names: keying on the raw ones split
+                // "The Slackers" and "the Slackers" into two groups and queued
+                // the same album for download twice.
+                const key = `${artistLookupKey(
+                    track.artist
+                )}|||${normalizeAlbumForMatching(track.album).toLowerCase()}`;
                 const existing = unmatchedByAlbum.get(key) || [];
                 existing.push(track);
                 unmatchedByAlbum.set(key, existing);
@@ -1102,8 +1125,10 @@ class SpotifyImportService {
 
         const albumsToDownload: AlbumToDownload[] = [];
 
-        for (const [key, albumTracks] of unmatchedByAlbum.entries()) {
-            const [artistName, albumName] = key.split("|||");
+        for (const albumTracks of unmatchedByAlbum.values()) {
+            // Display and lookup use the real names, not the grouping key.
+            const artistName = albumTracks[0].artist;
+            const albumName = albumTracks[0].album;
 
             let resolvedAlbumName = albumName;
             let artistMbid: string | null = null;

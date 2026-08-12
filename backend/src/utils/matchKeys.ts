@@ -91,6 +91,81 @@ export function normalizeAlbumForMatching(str: string): string {
 }
 
 /**
+ * Expand "&" to "and".
+ *
+ * Artist names already go through this via normalizeArtistName. Titles did not,
+ * so "Rude & Reckless" and "Rude and Reckless" scored 67% against each other
+ * and fell below the fuzzy threshold.
+ */
+export function expandAmpersands(str: string): string {
+    return str.replace(/\s*&\s*/g, " and ").replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Remove featured-artist credits from a title.
+ *
+ * These are metadata about who played, not part of the song's name, and the
+ * same song is credited inconsistently across sources — YouTube Music is
+ * especially fond of appending them.
+ */
+export function stripFeaturedArtists(str: string): string {
+    return str
+        .replace(/\s*[([]\s*(feat|ft|featuring|with)\b[^)\]]*[)\]]/gi, " ")
+        .replace(/\s+(feat|ft|featuring)\.?\s+.*$/i, "")
+        .replace(/\s+/g, " ")
+        .trim();
+}
+
+/**
+ * The canonical comparison key for a track title.
+ *
+ * Layered on normalizeTrackTitle rather than replacing it: this adds the
+ * source-to-source canonicalization needed when comparing titles that came from
+ * two different catalogues, which is stricter than what the native path's
+ * similarity scoring needs.
+ */
+export function trackTitleKey(str: string): string {
+    const expanded = stripFeaturedArtists(
+        expandAmpersands(normalizeApostrophes(str))
+    );
+
+    return (
+        normalizeTrackTitle(expanded)
+            // "Pt. 2" and "Part 2" are the same track.
+            .replace(/\bpt\b/g, "part")
+            .replace(/\s+/g, " ")
+            .trim()
+    );
+}
+
+/**
+ * A looser key with every remaining parenthetical removed, so "Raid (Original
+ * Mix)" can be reached from "Raid".
+ *
+ * Deliberately separate from trackTitleKey: a parenthetical sometimes does
+ * distinguish two recordings, so a match on this key should rank below an exact
+ * one rather than replace it. Returns "" when nothing is left to compare.
+ */
+export function trackTitleBareKey(str: string): string {
+    const withoutParentheticals = stripFeaturedArtists(
+        expandAmpersands(normalizeApostrophes(str))
+    )
+        .replace(/\([^)]*\)/g, " ")
+        .replace(/\[[^\]]*\]/g, " ");
+
+    return trackTitleKey(withoutParentheticals);
+}
+
+/**
+ * Artist key with a leading article dropped, so a library filed under
+ * "Slackers" is reachable from "The Slackers". A fallback only — dropping the
+ * article loses information, so it must not outrank an exact artist match.
+ */
+export function artistKeyWithoutArticle(name: string): string {
+    return artistLookupKey(name).replace(/^(the|a|an)\s+/, "");
+}
+
+/**
  * Calculate similarity between two strings (0-100).
  */
 export function stringSimilarity(a: string, b: string): number {

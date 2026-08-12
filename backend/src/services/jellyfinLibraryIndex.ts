@@ -17,11 +17,13 @@
 import { prisma } from "../utils/db";
 import { logger } from "../utils/logger";
 import {
+    artistKeyWithoutArticle,
     artistLookupKey,
     normalizeAlbumForMatching,
     normalizeForCompare,
-    normalizeTrackTitle,
     stringSimilarity,
+    trackTitleBareKey,
+    trackTitleKey,
 } from "../utils/matchKeys";
 
 /** One Jellyfin track, as needed for matching. */
@@ -43,14 +45,32 @@ export interface JellyfinTrackMatch {
 /**
  * Lookup structure over a Jellyfin library. Entries are grouped by artist key
  * so a candidate set can be narrowed before any title comparison.
+ *
+ * Each artist is indexed under both its full key and its key without a leading
+ * article, so the two spellings of the same act reach the same tracks.
  */
 export interface JellyfinTrackIndex {
     /** artist key -> that artist's tracks. */
     byArtist: Map<string, JellyfinLibraryEntry[]>;
     /** `artistKey|titleKey` -> tracks, for the common exact hit. */
     byArtistTitle: Map<string, JellyfinLibraryEntry[]>;
+    /** `artistKey|bareTitleKey` -> tracks, ignoring any parenthetical. */
+    byArtistBareTitle: Map<string, JellyfinLibraryEntry[]>;
     /** Total entries indexed; 0 means the metadata sync has not run. */
     size: number;
+}
+
+/**
+ * Why a lookup failed, for diagnosing a track the user believes they own.
+ */
+export interface JellyfinLookupMiss {
+    /** Whether the artist is in the library at all. */
+    artistFound: boolean;
+    /** How many tracks that artist has. */
+    artistTrackCount: number;
+    /** Closest title under that artist, and its score. */
+    closestTitle: string | null;
+    closestScore: number;
 }
 
 /** Minimum title similarity before a fuzzy match is believed. */
@@ -90,51 +110,95 @@ export function buildJellyfinTrackIndex(
 ): JellyfinTrackIndex {
     const byArtist = new Map<string, JellyfinLibraryEntry[]>();
     const byArtistTitle = new Map<string, JellyfinLibraryEntry[]>();
+    const byArtistBareTitle = new Map<string, JellyfinLibraryEntry[]>();
 
     for (const entry of entries) {
         const artistKey = artistLookupKey(entry.artistName);
         if (!artistKey) continue;
 
-        pushTo(byArtist, artistKey, entry);
-        pushTo(
-            byArtistTitle,
-            `${artistKey}|${normalizeTrackTitle(entry.trackTitle)}`,
-            entry
-        );
+        // Index under both artist spellings so either reaches these tracks.
+        const artistKeys = new Set([
+            artistKey,
+            artistKeyWithoutArticle(entry.artistName),
+        ]);
+        const titleKey = trackTitleKey(entry.trackTitle);
+        const bareKey = trackTitleBareKey(entry.trackTitle);
+
+        for (const key of artistKeys) {
+            if (!key) continue;
+            pushTo(byArtist, key, entry);
+            if (titleKey) pushTo(byArtistTitle, `${key}|${titleKey}`, entry);
+            if (bareKey && bareKey !== titleKey) {
+                pushTo(byArtistBareTitle, `${key}|${bareKey}`, entry);
+            }
+        }
     }
 
-    return { byArtist, byArtistTitle, size: entries.length };
+    return { byArtist, byArtistTitle, byArtistBareTitle, size: entries.length };
+}
+
+function albumScore(
+    candidate: JellyfinLibraryEntry,
+    wantedAlbum: string | null
+): number {
+    if (!wantedAlbum || !candidate.albumTitle) return 0;
+
+    const wanted = normalizeAlbumForMatching(wantedAlbum).toLowerCase();
+    const have = normalizeAlbumForMatching(candidate.albumTitle).toLowerCase();
+    if (!wanted || !have) return 0;
+
+    if (have === wanted) return 100;
+    if (have.includes(wanted) || wanted.includes(have)) return 80;
+    return stringSimilarity(have, wanted);
 }
 
 /**
- * Pick the entry whose album best fits the one we were asked for, so a track
- * present on both an album and a compilation resolves to the right release.
+ * Choose between candidates that all matched on the same key.
+ *
+ * The requested album decides first, so a track present on both a studio album
+ * and a compilation resolves to the right release. Failing that the closest
+ * title wins, which keeps a plain "Redlight" from resolving to
+ * "Redlight (Live)" when an unadorned copy exists.
  */
-function preferAlbum(
+function pickBestCandidate(
     candidates: JellyfinLibraryEntry[],
-    album: string | null
+    source: { title: string; album: string | null }
 ): JellyfinLibraryEntry {
-    if (candidates.length === 1 || !album) return candidates[0];
+    if (candidates.length === 1) return candidates[0];
 
-    const wanted = normalizeAlbumForMatching(album).toLowerCase();
-    if (!wanted) return candidates[0];
+    const wantedTitle = trackTitleKey(source.title);
+    const wantedRaw = normalizeForCompare(source.title);
 
     let best = candidates[0];
-    let bestScore = -1;
+    let bestAlbum = -1;
+    let bestTitle = -1;
+    let bestRaw = -1;
 
     for (const candidate of candidates) {
-        if (!candidate.albumTitle) continue;
-        const have = normalizeAlbumForMatching(
-            candidate.albumTitle
-        ).toLowerCase();
-        const score =
-            have === wanted
+        const album = albumScore(candidate, source.album);
+        const title =
+            trackTitleKey(candidate.trackTitle) === wantedTitle
                 ? 100
-                : have.includes(wanted) || wanted.includes(have)
-                ? 80
-                : stringSimilarity(have, wanted);
-        if (score > bestScore) {
-            bestScore = score;
+                : stringSimilarity(
+                      wantedTitle,
+                      trackTitleKey(candidate.trackTitle)
+                  );
+        // Candidates matched on a normalized key, so "Redlight (Live)" and
+        // "Redlight" look identical by now. Comparing the untouched titles is
+        // what prefers the plain studio recording the user actually asked for.
+        const raw = stringSimilarity(
+            wantedRaw,
+            normalizeForCompare(candidate.trackTitle)
+        );
+
+        if (
+            album > bestAlbum ||
+            (album === bestAlbum &&
+                (title > bestTitle || (title === bestTitle && raw > bestRaw)))
+        ) {
+            bestAlbum = album;
+            bestTitle = title;
+            bestRaw = raw;
             best = candidate;
         }
     }
@@ -144,52 +208,84 @@ function preferAlbum(
 
 /**
  * Find a Jellyfin track for a source track, in decreasing order of certainty:
- * an exact artist and title hit, then the best fuzzy title within that artist.
+ *
+ * 1. Same artist and title, once remaster/edition/featured noise is removed and
+ *    ampersands and "Pt."/"Part" are canonicalized.
+ * 2. Same artist, same title ignoring a parenthetical on either side, which is
+ *    weaker because a parenthetical occasionally marks a different recording.
+ * 3. Same artist, closest remaining title above the similarity threshold.
+ *
+ * Either artist spelling (with or without a leading article) reaches step 1,
+ * since both are indexed.
  */
 export function lookupJellyfinTrack(
     index: JellyfinTrackIndex,
     source: { artist: string; title: string; album?: string | null }
 ): JellyfinTrackMatch | null {
-    const artistKey = artistLookupKey(source.artist);
-    if (!artistKey) return null;
+    // Either spelling of the artist, since the library may be filed under
+    // either and only one of them is the source's.
+    const artistKeys = [
+        ...new Set([
+            artistLookupKey(source.artist),
+            artistKeyWithoutArticle(source.artist),
+        ]),
+    ].filter(Boolean);
+    if (!artistKeys.length) return null;
 
-    const album = source.album && source.album !== "Unknown Album"
-        ? source.album
-        : null;
+    const album =
+        source.album && source.album !== "Unknown Album" ? source.album : null;
 
-    // Exact: same artist, same title once remaster/edition noise is removed.
-    const exact = index.byArtistTitle.get(
-        `${artistKey}|${normalizeTrackTitle(source.title)}`
-    );
-    if (exact?.length) {
-        const entry = preferAlbum(exact, album);
-        const albumAgrees =
-            !album ||
-            !entry.albumTitle ||
-            normalizeAlbumForMatching(entry.albumTitle).toLowerCase() ===
-                normalizeAlbumForMatching(album).toLowerCase();
+    const resolve = (
+        candidates: JellyfinLibraryEntry[],
+        ceiling: number
+    ): JellyfinTrackMatch => {
+        const entry = pickBestCandidate(candidates, {
+            title: source.title,
+            album,
+        });
+        const albumAgrees = !album || albumScore(entry, album) >= 80;
         return {
             entry,
             matchType: "exact",
-            confidence: albumAgrees ? 100 : 90,
+            confidence: Math.min(albumAgrees ? 100 : 90, ceiling),
         };
+    };
+
+    const titleKey = trackTitleKey(source.title);
+    const bareKey = trackTitleBareKey(source.title);
+
+    if (titleKey) {
+        for (const artistKey of artistKeys) {
+            const exact = index.byArtistTitle.get(`${artistKey}|${titleKey}`);
+            if (exact?.length) return resolve(exact, 100);
+        }
     }
 
-    // Fuzzy: same artist, closest title. Catches punctuation differences,
-    // "Pt. 2" vs "Part 2", and featured-artist noise inside the title.
-    const byArtist = index.byArtist.get(artistKey);
-    if (!byArtist?.length) return null;
+    // A parenthetical on one side only: "Raid" against "Raid (Original Mix)".
+    for (const artistKey of artistKeys) {
+        for (const key of new Set([titleKey, bareKey])) {
+            if (!key) continue;
+            const loose =
+                index.byArtistBareTitle.get(`${artistKey}|${key}`) ??
+                (key !== titleKey
+                    ? index.byArtistTitle.get(`${artistKey}|${key}`)
+                    : undefined);
+            if (loose?.length) return resolve(loose, 95);
+        }
+    }
 
-    const wantedTitle = normalizeTrackTitle(source.title);
-    if (!wantedTitle) return null;
+    const byArtist = artistKeys.flatMap(
+        (artistKey) => index.byArtist.get(artistKey) ?? []
+    );
+    if (!byArtist.length || !titleKey) return null;
 
     let best: JellyfinLibraryEntry | null = null;
     let bestScore = 0;
 
     for (const candidate of byArtist) {
         const score = stringSimilarity(
-            wantedTitle,
-            normalizeTrackTitle(candidate.trackTitle)
+            titleKey,
+            trackTitleKey(candidate.trackTitle)
         );
         if (score > bestScore) {
             bestScore = score;
@@ -204,6 +300,42 @@ export function lookupJellyfinTrack(
         matchType: "fuzzy",
         // Cap below an exact hit so callers can tell the two apart.
         confidence: Math.min(bestScore, 89),
+    };
+}
+
+/**
+ * Explain why a lookup found nothing, so a track the user is sure they own can
+ * be diagnosed from the logs instead of by guesswork.
+ */
+export function explainJellyfinMiss(
+    index: JellyfinTrackIndex,
+    source: { artist: string; title: string }
+): JellyfinLookupMiss {
+    const candidates =
+        index.byArtist.get(artistLookupKey(source.artist)) ??
+        index.byArtist.get(artistKeyWithoutArticle(source.artist)) ??
+        [];
+
+    const titleKey = trackTitleKey(source.title);
+    let closestTitle: string | null = null;
+    let closestScore = 0;
+
+    for (const candidate of candidates) {
+        const score = stringSimilarity(
+            titleKey,
+            trackTitleKey(candidate.trackTitle)
+        );
+        if (score > closestScore) {
+            closestScore = score;
+            closestTitle = candidate.trackTitle;
+        }
+    }
+
+    return {
+        artistFound: candidates.length > 0,
+        artistTrackCount: candidates.length,
+        closestTitle,
+        closestScore,
     };
 }
 
