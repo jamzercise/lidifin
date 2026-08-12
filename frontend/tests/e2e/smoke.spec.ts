@@ -16,16 +16,15 @@ test("core smoke: login → play album → play/pause/next/prev", async ({ page 
     await page.waitForURL(/\/($|\?)/);
 
     // Navigate to albums and open the first one
-    await page.goto("/albums");
-    await expect(page.getByRole("heading", { name: "All Albums" })).toBeVisible();
+    await page.goto("/library?tab=albums");
+    await expect(page.getByRole("heading", { name: "Library" })).toBeVisible();
 
     const firstAlbum = page.locator('a[href^="/album/"]').first();
-    const albumCount = await firstAlbum.count();
-    expect(albumCount).toBeGreaterThan(0);
+    await expect(firstAlbum).toBeVisible();
     await firstAlbum.click();
 
     // Start playback
-    await page.getByLabel("Play all").click();
+    await page.getByRole("button", { name: "Play album" }).click();
 
     // Mini player should reflect playing state
     const playPause = page.locator('button[title="Pause"], button[title="Play"]').first();

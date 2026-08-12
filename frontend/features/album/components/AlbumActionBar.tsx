@@ -62,6 +62,8 @@ export function AlbumActionBar({
                         onClick={handlePlayPauseClick}
                         className="h-12 w-12 rounded-full flex items-center justify-center shadow-lg transition-all hover:scale-105"
                         style={{ backgroundColor: LIDIFIN_ACCENT }}
+                        aria-label={showPause ? "Pause album" : "Play album"}
+                        title={showPause ? "Pause album" : "Play album"}
                     >
                         {showPause ? (
                             <Pause className="w-5 h-5 fill-current text-black" />
