@@ -13,8 +13,18 @@ import { prisma } from "../utils/db";
 import { redisClient } from "../utils/redis";
 import PQueue from "p-queue";
 import { acquisitionService } from "./acquisitionService";
-import { extractPrimaryArtist } from "../utils/artistNormalization";
+import {
+    extractPrimaryArtist,
+    normalizeArtistName,
+} from "../utils/artistNormalization";
 import { applyTrackEdits, type TrackEdit } from "../utils/trackEdits";
+import {
+    deriveImportTrackRows,
+    inFlightDownloadIds,
+    unmatchedTrackKey,
+    type ImportTrackRow,
+    type ImportTrackSummary,
+} from "./importTrackStatus";
 
 export type { TrackEdit };
 
@@ -352,6 +362,27 @@ function normalizeAlbumForMatching(str: string): string {
 }
 
 /**
+ * Build the lookup value for the artist.normalizedName column.
+ *
+ * This MUST use normalizeArtistName, the same function the scanner used to
+ * write that column. normalizeString strips punctuation and leaves "&" alone,
+ * so using it here silently fails to find any artist whose name contains
+ * either — "Guns N' Roses" is stored as "guns n' roses" but looked up as
+ * "guns n roses", and "Of Mice & Men" as "of mice and men" but looked up as
+ * "of mice men".
+ */
+function artistLookupKey(name: string): string {
+    return normalizeArtistName(name);
+}
+
+/**
+ * First word of the artist lookup key, for the broader `contains` searches.
+ */
+function artistLookupFirstWord(name: string): string {
+    return artistLookupKey(name).split(" ")[0] ?? "";
+}
+
+/**
  * Calculate similarity between two strings (0-100)
  */
 function stringSimilarity(a: string, b: string): number {
@@ -397,6 +428,12 @@ class SpotifyImportService {
         const primaryArtist = extractPrimaryArtist(spotifyTrack.artist);
         const normalizedPrimaryArtist = normalizeString(primaryArtist);
 
+        // Separate keys for querying artist.normalizedName. The normalizeString
+        // values above stay for in-memory similarity scoring, where both sides
+        // get the same treatment.
+        const primaryArtistKey = artistLookupKey(primaryArtist);
+        const artistKey = artistLookupKey(spotifyTrack.artist);
+
         // Normalize album title (strip edition/remaster suffixes)
         const cleanedAlbum = normalizeAlbumForMatching(spotifyTrack.album);
         const isUnknownAlbum = spotifyTrack.album === "Unknown Album" || !spotifyTrack.album;
@@ -406,7 +443,7 @@ class SpotifyImportService {
             where: {
                 album: {
                     artist: {
-                        normalizedName: normalizedPrimaryArtist,
+                        normalizedName: primaryArtistKey,
                     },
                     title: {
                         mode: "insensitive",
@@ -433,7 +470,7 @@ class SpotifyImportService {
                 where: {
                     album: {
                         artist: {
-                            normalizedName: normalizedArtist,
+                            normalizedName: artistKey,
                         },
                         title: {
                             mode: "insensitive",
@@ -477,7 +514,7 @@ class SpotifyImportService {
                 where: {
                     album: {
                         artist: {
-                            normalizedName: normalizedPrimaryArtist,
+                            normalizedName: primaryArtistKey,
                         },
                         title: {
                             mode: "insensitive",
@@ -504,7 +541,7 @@ class SpotifyImportService {
                 const artistAlbums = await prisma.album.findMany({
                     where: {
                         artist: {
-                            normalizedName: normalizedPrimaryArtist,
+                            normalizedName: primaryArtistKey,
                         },
                     },
                     include: {
@@ -566,7 +603,7 @@ class SpotifyImportService {
             where: {
                 album: {
                     artist: {
-                        normalizedName: normalizedPrimaryArtist,
+                        normalizedName: primaryArtistKey,
                     },
                 },
                 OR: [
@@ -590,7 +627,7 @@ class SpotifyImportService {
                 where: {
                     album: {
                         artist: {
-                            normalizedName: normalizedArtist,
+                            normalizedName: artistKey,
                         },
                     },
                     OR: [
@@ -657,7 +694,7 @@ class SpotifyImportService {
         let fuzzyMatches: any[] = [];
 
         // 4a: Search by first word of artist (original strategy)
-        const firstWord = normalizedPrimaryArtist.split(" ")[0];
+        const firstWord = artistLookupFirstWord(primaryArtist);
         if (firstWord.length >= 3) {
             fuzzyMatches = await prisma.track.findMany({
                 where: {
@@ -687,7 +724,7 @@ class SpotifyImportService {
                     album: {
                         artist: {
                             normalizedName: {
-                                startsWith: normalizedPrimaryArtist.substring(0, Math.min(5, normalizedPrimaryArtist.length)),
+                                startsWith: primaryArtistKey.substring(0, Math.min(5, primaryArtistKey.length)),
                             },
                         },
                     },
@@ -705,7 +742,9 @@ class SpotifyImportService {
 
         // 4c: Fallback - try with full artist name
         if (fuzzyMatches.length === 0 && primaryArtist !== spotifyTrack.artist) {
-            const fullArtistFirstWord = normalizedArtist.split(" ")[0];
+            const fullArtistFirstWord = artistLookupFirstWord(
+                spotifyTrack.artist
+            );
             if (fullArtistFirstWord.length >= 3) {
                 fuzzyMatches = await prisma.track.findMany({
                     where: {
@@ -1921,7 +1960,7 @@ class SpotifyImportService {
 
             const normalizedArtist = normalizeString(pendingTrack.artist);
             // Get first word for fuzzy artist matching (handles "Nick Cave & The Bad Seeds" -> "nick")
-            const artistFirstWord = normalizedArtist.split(" ")[0];
+            const artistFirstWord = artistLookupFirstWord(pendingTrack.artist);
             // Strip suffix but keep punctuation for DB queries: "Ain't Gonna Rain Anymore - 2011 Remaster" -> "Ain't Gonna Rain Anymore"
             const strippedTitle = stripTrackSuffix(pendingTrack.title);
             // Also normalize apostrophes in the original title for searching
@@ -2267,7 +2306,7 @@ class SpotifyImportService {
                 const artistExists = await prisma.artist.findFirst({
                     where: {
                         normalizedName: {
-                            contains: normalizedArtist.split(" ")[0],
+                            contains: artistFirstWord,
                             mode: "insensitive",
                         },
                     },
@@ -2338,7 +2377,7 @@ class SpotifyImportService {
         // Recalculate unmatched - tracks that weren't added to playlist
         const matchedTitlesNormalized = new Set<string>();
         for (const pendingTrack of job.pendingTracks) {
-            const normalizedArtist = normalizeString(pendingTrack.artist);
+            const normalizedArtist = artistLookupKey(pendingTrack.artist);
             const strippedTitle = stripTrackSuffix(pendingTrack.title);
 
             // Check if this track was matched by looking for it in the created items
@@ -2371,7 +2410,8 @@ class SpotifyImportService {
         const pendingTracksToSave = job.pendingTracks
             .map((track, index) => ({ ...track, originalIndex: index }))
             .filter((track) => {
-                const normalizedArtist = normalizeString(track.artist);
+                // Same key shape as matchedTitlesNormalized above
+                const normalizedArtist = artistLookupKey(track.artist);
                 const strippedTitle = stripTrackSuffix(
                     track.title
                 ).toLowerCase();
@@ -2513,7 +2553,7 @@ class SpotifyImportService {
 
         // Try to match each pending track
         for (const pendingTrack of job.pendingTracks) {
-            const normalizedArtist = normalizeString(pendingTrack.artist);
+            const normalizedArtist = artistLookupKey(pendingTrack.artist);
 
             // Track model doesn't have normalizedTitle - use case-insensitive title matching
             const localTrack = await prisma.track.findFirst({
@@ -2563,6 +2603,109 @@ class SpotifyImportService {
      */
     async getJob(jobId: string): Promise<ImportJob | null> {
         return await getImportJob(jobId);
+    }
+
+    /**
+     * Per-track state for one import, so a stalled track can be identified
+     * rather than hidden behind an overall percentage.
+     */
+    async getJobTracks(jobId: string): Promise<{
+        tracks: ImportTrackRow[];
+        summary: ImportTrackSummary;
+        skippableDownloadIds: string[];
+    } | null> {
+        const job = await getImportJob(jobId);
+        if (!job) return null;
+
+        const downloadJobs = await prisma.downloadJob.findMany({
+            where: {
+                metadata: {
+                    path: ["spotifyImportJobId"],
+                    equals: jobId,
+                },
+            },
+            select: {
+                id: true,
+                status: true,
+                subject: true,
+                targetMbid: true,
+                error: true,
+                metadata: true,
+            },
+        });
+
+        const jobFinished = !ACTIVE_IMPORT_STATUSES.includes(
+            job.status as (typeof ACTIVE_IMPORT_STATUSES)[number]
+        );
+
+        // Leftovers only exist once a playlist has been built, and they are the
+        // record of what the import ultimately failed to place.
+        let unmatchedKeys: Set<string> | undefined;
+        if (jobFinished && job.createdPlaylistId) {
+            const leftovers = await prisma.playlistPendingTrack.findMany({
+                where: { playlistId: job.createdPlaylistId },
+                select: { spotifyArtist: true, spotifyTitle: true },
+            });
+            unmatchedKeys = new Set(
+                leftovers.map((t) =>
+                    unmatchedTrackKey(t.spotifyArtist, t.spotifyTitle)
+                )
+            );
+        }
+
+        const { tracks, summary } = deriveImportTrackRows({
+            pendingTracks: job.pendingTracks,
+            downloadJobs,
+            unmatchedKeys,
+            jobFinished,
+        });
+
+        return {
+            tracks,
+            summary,
+            skippableDownloadIds: inFlightDownloadIds(downloadJobs),
+        };
+    }
+
+    /**
+     * Abandon downloads an import is waiting on and let it move to the next
+     * phase with whatever did arrive.
+     *
+     * Without this, a download that never reports back leaves the import parked
+     * until the ten-minute staleness check happens to run again — and if nothing
+     * triggers that check, indefinitely.
+     */
+    async skipDownloads(
+        jobId: string,
+        downloadJobIds: string[]
+    ): Promise<{ skipped: number }> {
+        if (downloadJobIds.length === 0) return { skipped: 0 };
+
+        const result = await prisma.downloadJob.updateMany({
+            where: {
+                id: { in: downloadJobIds },
+                status: { in: ["pending", "processing"] },
+                metadata: {
+                    path: ["spotifyImportJobId"],
+                    equals: jobId,
+                },
+            },
+            data: {
+                status: "failed",
+                error: "Skipped by user",
+                completedAt: new Date(),
+            },
+        });
+
+        // Re-evaluate now rather than waiting for the next external trigger,
+        // which is the whole point of skipping. Only when something actually
+        // changed, so a no-op call can't queue a second library scan for an
+        // import that has already moved on.
+        if (result.count > 0) {
+            await this.checkImportCompletion(jobId);
+        }
+
+        return { skipped: result.count };
     }
 
     /**
@@ -2771,10 +2914,9 @@ class SpotifyImportService {
             );
 
             for (const pendingTrack of pendingTracks) {
-                const normalizedArtist = normalizeString(
+                const artistFirstWord = artistLookupFirstWord(
                     pendingTrack.spotifyArtist
                 );
-                const artistFirstWord = normalizedArtist.split(" ")[0];
                 const strippedTitle = stripTrackSuffix(
                     pendingTrack.spotifyTitle
                 );

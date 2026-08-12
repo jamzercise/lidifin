@@ -30,6 +30,8 @@ export const apiLimiter = rateLimit({
             /^\/api\/soulseek\/search\/[a-f0-9-]+$/.test(path) ||
             // Spotify import status: /api/spotify/import/:jobId/status
             /^\/api\/spotify\/import\/[a-zA-Z0-9_-]+\/status$/.test(path) ||
+            // Per-track import polling: /api/spotify/import/:jobId/tracks
+            /^\/api\/spotify\/import\/[a-zA-Z0-9_-]+\/tracks$/.test(path) ||
             // In-flight import polling: /api/spotify/imports/active
             path === "/api/spotify/imports/active" ||
             // Import progress/history polling: /api/spotify/imports/recent

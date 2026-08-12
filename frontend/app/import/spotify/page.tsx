@@ -8,7 +8,6 @@ import Link from "next/link";
 import {
     ArrowLeft,
     Check,
-    X,
     Download,
     Loader2,
     ExternalLink,
@@ -19,9 +18,7 @@ import { api } from "@/lib/api";
 import { useToast } from "@/lib/toast-context";
 import {
     useActiveImports,
-    isImportFinished,
     importStatusLabel,
-    type ImportStatus,
 } from "@/hooks/useActiveImports";
 import {
     EditableTrackRow,
@@ -112,35 +109,15 @@ interface ImportPreview {
     };
 }
 
-interface ImportJob {
-    id: string;
-    status: ImportStatus;
-    progress: number;
-    albumsTotal: number;
-    albumsCompleted: number;
-    tracksMatched: number;
-    tracksTotal: number;
-    tracksDownloadable: number;
-    createdPlaylistId: string | null;
-    error: string | null;
-}
-
-type Step = "input" | "preview" | "importing" | "complete";
+type Step = "input" | "preview";
 
 function SpotifyImportPageContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const { toast } = useToast();
     const hasAutoFetched = useRef(false);
-    // Which job the ?job= param has already been resolved for. Keyed by id
-    // rather than a flag because navigating from the Activity panel swaps the
-    // param without remounting this page.
-    const restoredJobId = useRef<string | null>(null);
-    const {
-        imports: activeImports,
-        forget: forgetActiveImport,
-        refetch: refetchActiveImports,
-    } = useActiveImports();
+    const { imports: activeImports, refetch: refetchActiveImports } =
+        useActiveImports();
 
     // State
     const [step, setStep] = useState<Step>("input");
@@ -151,10 +128,6 @@ function SpotifyImportPageContent() {
         new Set()
     );
     const [playlistName, setPlaylistName] = useState("");
-    const [importJob, setImportJob] = useState<ImportJob | null>(null);
-    const [refreshStatusMessage, setRefreshStatusMessage] = useState<
-        string | null
-    >(null);
     const [expandedSection, setExpandedSection] = useState<
         "matched" | "download" | null
     >("matched");
@@ -191,27 +164,13 @@ function SpotifyImportPageContent() {
         setStep("preview");
     }, []);
 
-    // Pick a job back up when the page is loaded with one in the URL. This is
-    // what makes a refresh mid-import land back on the progress view instead of
-    // an empty form, and it's the target of the Activity panel's import links.
+    // An import in progress lives at its own address now. Old ?job= links —
+    // bookmarks, and anything saved before the move — are sent there.
     useEffect(() => {
         const jobParam = searchParams.get("job");
-        if (!jobParam || restoredJobId.current === jobParam) return;
-        restoredJobId.current = jobParam;
-
-        (async () => {
-            try {
-                const job = await api.get<ImportJob>(
-                    `/spotify/import/${jobParam}/status`
-                );
-                setImportJob(job);
-                setStep(isImportFinished(job.status) ? "complete" : "importing");
-            } catch {
-                // Job is gone, or belongs to someone else. Leave the user on the
-                // input step rather than showing an error for a stale link.
-            }
-        })();
-    }, [searchParams]);
+        if (!jobParam) return;
+        router.replace(`/import/job/${encodeURIComponent(jobParam)}`);
+    }, [searchParams, router]);
 
     // Auto-fetch preview if URL is provided in query params
     useEffect(() => {
@@ -243,16 +202,6 @@ function SpotifyImportPageContent() {
         }
     }, [searchParams, toast, applyFreshPreview]);
 
-    // Only the id and liveness matter here; depending on the whole job object
-    // would tear down and rebuild the interval on every poll.
-    const pollingJobId =
-        importJob && !isImportFinished(importJob.status) ? importJob.id : null;
-
-    // In-flight imports other than the one this page is already showing.
-    const otherActiveImports = activeImports.filter(
-        (job) => job.id !== importJob?.id
-    );
-
     const editList = Object.values(trackEdits);
     const editSignature = JSON.stringify(
         editList
@@ -262,39 +211,6 @@ function SpotifyImportPageContent() {
     // True while the preview on screen was built from a different set of
     // corrections than the ones currently pending.
     const hasUncheckedEdits = editSignature !== previewEditSignature;
-
-    // Poll for import job status
-    useEffect(() => {
-        if (!pollingJobId) return;
-
-        const interval = setInterval(async () => {
-            try {
-                const job = await api.get<ImportJob>(
-                    `/spotify/import/${pollingJobId}/status`
-                );
-                setImportJob(job);
-
-                if (isImportFinished(job.status)) {
-                    setStep("complete");
-                    // Drop it from the shared cache so the Activity panel stops
-                    // advertising it as in-flight before its next poll.
-                    forgetActiveImport(pollingJobId);
-                    window.dispatchEvent(
-                        new CustomEvent("notifications-changed")
-                    );
-                    if (job.status !== "failed") {
-                        window.dispatchEvent(
-                            new CustomEvent("playlist-created")
-                        );
-                    }
-                }
-            } catch (err) {
-                console.error("Failed to poll job status:", err);
-            }
-        }, 2000);
-
-        return () => clearInterval(interval);
-    }, [pollingJobId, forgetActiveImport]);
 
     // Handle URL paste/change
     const handleUrlChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -328,7 +244,6 @@ function SpotifyImportPageContent() {
         if (!preview) return;
 
         setIsLoading(true);
-        setRefreshStatusMessage(null);
         try {
             const response = await api.post<{ jobId: string; status: string }>(
                 "/spotify/import",
@@ -341,28 +256,10 @@ function SpotifyImportPageContent() {
                 }
             );
 
-            setImportJob({
-                id: response.jobId,
-                status: "pending",
-                progress: 0,
-                albumsTotal: selectedAlbums.size,
-                albumsCompleted: 0,
-                tracksMatched: preview.summary.inLibrary,
-                tracksTotal: preview.summary.total,
-                tracksDownloadable: preview.summary.downloadable,
-                createdPlaylistId: null,
-                error: null,
-            });
-            setStep("importing");
-
-            // Put the job in the URL so a refresh comes back to this progress
-            // view, and let the Activity panel know about it immediately.
-            restoredJobId.current = response.jobId;
-            router.replace(
-                `/import/spotify?job=${encodeURIComponent(response.jobId)}`,
-                { scroll: false }
-            );
+            // The import now has its own page, which survives refreshes and
+            // shows where each track stands.
             refetchActiveImports();
+            router.push(`/import/job/${encodeURIComponent(response.jobId)}`);
         } catch (err) {
             const message =
                 err instanceof Error ? err.message : "Failed to start import";
@@ -494,44 +391,6 @@ function SpotifyImportPageContent() {
         }
     };
 
-    // Cancel import
-    const [isCancelling, setIsCancelling] = useState(false);
-    const handleCancelImport = async () => {
-        if (!importJob) return;
-
-        setIsCancelling(true);
-        try {
-            await api.post<{
-                message: string;
-                playlistId: string | null;
-                tracksMatched: number;
-            }>(`/spotify/import/${importJob.id}/cancel`, {});
-
-            setImportJob((prev) =>
-                prev
-                    ? {
-                          ...prev,
-                          status: "cancelled",
-                          createdPlaylistId: null,
-                          tracksMatched: 0,
-                      }
-                    : prev
-            );
-            setStep("complete");
-            forgetActiveImport(importJob.id);
-
-            // Only dispatch notifications-changed, not playlist-created since no playlist was made
-            window.dispatchEvent(new CustomEvent("notifications-changed"));
-        } catch (err) {
-            const message =
-                err instanceof Error ? err.message : "Failed to cancel import";
-            toast.error(message);
-        } finally {
-            setIsCancelling(false);
-        }
-    };
-
-
     return (
         <div className="min-h-screen relative">
             {/* Quick gradient fade - yellow to purple like home page */}
@@ -566,11 +425,11 @@ function SpotifyImportPageContent() {
                     </div>
                 </div>
 
-                {/* Imports running that aren't the one on screen, so leaving and
-                    coming back doesn't make them vanish */}
-                {otherActiveImports.length > 0 && (
+                {/* Imports already running, so starting from here doesn't hide
+                    what's in flight */}
+                {activeImports.length > 0 && (
                     <div className="mb-6 space-y-2">
-                        {otherActiveImports.map((job) => (
+                        {activeImports.map((job) => (
                             <div
                                 key={job.id}
                                 className="flex items-center gap-3 p-3 rounded-lg bg-[#B1D2C3]/10 border border-[#B1D2C3]/20"
@@ -586,7 +445,7 @@ function SpotifyImportPageContent() {
                                     </p>
                                 </div>
                                 <Link
-                                    href={`/import/spotify?job=${encodeURIComponent(
+                                    href={`/import/job/${encodeURIComponent(
                                         job.id
                                     )}`}
                                     className="shrink-0 px-3 py-1.5 rounded-full text-xs font-medium bg-[#B1D2C3] text-black hover:brightness-110 transition-all"
@@ -1155,217 +1014,6 @@ function SpotifyImportPageContent() {
                     </div>
                 )}
 
-                {/* Step: Importing */}
-                {step === "importing" && importJob && (
-                    <div className="text-center py-12">
-                        <Loader2 className="w-10 h-10 text-[#1DB954] animate-spin mx-auto mb-4" />
-                        <h2 className="text-lg font-bold text-white mb-1">
-                            {importJob.status === "downloading"
-                                ? "Queueing Album Downloads"
-                                : importJob.status === "scanning"
-                                ? "Scanning Library"
-                                : importJob.status === "creating_playlist" ||
-                                  importJob.status === "matching_tracks"
-                                ? "Creating Playlist"
-                                : importJob.status === "pending"
-                                ? "Waiting for Downloads"
-                                : "Starting Import"}
-                        </h2>
-                        <p className="text-sm text-gray-400 mb-6">
-                            {importJob.status === "downloading" && (
-                                <>
-                                    Queued {importJob.albumsCompleted} of{" "}
-                                    {importJob.albumsTotal} albums
-                                </>
-                            )}
-                            {importJob.status === "pending" && (
-                                <>
-                                    Waiting for{" "}
-                                    {importJob.albumsTotal -
-                                        importJob.albumsCompleted}{" "}
-                                    downloads to complete
-                                </>
-                            )}
-                            {importJob.status === "scanning" && (
-                                <>Importing downloaded files into library</>
-                            )}
-                            {(importJob.status === "creating_playlist" ||
-                                importJob.status === "matching_tracks") && (
-                                <>Adding {importJob.tracksMatched} songs</>
-                            )}
-                        </p>
-                        <div className="w-full max-w-xs mx-auto bg-white/10 rounded-full h-1.5">
-                            <div
-                                className="bg-[#1DB954] h-1.5 rounded-full transition-all duration-500"
-                                style={{ width: `${importJob.progress}%` }}
-                            />
-                        </div>
-                        <p className="text-xs text-gray-500 mt-3">
-                            {importJob.progress}% complete • downloads continue
-                            in the background
-                        </p>
-                        {/* Cancel button */}
-                        <button
-                            onClick={handleCancelImport}
-                            disabled={isCancelling}
-                            className="mt-6 px-5 py-2 rounded-full text-sm font-medium text-gray-400 hover:text-white hover:bg-white/10 border border-white/10 transition-colors disabled:opacity-50"
-                        >
-                            {isCancelling ? (
-                                <>
-                                    <Loader2 className="w-3 h-3 animate-spin inline mr-2" />
-                                    Cancelling...
-                                </>
-                            ) : (
-                                "Cancel Import"
-                            )}
-                        </button>
-                        <p className="text-xs text-gray-600 mt-2">
-                            Playlist will be created with tracks downloaded so
-                            far
-                        </p>
-                    </div>
-                )}
-
-                {/* Step: Complete */}
-                {step === "complete" && importJob && (
-                    <div className="text-center py-12">
-                        <div
-                            className={
-                                "w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-4 " +
-                                (importJob.status === "failed"
-                                    ? "bg-red-500"
-                                    : importJob.status === "cancelled"
-                                    ? "bg-amber-500"
-                                    : "bg-[#1DB954]")
-                            }
-                        >
-                            {importJob.status === "failed" || importJob.status === "cancelled" ? (
-                                <X className="w-7 h-7 text-white" />
-                            ) : (
-                                <Check className="w-7 h-7 text-black" />
-                            )}
-                        </div>
-
-                        <h2 className="text-lg font-bold text-white mb-1">
-                            {importJob.status === "failed"
-                                ? "Import Failed"
-                                : importJob.status === "cancelled"
-                                ? "Import Cancelled"
-                                : "Import Complete"}
-                        </h2>
-
-                        {importJob.status === "failed" ? (
-                            <p className="text-sm text-gray-400">
-                                {importJob.error ||
-                                    "Something went wrong while importing."}
-                            </p>
-                        ) : importJob.status === "cancelled" ? (
-                            <p className="text-sm text-gray-400">
-                                Import was cancelled. No playlist was created.
-                            </p>
-                        ) : (
-                            <>
-                                <p className="text-sm text-gray-400">
-                                    {importJob.tracksMatched > 0
-                                        ? `Added ${importJob.tracksMatched} songs to your playlist`
-                                        : "Playlist created (songs still downloading)"}
-                                </p>
-                                {importJob.tracksDownloadable > 0 &&
-                                    importJob.tracksMatched < importJob.tracksTotal && (
-                                        <p className="text-sm text-amber-400 mt-2">
-                                            {importJob.tracksDownloadable} songs still
-                                            downloading
-                                        </p>
-                                    )}
-                            </>
-                        )}
-                        <div className="flex items-center justify-center gap-3 mt-6">
-                            <button
-                                onClick={() => {
-                                    setStep("input");
-                                    setUrl("");
-                                    setPreview(null);
-                                    setImportJob(null);
-                                    setRefreshStatusMessage(null);
-                                    // Drop ?job= so a refresh doesn't drag the
-                                    // finished import back onto the screen.
-                                    router.replace("/import/spotify", {
-                                        scroll: false,
-                                    });
-                                }}
-                                className="px-5 py-2.5 rounded-full text-sm font-medium text-gray-300 hover:text-white hover:bg-white/5 transition-colors"
-                            >
-                                Import Another
-                            </button>
-                            {importJob.tracksDownloadable > 0 &&
-                                importJob.tracksMatched <
-                                    importJob.tracksTotal && (
-                                    <button
-                                        onClick={async () => {
-                                            try {
-                                                setIsLoading(true);
-                                                setRefreshStatusMessage(null);
-                                                const result = await api.post<{
-                                                    added: number;
-                                                    total: number;
-                                                }>(
-                                                    `/spotify/import/${importJob.id}/refresh`,
-                                                    {}
-                                                );
-                                                if (result.added > 0) {
-                                                    setRefreshStatusMessage(
-                                                        `Added ${result.added} new song(s).`
-                                                    );
-                                                    setImportJob((prev) =>
-                                                        prev
-                                                            ? {
-                                                                  ...prev,
-                                                                  tracksMatched:
-                                                                      result.total,
-                                                              }
-                                                            : prev
-                                                    );
-                                                } else {
-                                                    setRefreshStatusMessage(
-                                                        "Albums still downloading. Try again later."
-                                                    );
-                                                }
-                                            } catch {
-                                                setRefreshStatusMessage(
-                                                    "Failed to refresh."
-                                                );
-                                            } finally {
-                                                setIsLoading(false);
-                                            }
-                                        }}
-                                        disabled={isLoading}
-                                        className="px-5 py-2.5 rounded-full text-sm font-medium bg-#0a0a0a text-white hover:bg-white/20 disabled:opacity-50 transition-colors"
-                                    >
-                                        {isLoading
-                                            ? "Refreshing..."
-                                            : "Refresh"}
-                                    </button>
-                                )}
-                            {refreshStatusMessage && (
-                                <p className="text-xs text-gray-500 mt-3">
-                                    {refreshStatusMessage}
-                                </p>
-                            )}
-                            {importJob.createdPlaylistId && (
-                                <button
-                                    onClick={() =>
-                                        router.push(
-                                            `/playlist/${importJob.createdPlaylistId}`
-                                        )
-                                    }
-                                    className="px-5 py-2.5 rounded-full text-sm font-medium bg-[#1DB954] text-black hover:brightness-110 transition-all"
-                                >
-                                    View Playlist
-                                </button>
-                            )}
-                        </div>
-                    </div>
-                )}
             </div>
         </div>
     );

@@ -48,6 +48,11 @@ const importSchema = z.object({
     trackEdits: trackEditsSchema,
 });
 
+/** Omitting the ids means "skip everything still in flight". */
+const skipDownloadsSchema = z.object({
+    downloadJobIds: z.array(z.string()).max(500).optional(),
+});
+
 type PreviewOutcome =
     | { ok: true; preview: ImportPreview }
     | { ok: false; status: number; error: string };
@@ -278,6 +283,102 @@ router.get("/import/:jobId/status", async (req, res) => {
         logger.error("Spotify job status error:", error);
         res.status(500).json({
             error: error.message || "Failed to get job status",
+        });
+    }
+});
+
+/**
+ * GET /api/spotify/import/:jobId/tracks
+ * Per-track state for one import, so a stalled track is visible instead of
+ * being hidden behind an overall percentage.
+ */
+router.get("/import/:jobId/tracks", async (req, res) => {
+    try {
+        if (!req.user) {
+            return res.status(401).json({ error: "Unauthorized" });
+        }
+        const { jobId } = req.params;
+
+        const job = await spotifyImportService.getJob(jobId);
+        if (!job) {
+            return res.status(404).json({ error: "Import job not found" });
+        }
+        if (job.userId !== req.user.id) {
+            return res
+                .status(403)
+                .json({ error: "Not authorized to view this job" });
+        }
+
+        const detail = await spotifyImportService.getJobTracks(jobId);
+        if (!detail) {
+            return res.status(404).json({ error: "Import job not found" });
+        }
+
+        res.json({
+            jobId: job.id,
+            status: job.status,
+            playlistName: job.playlistName,
+            createdPlaylistId: job.createdPlaylistId,
+            progress: job.progress,
+            error: job.error,
+            ...detail,
+        });
+    } catch (error: any) {
+        logger.error("Spotify import tracks error:", error);
+        res.status(500).json({
+            error: error.message || "Failed to get import tracks",
+        });
+    }
+});
+
+/**
+ * POST /api/spotify/import/:jobId/skip-downloads
+ * Give up on downloads the import is waiting for so it can finish with what it
+ * has. Body may name specific downloads; by default every in-flight one goes.
+ */
+router.post("/import/:jobId/skip-downloads", async (req, res) => {
+    try {
+        if (!req.user) {
+            return res.status(401).json({ error: "Unauthorized" });
+        }
+        const { jobId } = req.params;
+        const { downloadJobIds } = skipDownloadsSchema.parse(req.body ?? {});
+
+        const job = await spotifyImportService.getJob(jobId);
+        if (!job) {
+            return res.status(404).json({ error: "Import job not found" });
+        }
+        if (job.userId !== req.user.id) {
+            return res
+                .status(403)
+                .json({ error: "Not authorized to modify this job" });
+        }
+
+        let idsToSkip = downloadJobIds;
+        if (!idsToSkip || idsToSkip.length === 0) {
+            const detail = await spotifyImportService.getJobTracks(jobId);
+            idsToSkip = detail?.skippableDownloadIds ?? [];
+        }
+
+        const { skipped } = await spotifyImportService.skipDownloads(
+            jobId,
+            idsToSkip
+        );
+
+        res.json({
+            skipped,
+            message:
+                skipped > 0
+                    ? `Skipped ${skipped} download${skipped === 1 ? "" : "s"}`
+                    : "Nothing left to skip",
+        });
+    } catch (error: any) {
+        if (error.name === "ZodError") {
+            return res.status(400).json({ error: "Invalid request body" });
+        }
+        logger.error("Spotify skip downloads error:", error);
+        res.status(500).json({
+            error: error.message || "Failed to skip downloads",
         });
     }
 });

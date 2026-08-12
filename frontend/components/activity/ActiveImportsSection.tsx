@@ -49,7 +49,7 @@ export function ActiveImportsSection({ imports }: ActiveImportsSectionProps) {
                 return (
                     <Link
                         key={job.id}
-                        href={`/import/spotify?job=${encodeURIComponent(job.id)}`}
+                        href={`/import/job/${encodeURIComponent(job.id)}`}
                         onClick={() => {
                             if (closePanelOnNavigate) {
                                 window.dispatchEvent(

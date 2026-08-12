@@ -62,7 +62,7 @@ function ImportRow({ job }: { job: ActiveImport }) {
     // A running import goes back to its progress view; a finished one is most
     // useful as the playlist it produced.
     const href = running
-        ? `/import/spotify?job=${encodeURIComponent(job.id)}`
+        ? `/import/job/${encodeURIComponent(job.id)}`
         : job.createdPlaylistId
         ? `/playlist/${job.createdPlaylistId}`
         : null;

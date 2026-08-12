@@ -37,6 +37,49 @@ export interface ActiveImport {
 
 export const ACTIVE_IMPORTS_QUERY_KEY = ["active-imports"] as const;
 export const IMPORT_HISTORY_QUERY_KEY = ["import-history"] as const;
+export const IMPORT_JOB_TRACKS_QUERY_KEY = ["import-job-tracks"] as const;
+
+/** Where a single track stands in an import. */
+export type ImportTrackState =
+    | "in_library"
+    | "downloaded"
+    | "downloading"
+    | "queued"
+    | "download_failed"
+    | "no_source"
+    | "unmatched";
+
+export interface ImportTrackRow {
+    index: number;
+    artist: string;
+    title: string;
+    album: string;
+    albumMbid: string | null;
+    state: ImportTrackState;
+    detail: string | null;
+    downloadJobId: string | null;
+    downloadTrackCount: number;
+}
+
+export interface ImportJobDetail {
+    jobId: string;
+    status: ImportStatus;
+    playlistName: string;
+    createdPlaylistId: string | null;
+    progress: number;
+    error: string | null;
+    tracks: ImportTrackRow[];
+    summary: {
+        total: number;
+        inLibrary: number;
+        downloaded: number;
+        inFlight: number;
+        failed: number;
+        unresolved: number;
+    };
+    /** Downloads still holding the import open, and so worth abandoning. */
+    skippableDownloadIds: string[];
+}
 
 const TERMINAL_IMPORT_STATUSES: ReadonlySet<ImportStatus> = new Set([
     "completed",
@@ -122,6 +165,37 @@ export function useActiveImports() {
         error: error instanceof Error ? error.message : null,
         refetch,
         forget,
+    };
+}
+
+/**
+ * One import broken down per track, polled while it is still working so a
+ * stalled download is visible as it happens.
+ */
+export function useImportJobTracks(jobId: string | null) {
+    const {
+        data,
+        isLoading,
+        error,
+        refetch,
+    } = useQuery<ImportJobDetail>({
+        queryKey: [...IMPORT_JOB_TRACKS_QUERY_KEY, jobId],
+        queryFn: () => api.get<ImportJobDetail>(`/spotify/import/${jobId}/tracks`),
+        enabled: !!jobId,
+        refetchInterval: (query) =>
+            query.state.data && !isImportFinished(query.state.data.status)
+                ? 3000
+                : false,
+        refetchIntervalInBackground: false,
+        placeholderData: keepPreviousData,
+        retry: 0,
+    });
+
+    return {
+        detail: data ?? null,
+        isLoading,
+        error: error instanceof Error ? error.message : null,
+        refetch,
     };
 }
 
