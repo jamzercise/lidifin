@@ -25,6 +25,7 @@ import {
     stripTrackSuffix,
 } from "../utils/matchKeys";
 import { applyTrackEdits, type TrackEdit } from "../utils/trackEdits";
+import { syncPlaylistToJellyfin } from "./jellyfinPlaylistMirror";
 import {
     deriveImportTrackRows,
     inFlightDownloadIds,
@@ -2568,6 +2569,10 @@ class SpotifyImportService {
             });
         }
 
+        // Put it in Jellyfin too, so the import is visible from every other
+        // Jellyfin client and not just this one.
+        await syncPlaylistToJellyfin(playlist.id);
+
         job.createdPlaylistId = playlist.id;
         job.tracksMatched = uniqueTrackIds.length;
         job.status = "completed";
@@ -2689,6 +2694,10 @@ class SpotifyImportService {
                 existingTrackIds.add(localTrack.id);
                 added++;
             }
+        }
+
+        if (added > 0) {
+            await syncPlaylistToJellyfin(job.createdPlaylistId);
         }
 
         job.tracksMatched += added;
@@ -3431,6 +3440,11 @@ class SpotifyImportService {
             await prisma.playlistPendingTrack.deleteMany({
                 where: { id: { in: matchedPendingTrackIds } },
             });
+        }
+
+        // A song that only turned up now still belongs in the Jellyfin copy.
+        for (const playlistId of playlistsWithAdditions) {
+            await syncPlaylistToJellyfin(playlistId);
         }
 
         // Send notifications for each playlist that was updated

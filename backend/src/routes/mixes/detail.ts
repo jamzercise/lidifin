@@ -2,6 +2,7 @@ import type { Router } from "express";
 import { logger } from "../../utils/logger";
 import { programmaticPlaylistService } from "../../services/programmaticPlaylists";
 import { resolveTrackReferences } from "../../services/jellyfin";
+import { syncPlaylistToJellyfin } from "../../services/jellyfinPlaylistMirror";
 import { prisma } from "../../utils/db";
 import { redisClient } from "../../utils/redis";
 import { generateMixCoverSvg } from "../../services/mixCoverService";
@@ -160,6 +161,10 @@ export function registerMixDetailRoutes(router: Router): void {
             await prisma.playlistItem.createMany({
                 data: playlistItems,
             });
+
+            // Mirror into Jellyfin like a hand-made playlist, so a saved mix is
+            // reachable from other Jellyfin clients too.
+            await syncPlaylistToJellyfin(playlist.id);
 
             logger.debug(
                 `[MIXES] Saved mix ${mixId} as playlist ${playlist.id} (${mix.trackIds.length} tracks)`,
