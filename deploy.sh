@@ -5,7 +5,7 @@
 set -e
 
 # Configuration
-IMAGE_NAME="${DOCKERHUB_USERNAME:-chevron7locked}/lidifin"
+IMAGE_NAME="${DOCKERHUB_USERNAME:-jamzercise}/lidifin"
 VERSION="${VERSION:-latest}"
 FULL_IMAGE="${IMAGE_NAME}:${VERSION}"
 
