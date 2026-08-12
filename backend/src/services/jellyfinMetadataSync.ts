@@ -36,6 +36,64 @@ export interface SyncResult {
 }
 
 /**
+ * Refresh metadata for the most recently added Jellyfin tracks.
+ *
+ * A full sync walks the entire library and runs on a six-hour timer, which is
+ * far too slow for a track that was just downloaded: playlist imports match
+ * against this table, so until the new track is in it the import treats it as
+ * missing. This tops up the newest entries only, and unlike the full sync it
+ * never deletes, so it is safe to run right after a download.
+ */
+export async function syncRecentJellyfinTracks(
+    limit = BATCH_SIZE
+): Promise<{ synced: number } | null> {
+    if (!(await isJellyfinMusicSource())) return null;
+
+    const cfg = await getJellyfinConfig();
+    if (!cfg) return null;
+
+    try {
+        const { items } = await getJellyfinTracksForSync(cfg, {
+            limit,
+            newestFirst: true,
+        });
+
+        for (const item of items) {
+            await prisma.jellyfinTrackMetadata.upsert({
+                where: { jellyfinId: item.jellyfinId },
+                create: {
+                    jellyfinId: item.jellyfinId,
+                    artistName: item.artistName,
+                    trackTitle: item.trackTitle,
+                    albumTitle: item.albumTitle,
+                    artistMbid: item.artistMbid,
+                    rgMbid: item.rgMbid,
+                },
+                update: {
+                    artistName: item.artistName,
+                    trackTitle: item.trackTitle,
+                    albumTitle: item.albumTitle,
+                    artistMbid: item.artistMbid,
+                    rgMbid: item.rgMbid,
+                    updatedAt: new Date(),
+                },
+            });
+        }
+
+        logger.debug(
+            `[JellyfinMetadataSync] Refreshed ${items.length} recently added track(s)`
+        );
+        return { synced: items.length };
+    } catch (err: any) {
+        logger.warn(
+            "[JellyfinMetadataSync] Recent-track refresh failed:",
+            err?.message || err
+        );
+        return null;
+    }
+}
+
+/**
  * Sync Jellyfin library into JellyfinTrackMetadata.
  * Upserts tracks; removes metadata for tracks no longer in Jellyfin.
  */

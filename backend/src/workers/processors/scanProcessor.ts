@@ -168,13 +168,56 @@ export async function processScan(
         spotifyImportJobId,
     } = job.data;
 
-    // When Jellyfin is the music source, refresh the rgMbid -> Jellyfin
-    // id Redis cache so newly added albums resolve via point lookup
-    // instead of bounded scan. Ownership is read from Jellyfin at
-    // request time (Arch-X.a / X.d), so no Prisma sync is needed.
-    const { isJellyfinMusicSource } = await import("../../services/jellyfin");
+    // When Jellyfin is the music source there is nothing to scan locally, but
+    // the downloaded file still has to become visible: Jellyfin must index it,
+    // and the caches the app reads have to be topped up. Ownership itself is
+    // read from Jellyfin at request time (Arch-X.a / X.d), so no Prisma sync.
+    const {
+        isJellyfinMusicSource,
+        getJellyfinConfig,
+        triggerJellyfinLibraryRefresh,
+        waitForJellyfinLibraryScan,
+    } = await import("../../services/jellyfin");
+
     if (await isJellyfinMusicSource()) {
-        logger.debug(`[ScanJob ${job.id}] Jellyfin is music source; refreshing rgMbid cache`);
+        logger.debug(
+            `[ScanJob ${job.id}] Jellyfin is music source; refreshing Jellyfin and its caches`
+        );
+
+        // Have Jellyfin pick up whatever was just written, then wait for it, so
+        // the metadata refresh below sees the new tracks rather than racing it.
+        try {
+            const cfg = await getJellyfinConfig();
+            if (cfg) {
+                await triggerJellyfinLibraryRefresh(cfg);
+                await waitForJellyfinLibraryScan(cfg);
+            }
+        } catch (err: any) {
+            logger.warn(
+                `[ScanJob ${job.id}] Jellyfin library refresh failed (non-fatal):`,
+                err?.message
+            );
+        }
+
+        // Newly indexed tracks must reach JellyfinTrackMetadata before a
+        // playlist import can match them; the periodic full sync is too slow.
+        try {
+            const { syncRecentJellyfinTracks } = await import(
+                "../../services/jellyfinMetadataSync"
+            );
+            const recent = await syncRecentJellyfinTracks();
+            if (recent) {
+                logger.debug(
+                    `[ScanJob ${job.id}] Refreshed metadata for ${recent.synced} recent track(s)`
+                );
+            }
+        } catch (err: any) {
+            logger.warn(
+                `[ScanJob ${job.id}] Recent metadata refresh failed (non-fatal):`,
+                err?.message
+            );
+        }
+
         try {
             const { refreshJellyfinRgMbidCache } = await import("../../services/jellyfinMetadataSync");
             const result = await refreshJellyfinRgMbidCache();

@@ -1634,9 +1634,73 @@ export async function getJellyfinFavorites(cfg: JellyfinConfig): Promise<Resolve
  * Used by JellyfinTrackMetadata sync. Returns { jellyfinId, artistName, trackTitle, albumTitle, artistMbid?, rgMbid? }.
  * MBIDs are extracted from Jellyfin ProviderIds when available (MusicBrainzArtist, MusicBrainzReleaseGroup).
  */
+/**
+ * Ask Jellyfin to scan its libraries for new media.
+ *
+ * Needed after Lidifin writes a download into the music path: until Jellyfin
+ * indexes the file it does not exist as far as the rest of the app is
+ * concerned, since Jellyfin is the authoritative library.
+ */
+export async function triggerJellyfinLibraryRefresh(
+    cfg: JellyfinConfig
+): Promise<void> {
+    const client = createClient(cfg.url, getEffectiveToken(cfg));
+    await client.post("/Library/Refresh");
+    logger.debug("[Jellyfin] Requested a library refresh");
+}
+
+/**
+ * Wait for Jellyfin's library scan to go idle.
+ *
+ * The refresh request returns immediately, so callers that need to read the
+ * newly indexed media have to wait for the scan itself. Resolves true if the
+ * scan finished within the timeout, false if it is still running — callers
+ * should treat false as "try again later", not as a failure.
+ */
+export async function waitForJellyfinLibraryScan(
+    cfg: JellyfinConfig,
+    options: { timeoutMs?: number; pollMs?: number } = {}
+): Promise<boolean> {
+    const timeoutMs = options.timeoutMs ?? 120_000;
+    const pollMs = options.pollMs ?? 2_000;
+    const client = createClient(cfg.url, getEffectiveToken(cfg));
+    const deadline = Date.now() + timeoutMs;
+
+    // Give Jellyfin a moment to move the task out of Idle, so we don't observe
+    // the pre-scan Idle state and conclude the scan already finished.
+    await new Promise((resolve) => setTimeout(resolve, Math.min(pollMs, 2_000)));
+
+    while (Date.now() < deadline) {
+        try {
+            const res = await client.get<
+                { Key?: string; State?: string }[]
+            >("/ScheduledTasks");
+            const task = (res.data ?? []).find((t) => t.Key === "RefreshLibrary");
+
+            // No such task means we cannot observe progress; don't block.
+            if (!task) return true;
+            if (task.State === "Idle") return true;
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : String(err);
+            logger.debug(
+                `[Jellyfin] Could not read scan progress (${message}); continuing to wait`
+            );
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, pollMs));
+    }
+
+    logger.warn(
+        `[Jellyfin] Library scan still running after ${Math.round(
+            timeoutMs / 1000
+        )}s; continuing without waiting`
+    );
+    return false;
+}
+
 export async function getJellyfinTracksForSync(
     cfg: JellyfinConfig,
-    options: { limit?: number; offset?: number }
+    options: { limit?: number; offset?: number; newestFirst?: boolean }
 ): Promise<{
     items: {
         jellyfinId: string;
@@ -1663,6 +1727,11 @@ export async function getJellyfinTracksForSync(
             StartIndex: offset,
             Fields: "Id,Name,AlbumId,AlbumArtist,AlbumArtists,ArtistItems,Artists",
             EnableTotalRecordCount: true,
+            // Newest first lets a caller refresh just what was recently added
+            // instead of walking the whole library.
+            ...(options.newestFirst
+                ? { SortBy: "DateCreated", SortOrder: "Descending" }
+                : {}),
         },
     });
     const items = res.data?.Items ?? [];

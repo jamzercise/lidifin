@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
 import {
+    AlertCircle,
     ArrowLeft,
     Check,
     Download,
@@ -107,6 +108,7 @@ interface ImportPreview {
         downloadable: number;
         notFound: number;
     };
+    libraryWarning?: string;
 }
 
 type Step = "input" | "preview";
@@ -633,6 +635,17 @@ function SpotifyImportPageContent() {
                                 </div>
                             </div>
                         </div>
+
+                        {/* The library couldn't be consulted, so "In Library" is
+                            meaningless and importing now would re-download it all */}
+                        {preview.libraryWarning && (
+                            <div className="flex items-start gap-3 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30">
+                                <AlertCircle className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
+                                <p className="text-sm text-amber-200">
+                                    {preview.libraryWarning}
+                                </p>
+                            </div>
+                        )}
 
                         {/* Corrections the displayed preview doesn't reflect yet */}
                         {hasUncheckedEdits && (

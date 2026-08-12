@@ -13,10 +13,17 @@ import { prisma } from "../utils/db";
 import { redisClient } from "../utils/redis";
 import PQueue from "p-queue";
 import { acquisitionService } from "./acquisitionService";
+import { extractPrimaryArtist } from "../utils/artistNormalization";
 import {
-    extractPrimaryArtist,
-    normalizeArtistName,
-} from "../utils/artistNormalization";
+    artistLookupFirstWord,
+    artistLookupKey,
+    normalizeAlbumForMatching,
+    normalizeApostrophes,
+    normalizeForCompare as normalizeString,
+    normalizeTrackTitle,
+    stringSimilarity,
+    stripTrackSuffix,
+} from "../utils/matchKeys";
 import { applyTrackEdits, type TrackEdit } from "../utils/trackEdits";
 import {
     deriveImportTrackRows,
@@ -25,6 +32,12 @@ import {
     type ImportTrackRow,
     type ImportTrackSummary,
 } from "./importTrackStatus";
+import {
+    loadJellyfinTrackIndex,
+    lookupJellyfinTrack,
+    type JellyfinTrackIndex,
+    type JellyfinTrackMatch,
+} from "./jellyfinLibraryIndex";
 
 export type { TrackEdit };
 
@@ -81,6 +94,12 @@ export interface ImportPreview {
         downloadable: number;
         notFound: number;
     };
+    /**
+     * Set when the library could not be consulted properly, so a zero
+     * "in library" count reflects a broken lookup rather than a missing
+     * library. Shown to the user so they don't re-download what they own.
+     */
+    libraryWarning?: string;
 }
 
 export interface ImportJob {
@@ -281,145 +300,154 @@ async function getImportJob(importJobId: string): Promise<ImportJob | null> {
     return job;
 }
 
-/**
- * Normalize a string for fuzzy matching
- * Handles: special characters, punctuation, remaster suffixes, etc.
- */
-function normalizeString(str: string): string {
-    return (
-        str
-            .toLowerCase()
-            // Normalize special characters (ö→o, é→e, etc.)
-            .normalize("NFD")
-            .replace(/[\u0300-\u036f]/g, "")
-            // Remove punctuation but keep spaces
-            .replace(/[^\w\s]/g, "")
-            .replace(/\s+/g, " ")
-            .trim()
-    );
-}
-
-/**
- * Normalize apostrophes and quotes to ASCII versions
- * Handles: ' ' ` ′ ʼ → '
- */
-function normalizeApostrophes(str: string): string {
-    return str
-        .replace(/[''`′ʼ]/g, "'") // Various apostrophe forms → ASCII apostrophe
-        .replace(/[""]/g, '"'); // Smart quotes → ASCII quotes
-}
-
-/**
- * Strip remaster/version suffixes but KEEP punctuation
- * "Ain't Gonna Rain Anymore - 2011 Remaster" → "Ain't Gonna Rain Anymore"
- * Used for database searches where we need to match punctuation
- */
-function stripTrackSuffix(str: string): string {
-    return (
-        normalizeApostrophes(str)
-            // Remove " - YEAR Remaster", " - Remastered YEAR", " - Radio Edit", etc.
-            // Note: remaster(ed)? matches "remaster" or "remastered"
-            .replace(
-                /\s*-\s*(\d{4}\s+)?(remaster(ed)?|deluxe|bonus|single|radio edit|remix|acoustic|live|mono|stereo|version|edition|mix)(\s+\d{4})?(\s+(version|edition|mix))?.*$/i,
-                ""
-            )
-            // Remove " - YEAR" at end
-            .replace(/\s*-\s*\d{4}\s*$/, "")
-            // Remove "(Live at...)", "(Live from...)", "(Recorded at...)" parenthetical content
-            .replace(
-                /\s*\([^)]*(?:live at|live from|recorded at|performed at)[^)]*\)\s*/gi,
-                " "
-            )
-            // Remove parenthetical content like "(Remastered)" or "(2011 Remastered Version)"
-            .replace(/\s*\([^)]*remaster[^)]*\)\s*/gi, " ")
-            .replace(/\s*\([^)]*version[^)]*\)\s*/gi, " ")
-            .replace(/\s*\([^)]*edition[^)]*\)\s*/gi, " ")
-            // Remove general "(Live)" or "(Live 2021)" etc
-            .replace(/\s*\(\s*live\s*(\d{4})?\s*\)\s*/gi, " ")
-            // Remove bracketed content like "[Deluxe Edition]"
-            .replace(/\s*\[[^\]]*\]\s*/g, " ")
-            .replace(/\s+/g, " ")
-            .trim()
-    );
-}
-
-/**
- * Normalize track title - removes remaster/version suffixes AND punctuation
- * "Ain't Gonna Rain Anymore - 2011 Remaster" → "aint gonna rain anymore"
- * Used for similarity comparisons
- */
-function normalizeTrackTitle(str: string): string {
-    return normalizeString(stripTrackSuffix(str));
-}
-
-/**
- * Normalize album title for matching - strips common suffixes
- * "In A Time Lapse (Deluxe Edition)" → "In A Time Lapse"
- * Used for flexible album matching
- */
-function normalizeAlbumForMatching(str: string): string {
-    return stripTrackSuffix(str).trim();
-}
-
-/**
- * Build the lookup value for the artist.normalizedName column.
- *
- * This MUST use normalizeArtistName, the same function the scanner used to
- * write that column. normalizeString strips punctuation and leaves "&" alone,
- * so using it here silently fails to find any artist whose name contains
- * either — "Guns N' Roses" is stored as "guns n' roses" but looked up as
- * "guns n roses", and "Of Mice & Men" as "of mice and men" but looked up as
- * "of mice men".
- */
-function artistLookupKey(name: string): string {
-    return normalizeArtistName(name);
-}
-
-/**
- * First word of the artist lookup key, for the broader `contains` searches.
- */
-function artistLookupFirstWord(name: string): string {
-    return artistLookupKey(name).split(" ")[0] ?? "";
-}
-
-/**
- * Calculate similarity between two strings (0-100)
- */
-function stringSimilarity(a: string, b: string): number {
-    const s1 = normalizeString(a);
-    const s2 = normalizeString(b);
-
-    if (s1 === s2) return 100;
-
-    // Check if one contains the other
-    if (s1.includes(s2) || s2.includes(s1)) {
-        const longer = Math.max(s1.length, s2.length);
-        const shorter = Math.min(s1.length, s2.length);
-        return Math.round((shorter / longer) * 100);
-    }
-
-    // Simple word overlap similarity
-    const words1 = new Set(s1.split(" "));
-    const words2 = new Set(s2.split(" "));
-    const intersection = [...words1].filter((w) => words2.has(w)).length;
-    const union = new Set([...words1, ...words2]).size;
-
-    return Math.round((intersection / union) * 100);
-}
-
 class SpotifyImportService {
     /**
-     * Match a Spotify track to the local library
+     * Load the Jellyfin library index, but only when Jellyfin is actually the
+     * music source. Returns null in native mode so callers fall through to the
+     * Prisma matching path.
+     */
+    private async loadJellyfinIndexIfSource(
+        logPrefix: string
+    ): Promise<JellyfinTrackIndex | null> {
+        try {
+            const { isJellyfinMusicSource } = await import("./jellyfin");
+            if (!(await isJellyfinMusicSource())) return null;
+
+            const index = await loadJellyfinTrackIndex();
+            logger?.info(
+                `${logPrefix} Matching against ${index.size} Jellyfin library track(s)`
+            );
+            return index;
+        } catch (error: unknown) {
+            const message =
+                error instanceof Error ? error.message : String(error);
+            logger?.error(
+                `${logPrefix} Could not load the Jellyfin library index: ${message}`
+            );
+            // Matching against nothing would report the whole playlist as
+            // missing and re-download it, so surface this rather than degrade.
+            throw error;
+        }
+    }
+
+    /**
+     * Bring Jellyfin and its metadata cache up to date before re-matching, so a
+     * just-downloaded track can actually be found. Best effort: a re-check
+     * against a slightly stale index is still better than failing outright.
+     */
+    private async refreshJellyfinBeforeRematch(logger?: {
+        warn: (message: string) => void;
+    }): Promise<void> {
+        try {
+            const {
+                isJellyfinMusicSource,
+                getJellyfinConfig,
+                triggerJellyfinLibraryRefresh,
+                waitForJellyfinLibraryScan,
+            } = await import("./jellyfin");
+
+            if (!(await isJellyfinMusicSource())) return;
+
+            const cfg = await getJellyfinConfig();
+            if (cfg) {
+                await triggerJellyfinLibraryRefresh(cfg);
+                await waitForJellyfinLibraryScan(cfg, { timeoutMs: 60_000 });
+            }
+
+            const { syncRecentJellyfinTracks } = await import(
+                "./jellyfinMetadataSync"
+            );
+            await syncRecentJellyfinTracks();
+        } catch (error: unknown) {
+            const message =
+                error instanceof Error ? error.message : String(error);
+            logger?.warn(
+                `Could not refresh Jellyfin before re-matching: ${message}`
+            );
+        }
+    }
+
+    /**
+     * Look a track up in the Jellyfin library index.
      *
-     * Matching strategies (in order):
+     * Tries the full artist credit first, then the primary artist, so
+     * "A feat. B" finds a library copy filed under either spelling.
+     */
+    private lookupInJellyfin(
+        index: JellyfinTrackIndex,
+        track: { artist: string; title: string; album?: string | null }
+    ): JellyfinTrackMatch | null {
+        const primaryArtist = extractPrimaryArtist(track.artist);
+        const candidateArtists =
+            primaryArtist === track.artist
+                ? [track.artist]
+                : [track.artist, primaryArtist];
+
+        for (const artist of candidateArtists) {
+            const match = lookupJellyfinTrack(index, {
+                artist,
+                title: track.title,
+                album: track.album,
+            });
+            if (match) return match;
+        }
+
+        return null;
+    }
+
+    /**
+     * Match a source track against the Jellyfin library index.
+     */
+    private matchTrackAgainstJellyfin(
+        spotifyTrack: SpotifyTrack,
+        index: JellyfinTrackIndex
+    ): MatchedTrack {
+        const match = this.lookupInJellyfin(index, spotifyTrack);
+
+        if (!match) {
+            return {
+                spotifyTrack,
+                localTrack: null,
+                matchType: "none",
+                matchConfidence: 0,
+            };
+        }
+
+        return {
+            spotifyTrack,
+            localTrack: {
+                // Usable as a PlaylistItem.trackId as-is; those are resolved
+                // against Jellyfin at read time.
+                id: match.entry.jellyfinId,
+                title: match.entry.trackTitle,
+                albumId: match.entry.rgMbid ? `mbid:${match.entry.rgMbid}` : "",
+                albumTitle: match.entry.albumTitle ?? spotifyTrack.album,
+                artistName: match.entry.artistName,
+            },
+            matchType: match.matchType,
+            matchConfidence: match.confidence,
+        };
+    }
+
+    /**
+     * Match a source track to the local library.
+     *
+     * With Jellyfin as the music source the library lives in Jellyfin and its
+     * local index is JellyfinTrackMetadata, so matching goes through the
+     * supplied index. In native mode it walks the Prisma tables:
      * 1. Exact match: artist + album + title (case-insensitive)
      * 2. Normalized album match: artist + normalized album + title
      * 3. Artist + title only: for "Unknown Album" or when album match fails
      * 4. Fuzzy match: similarity-based matching across all tracks by artist
      */
     private async matchTrack(
-        spotifyTrack: SpotifyTrack
+        spotifyTrack: SpotifyTrack,
+        jellyfinIndex?: JellyfinTrackIndex | null
     ): Promise<MatchedTrack> {
+        if (jellyfinIndex) {
+            return this.matchTrackAgainstJellyfin(spotifyTrack, jellyfinIndex);
+        }
+
         const normalizedTitle = normalizeString(spotifyTrack.title);
         const normalizedArtist = normalizeString(spotifyTrack.artist);
         const cleanedTrackTitle = normalizeTrackTitle(spotifyTrack.title);
@@ -1052,11 +1080,16 @@ class SpotifyImportService {
             }
         }
 
+        // With Jellyfin as the music source the Prisma library tables are not a
+        // mirror of the library, so matching has to go through Jellyfin's own
+        // index. Built once here and reused for every track.
+        const jellyfinIndex = await this.loadJellyfinIndexIfSource(logPrefix);
+
         const matchedTracks: MatchedTrack[] = [];
         const unmatchedByAlbum = new Map<string, SpotifyTrack[]>();
 
         for (const track of tracks) {
-            const matched = await this.matchTrack(track);
+            const matched = await this.matchTrack(track, jellyfinIndex);
             matchedTracks.push(matched);
 
             if (!matched.localTrack) {
@@ -1250,6 +1283,10 @@ class SpotifyImportService {
                 downloadable,
                 notFound,
             },
+            libraryWarning:
+                jellyfinIndex?.size === 0
+                    ? "Your Jellyfin library hasn't been indexed yet, so nothing could be matched against it and every track looks missing. Run \"Sync Jellyfin metadata\" in Settings, then check matches again."
+                    : undefined,
         };
     }
 
@@ -1928,23 +1965,40 @@ class SpotifyImportService {
 
         // Match all pending tracks against the library
         const matchedTrackIds: string[] = [];
+        // Which pending tracks found a home, by index. Recorded as we go, since
+        // re-deriving it afterwards from the matched ids cannot be done reliably.
+        const matchedPendingIndexes = new Set<number>();
         let trackIndex = 0;
+
+        const jellyfinIndex = await this.loadJellyfinIndexIfSource(
+            "[Import]"
+        );
 
         for (const pendingTrack of job.pendingTracks) {
             trackIndex++;
+            const pendingIndex = trackIndex - 1;
 
             // FAST PATH: If already matched in preview, use that ID directly
             // This ensures tracks found during preview are included in the final playlist
             if (pendingTrack.preMatchedTrackId) {
-                // Verify the track still exists
-                const existingTrack = await prisma.track.findUnique({
-                    where: { id: pendingTrack.preMatchedTrackId },
-                    select: { id: true, title: true },
-                });
-                if (existingTrack) {
-                    matchedTrackIds.push(existingTrack.id);
+                // Jellyfin ids carry no Prisma row to verify against; they are
+                // resolved against Jellyfin when the playlist is read.
+                const preMatchedId = pendingTrack.preMatchedTrackId.startsWith(
+                    "jellyfin:"
+                )
+                    ? pendingTrack.preMatchedTrackId
+                    : (
+                          await prisma.track.findUnique({
+                              where: { id: pendingTrack.preMatchedTrackId },
+                              select: { id: true },
+                          })
+                      )?.id;
+
+                if (preMatchedId) {
+                    matchedTrackIds.push(preMatchedId);
+                    matchedPendingIndexes.add(pendingIndex);
                     logger?.debug(
-                        `   ✓ Pre-matched: "${pendingTrack.title}" -> track ${existingTrack.id}`
+                        `   ✓ Pre-matched: "${pendingTrack.title}" -> track ${preMatchedId}`
                     );
                     logger?.logTrackMatch(
                         trackIndex,
@@ -1952,10 +2006,41 @@ class SpotifyImportService {
                         pendingTrack.title,
                         pendingTrack.artist,
                         true,
-                        existingTrack.id
+                        preMatchedId
                     );
                     continue;
                 }
+            }
+
+            // Jellyfin library: match through its index rather than the Prisma
+            // tables, which hold no library content in this mode.
+            if (jellyfinIndex) {
+                const matched = this.lookupInJellyfin(
+                    jellyfinIndex,
+                    pendingTrack
+                );
+
+                if (matched) {
+                    matchedTrackIds.push(matched.entry.jellyfinId);
+                    matchedPendingIndexes.add(pendingIndex);
+                    logger?.debug(
+                        `   ✓ Matched in Jellyfin: "${pendingTrack.title}" -> ${matched.entry.jellyfinId}`
+                    );
+                } else {
+                    logger?.debug(
+                        `   ✗ No match in Jellyfin: "${pendingTrack.title}" by ${pendingTrack.artist}`
+                    );
+                }
+
+                logger?.logTrackMatch(
+                    trackIndex,
+                    job.tracksTotal,
+                    pendingTrack.title,
+                    pendingTrack.artist,
+                    !!matched,
+                    matched?.entry.jellyfinId
+                );
+                continue;
             }
 
             const normalizedArtist = normalizeString(pendingTrack.artist);
@@ -2290,6 +2375,7 @@ class SpotifyImportService {
 
             if (localTrack) {
                 matchedTrackIds.push(localTrack.id);
+                matchedPendingIndexes.add(pendingIndex);
                 logger?.debug(
                     `   ✓ Matched: "${pendingTrack.title}" -> track ${localTrack.id}`
                 );
@@ -2367,58 +2453,12 @@ class SpotifyImportService {
             },
         });
 
-        // Save unmatched tracks as pending tracks for later auto-matching
-        const unmatchedTracks = job.pendingTracks.filter((_, index) => {
-            // We need to track which indices were matched
-            // Since matchedTrackIds doesn't preserve order, we need a different approach
-            return true; // We'll recalculate below
-        });
-
-        // Recalculate unmatched - tracks that weren't added to playlist
-        const matchedTitlesNormalized = new Set<string>();
-        for (const pendingTrack of job.pendingTracks) {
-            const normalizedArtist = artistLookupKey(pendingTrack.artist);
-            const strippedTitle = stripTrackSuffix(pendingTrack.title);
-
-            // Check if this track was matched by looking for it in the created items
-            const found = await prisma.track.findFirst({
-                where: {
-                    id: { in: uniqueTrackIds },
-                    title: {
-                        contains: strippedTitle.split(" ")[0],
-                        mode: "insensitive",
-                    },
-                    album: {
-                        artist: {
-                            normalizedName: {
-                                contains: normalizedArtist.split(" ")[0],
-                                mode: "insensitive",
-                            },
-                        },
-                    },
-                },
-            });
-
-            if (found) {
-                matchedTitlesNormalized.add(
-                    `${normalizedArtist}|${strippedTitle.toLowerCase()}`
-                );
-            }
-        }
-
-        // Save pending tracks that weren't matched
+        // Save unmatched tracks as pending tracks for later auto-matching.
+        // The matching loop above already recorded exactly which ones landed,
+        // so use that rather than trying to reverse-engineer it from the ids.
         const pendingTracksToSave = job.pendingTracks
             .map((track, index) => ({ ...track, originalIndex: index }))
-            .filter((track) => {
-                // Same key shape as matchedTitlesNormalized above
-                const normalizedArtist = artistLookupKey(track.artist);
-                const strippedTitle = stripTrackSuffix(
-                    track.title
-                ).toLowerCase();
-                return !matchedTitlesNormalized.has(
-                    `${normalizedArtist}|${strippedTitle}`
-                );
-            });
+            .filter((track) => !matchedPendingIndexes.has(track.originalIndex));
 
         if (pendingTracksToSave.length > 0) {
             logger?.debug(
@@ -2551,24 +2591,39 @@ class SpotifyImportService {
         const maxPosition = existingItems.length;
         let nextPosition = maxPosition;
 
+        // A manual re-check is usually asked for right after a download, so top
+        // up Jellyfin's index first — otherwise the new file is not in the
+        // metadata table yet and the re-check reports nothing found.
+        await this.refreshJellyfinBeforeRematch(logger);
+
+        const jellyfinIndex = await this.loadJellyfinIndexIfSource(
+            "[Import refresh]"
+        );
+
         // Try to match each pending track
         for (const pendingTrack of job.pendingTracks) {
             const normalizedArtist = artistLookupKey(pendingTrack.artist);
 
-            // Track model doesn't have normalizedTitle - use case-insensitive title matching
-            const localTrack = await prisma.track.findFirst({
-                where: {
-                    title: {
-                        equals: pendingTrack.title,
-                        mode: "insensitive",
-                    },
-                    album: {
-                        artist: {
-                            normalizedName: normalizedArtist,
-                        },
-                    },
-                },
-            });
+            const jellyfinMatch = jellyfinIndex
+                ? this.lookupInJellyfin(jellyfinIndex, pendingTrack)
+                : null;
+
+            const localTrack = jellyfinIndex
+                ? jellyfinMatch && { id: jellyfinMatch.entry.jellyfinId }
+                : // Track model doesn't have normalizedTitle - use case-insensitive title matching
+                  await prisma.track.findFirst({
+                      where: {
+                          title: {
+                              equals: pendingTrack.title,
+                              mode: "insensitive",
+                          },
+                          album: {
+                              artist: {
+                                  normalizedName: normalizedArtist,
+                              },
+                          },
+                      },
+                  });
 
             if (localTrack && !existingTrackIds.has(localTrack.id)) {
                 // Add to playlist
