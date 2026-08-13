@@ -1,6 +1,7 @@
 import axios from "axios";
 import { logger } from "../../../utils/logger";
 import { prisma } from "../../../utils/db";
+import { isArtistInUserLibrary } from "../libraryLookup";
 import type { ClearLibrarySettings } from "./types";
 
 type FailedJobMetadata = {
@@ -52,19 +53,18 @@ export async function cleanupFailedJobsAndLidarrArtists(
 
     for (const artistMbid of failedArtistMbids) {
         try {
-            const hasNativeOwnedAlbums = await prisma.album.findFirst({
-                where: {
-                    artist: { mbid: artistMbid },
-                    tracks: { some: {} },
-                },
-                select: { id: true },
-            });
+            // Deletion below takes the artist's files with it, so this must
+            // consult whichever library is authoritative.
+            const ownsArtist = await isArtistInUserLibrary(
+                artistNames.get(artistMbid) ?? "",
+                artistMbid,
+            );
 
-            if (hasNativeOwnedAlbums) {
+            if (ownsArtist) {
                 logger.debug(
                     `   Keeping ${artistNames.get(
                         artistMbid,
-                    )} - has native library content`,
+                    )} - has library content`,
                 );
                 continue;
             }

@@ -608,6 +608,20 @@ export async function openLibraryReader(
 }
 
 /** Drop the cached Jellyfin index, so the next read reflects new music. */
+/**
+ * Whether the user holds music by this artist, whichever source is in use.
+ *
+ * Named for the cleanup paths that ask it before deleting an artist from Lidarr
+ * with `deleteFiles`, where a wrong answer costs the user their files.
+ */
+export async function isArtistInUserLibrary(
+    name: string,
+    mbid?: string | null
+): Promise<boolean> {
+    const library = await openLibraryReader();
+    return library.isArtistOwned(name, mbid);
+}
+
 export function invalidateLibraryCache(): void {
     cachedIndex = null;
 }

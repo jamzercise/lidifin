@@ -21,7 +21,11 @@ jest.mock("../../../utils/db", () => ({
 import { prisma } from "../../../utils/db";
 import { isJellyfinMusicSource } from "../../jellyfin";
 import { loadJellyfinTrackIndex } from "../../jellyfinLibraryIndex";
-import { invalidateLibraryCache, openLibraryReader } from "../libraryLookup";
+import {
+    invalidateLibraryCache,
+    isArtistInUserLibrary,
+    openLibraryReader,
+} from "../libraryLookup";
 
 const asMock = (fn: unknown) => fn as jest.Mock;
 
@@ -298,6 +302,27 @@ describe("ownership against Jellyfin", () => {
 
         expect(reader.size).toBe(0);
         await expect(reader.isArtistOwned("Doom Regulator")).resolves.toBe(
+            false
+        );
+    });
+});
+
+describe("isArtistInUserLibrary", () => {
+    // The cleanup paths ask this before deleting an artist from Lidarr with
+    // deleteFiles, so a false negative in Jellyfin mode costs the user files.
+    it("protects an artist held only in Jellyfin", async () => {
+        await readerFor([entry({ trackTitle: "Raid" })]);
+
+        await expect(
+            isArtistInUserLibrary("Doom Regulator", "mbid-1")
+        ).resolves.toBe(true);
+        expect(prisma.artist.findFirst).not.toHaveBeenCalled();
+    });
+
+    it("does not protect an artist absent from Jellyfin", async () => {
+        await readerFor([entry({ trackTitle: "Raid" })]);
+
+        await expect(isArtistInUserLibrary("Some Other Band")).resolves.toBe(
             false
         );
     });

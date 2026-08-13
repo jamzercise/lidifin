@@ -10,6 +10,7 @@ import { lastFmService } from "../../services/lastfm";
 import { lidarrService } from "../../services/lidarr";
 import { discoverQueue, scanQueue } from "../../workers/queues";
 import { getSystemSettings } from "../../utils/systemSettings";
+import { isArtistInUserLibrary } from "../../services/discovery";
 
 /**
  * Lidarr-side cleanup operations: cleanup-lidarr, fix-tagging.
@@ -56,15 +57,13 @@ export function registerCleanupRoutes(router: Router): void {
                 if (!artistMbid) continue;
 
                 try {
-                    // Check if this artist has any NATIVE library content (real user library)
-                    // This is more reliable than checking Album.location which can be wrong
-                    const hasNativeOwnedAlbums = await prisma.album.findFirst({
-                        where: {
-                            artist: { mbid: artistMbid },
-                            tracks: { some: {} },
-                        },
-                        select: { id: true },
-                    });
+                    // Whether the user owns music by this artist. Deletion below
+                    // takes the files with it, so this must consult whichever
+                    // library is authoritative.
+                    const hasOwnedAlbums = await isArtistInUserLibrary(
+                        artistName,
+                        artistMbid
+                    );
 
                     // Check if artist has any LIKED/MOVED discovery albums
                     const hasKeptDiscoveryAlbums =
@@ -84,10 +83,10 @@ export function registerCleanupRoutes(router: Router): void {
                             },
                         });
 
-                    if (hasNativeOwnedAlbums || hasKeptDiscoveryAlbums) {
+                    if (hasOwnedAlbums || hasKeptDiscoveryAlbums) {
                         // This artist should stay in Lidarr
                         artistsKept.push(
-                            `${artistName} (has native library or kept albums)`
+                            `${artistName} (has library or kept albums)`
                         );
                         continue;
                     }

@@ -12,6 +12,7 @@ export {
 } from './clearDiscoveryLibrary';
 export {
     invalidateLibraryCache,
+    isArtistInUserLibrary,
     openLibraryReader,
     type AlbumCriteria,
     type LibraryReader,

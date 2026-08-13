@@ -1,6 +1,7 @@
 import axios from "axios";
 import { logger } from "../../../utils/logger";
 import { prisma } from "../../../utils/db";
+import { isArtistInUserLibrary } from "../libraryLookup";
 import type { ClearLibrarySettings } from "./types";
 
 type JobMetadata = {
@@ -150,15 +151,14 @@ export async function cleanupExtraCompletedDownloadJobs(
 
                 const artistMbid = metadata?.artistMbid;
                 if (artistMbid && !artistMbid.startsWith("temp-")) {
-                    const hasNativeLibrary = await prisma.album.findFirst({
-                        where: {
-                            artist: { mbid: artistMbid },
-                            tracks: { some: {} },
-                        },
-                        select: { id: true },
-                    });
+                    // Deletion below takes the artist's files with it, so this
+                    // must consult whichever library is authoritative.
+                    const ownsArtist = await isArtistInUserLibrary(
+                        artistName ?? "",
+                        artistMbid,
+                    );
 
-                    if (!hasNativeLibrary) {
+                    if (!ownsArtist) {
                         try {
                             await axios.delete(
                                 `${settings.lidarrUrl}/api/v1/artist/${artistId}`,

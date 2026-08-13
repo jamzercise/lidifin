@@ -5,6 +5,7 @@ import type { DiscoveryAlbum } from "@prisma/client";
 import { logger } from "../../../utils/logger";
 import { prisma } from "../../../utils/db";
 import { config } from "../../../config";
+import { isArtistInUserLibrary } from "../libraryLookup";
 import type { ClearLibrarySettings } from "./types";
 
 export async function deleteActiveDiscoveryAlbums(
@@ -84,14 +85,13 @@ export async function deleteActiveDiscoveryAlbums(
                             const artist = artistResponse.data;
                             const artistMbid = artist.foreignArtistId;
 
-                            const hasNativeOwnedAlbums =
-                                await prisma.album.findFirst({
-                                    where: {
-                                        artist: { mbid: artistMbid },
-                                        tracks: { some: {} },
-                                    },
-                                    select: { id: true },
-                                });
+                            // Deletion below takes the artist's files with it, so
+                            // this must consult whichever library is
+                            // authoritative, not only the scan tables.
+                            const hasOwnedAlbums = await isArtistInUserLibrary(
+                                artist.artistName,
+                                artistMbid,
+                            );
 
                             const hasKeptDiscoveryAlbums =
                                 await prisma.discoveryAlbum.findFirst({
@@ -103,10 +103,7 @@ export async function deleteActiveDiscoveryAlbums(
                                     },
                                 });
 
-                            if (
-                                !hasNativeOwnedAlbums &&
-                                !hasKeptDiscoveryAlbums
-                            ) {
+                            if (!hasOwnedAlbums && !hasKeptDiscoveryAlbums) {
                                 await axios.delete(
                                     `${settings.lidarrUrl}/api/v1/artist/${artistId}`,
                                     {
