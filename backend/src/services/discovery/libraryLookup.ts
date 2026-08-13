@@ -152,10 +152,13 @@ export interface LibraryReader {
     findTracks(criteria: TrackCriteria[]): Promise<LibraryTrackRef[]>;
     /** Whether the library holds anything by this artist. */
     isArtistOwned(name: string, mbid?: string | null): Promise<boolean>;
-    /** Whether the library holds this album. */
+    /**
+     * Whether the library holds this album. Either the names or the MBID may be
+     * omitted; callers that only resolved one of the two pass null for the rest.
+     */
     isAlbumOwned(
-        artistName: string,
-        albumTitle: string,
+        artistName: string | null,
+        albumTitle: string | null,
         rgMbid?: string | null
     ): Promise<boolean>;
     /**
@@ -263,14 +266,14 @@ class JellyfinLibraryReader implements LibraryReader {
     }
 
     async isAlbumOwned(
-        artistName: string,
-        albumTitle: string,
+        artistName: string | null,
+        albumTitle: string | null,
         rgMbid?: string | null
     ): Promise<boolean> {
         return (
             lookupJellyfinAlbum(this.index, {
-                artist: artistName,
-                album: albumTitle,
+                artist: artistName ?? "",
+                album: albumTitle ?? "",
                 rgMbid: rgMbid ?? null,
             }).length > 0
         );
@@ -481,28 +484,38 @@ class NativeLibraryReader implements LibraryReader {
     }
 
     async isArtistOwned(name: string, mbid?: string | null): Promise<boolean> {
-        // Owning an artist means holding music by them, so an artist row with
-        // no albums does not count.
+        // Owning an artist means holding music by them, so an artist row with no
+        // albums does not count — the Jellyfin bridge creates such rows. Asked
+        // of the database rather than of the result, or an albumless row could
+        // be returned in preference to a populated one.
         if (mbid) {
             const byMbid = await prisma.artist.findFirst({
-                where: { mbid },
-                include: { albums: { take: 1 } },
+                where: { mbid, albums: { some: {} } },
+                select: { id: true },
             });
-            if (byMbid && byMbid.albums.length > 0) return true;
+            if (byMbid) return true;
         }
 
         if (!name) return false;
 
+        // Both spellings are tried: normalizedName reconciles punctuation, but
+        // it defaults to empty, so rows predating it only match on name.
         const byName = await prisma.artist.findFirst({
-            where: { normalizedName: normalizeArtistName(name) },
-            include: { albums: { take: 1 } },
+            where: {
+                OR: [
+                    { normalizedName: normalizeArtistName(name) },
+                    { name: { equals: name, mode: "insensitive" } },
+                ],
+                albums: { some: {} },
+            },
+            select: { id: true },
         });
-        return !!byName && byName.albums.length > 0;
+        return !!byName;
     }
 
     async isAlbumOwned(
-        artistName: string,
-        albumTitle: string,
+        artistName: string | null,
+        albumTitle: string | null,
         rgMbid?: string | null
     ): Promise<boolean> {
         if (rgMbid) {

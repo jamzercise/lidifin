@@ -1,6 +1,9 @@
 import { DiscoverySeeding, SeedArtist } from '../discoverySeeding';
 import { prisma } from '../../../utils/db';
 import { lidarrService } from '../../lidarr';
+import { isJellyfinMusicSource } from '../../jellyfin';
+import { getJellyfinLibrarySeedArtists } from '../../jellyfinArtistBridge';
+import { invalidateLibraryCache } from '../libraryLookup';
 
 jest.mock('../../../utils/db', () => ({
     prisma: {
@@ -24,13 +27,27 @@ jest.mock('../../../utils/db', () => ({
         downloadJob: {
             findFirst: jest.fn(),
         },
+        jellyfinTrackMetadata: {
+            findMany: jest.fn().mockResolvedValue([]),
+        },
     },
+}));
+
+jest.mock('../../jellyfinArtistBridge', () => ({
+    getJellyfinSeedArtists: jest.fn().mockResolvedValue([]),
+    getJellyfinLibrarySeedArtists: jest.fn().mockResolvedValue([]),
 }));
 
 jest.mock('../../lidarr', () => ({
     lidarrService: {
         isAlbumAvailable: jest.fn(),
     },
+}));
+
+// Ownership goes through the library facade, which asks the settings which
+// source is authoritative. These cases cover the native library.
+jest.mock('../../jellyfin', () => ({
+    isJellyfinMusicSource: jest.fn().mockResolvedValue(false),
 }));
 
 const mockPrisma = prisma as jest.Mocked<typeof prisma>;
@@ -41,6 +58,8 @@ describe('DiscoverySeeding', () => {
 
     beforeEach(() => {
         jest.clearAllMocks();
+        invalidateLibraryCache();
+        (isJellyfinMusicSource as jest.Mock).mockResolvedValue(false);
         seeding = new DiscoverySeeding();
     });
 
@@ -270,6 +289,23 @@ describe('DiscoverySeeding', () => {
 
             expect(mockPrisma.album.groupBy).toHaveBeenCalled();
             expect(result[0].name).toBe('Library Artist');
+        });
+
+        it('should fall back to the Jellyfin library when that is the music source', async () => {
+            // The scan tables are empty in Jellyfin mode, so the native fallback
+            // would leave a user with thin play history no seeds at all.
+            (isJellyfinMusicSource as jest.Mock).mockResolvedValue(true);
+            (mockPrisma.play.groupBy as jest.Mock).mockResolvedValue([]);
+            (getJellyfinLibrarySeedArtists as jest.Mock).mockResolvedValue([
+                { nativeId: 'a1', name: 'The Slackers', mbid: 'jf-mbid-1' },
+            ]);
+
+            const result = await seeding.getSeedArtists(userId);
+
+            expect(result).toEqual([
+                { name: 'The Slackers', mbid: 'jf-mbid-1' },
+            ]);
+            expect(mockPrisma.album.groupBy).not.toHaveBeenCalled();
         });
 
         it('should respect seedCount parameter', async () => {

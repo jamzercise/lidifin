@@ -279,6 +279,20 @@ describe("ownership against Jellyfin", () => {
         ).resolves.toBe(false);
     });
 
+    it("recognises an album from its MBID alone", async () => {
+        // Seeding knows only the release MBID at the point it filters.
+        const reader = await readerFor([
+            entry({ trackTitle: "Raid", rgMbid: "rg-1" }),
+        ]);
+
+        await expect(reader.isAlbumOwned(null, null, "rg-1")).resolves.toBe(
+            true
+        );
+        await expect(reader.isAlbumOwned(null, null, "rg-9")).resolves.toBe(
+            false
+        );
+    });
+
     it("treats an empty library as owning nothing rather than everything", async () => {
         const reader = await readerFor([]);
 
@@ -286,6 +300,89 @@ describe("ownership against Jellyfin", () => {
         await expect(reader.isArtistOwned("Doom Regulator")).resolves.toBe(
             false
         );
+    });
+});
+
+describe("findAnchorTracks against Jellyfin", () => {
+    const library = [
+        entry({ trackTitle: "Raid", rgMbid: "rg-1" }),
+        entry({ trackTitle: "Skank Down", rgMbid: "rg-1" }),
+        entry({
+            trackTitle: "Rude and Reckless",
+            artistName: "The Slackers",
+            albumTitle: "Redlight",
+            rgMbid: "rg-2",
+        }),
+    ];
+
+    const nothingUsed = () => ({
+        excludeTrackIds: new Set<string>(),
+        excludeAlbumIds: new Set<string>(),
+    });
+
+    it("takes one familiar track per album so a playlist is not all one record", async () => {
+        const reader = await readerFor(library);
+
+        const anchors = await reader.findAnchorTracks({
+            ...nothingUsed(),
+            limit: 10,
+        });
+
+        expect(anchors).toHaveLength(2);
+        expect(anchors.map((t) => t.album.rgMbid).sort()).toEqual([
+            "rg-1",
+            "rg-2",
+        ]);
+    });
+
+    it("draws only on the seed artists when given some", async () => {
+        const reader = await readerFor(library);
+
+        const anchors = await reader.findAnchorTracks({
+            artistNames: ["The Slackers"],
+            ...nothingUsed(),
+            limit: 10,
+        });
+
+        expect(anchors.map((t) => t.title)).toEqual(["Rude and Reckless"]);
+    });
+
+    it("leaves out albums the discoveries already occupy", async () => {
+        const reader = await readerFor(library);
+
+        const anchors = await reader.findAnchorTracks({
+            ...nothingUsed(),
+            excludeAlbumIds: new Set(["rg-1"]),
+            limit: 10,
+        });
+
+        expect(anchors.map((t) => t.album.rgMbid)).toEqual(["rg-2"]);
+    });
+
+    it("leaves out tracks already chosen, falling back to the album's others", async () => {
+        const reader = await readerFor(library);
+
+        const anchors = await reader.findAnchorTracks({
+            ...nothingUsed(),
+            excludeTrackIds: new Set(["jellyfin:Raid"]),
+            limit: 10,
+        });
+
+        expect(anchors.map((t) => t.title).sort()).toEqual([
+            "Rude and Reckless",
+            "Skank Down",
+        ]);
+    });
+
+    it("honours the limit", async () => {
+        const reader = await readerFor(library);
+
+        const anchors = await reader.findAnchorTracks({
+            ...nothingUsed(),
+            limit: 1,
+        });
+
+        expect(anchors).toHaveLength(1);
     });
 });
 
@@ -313,31 +410,70 @@ describe("the native reader", () => {
         });
     });
 
-    it("does not count an artist with no albums as owned", async () => {
+    it("requires an artist to hold an album before counting them as owned", async () => {
         // The Jellyfin bridge creates artist rows without albums; treating
         // those as owned would suppress recommendations for them.
-        asMock(prisma.artist.findFirst).mockResolvedValue({
-            id: "a1",
-            albums: [],
-        });
+        asMock(prisma.artist.findFirst).mockResolvedValue(null);
 
         const reader = await openLibraryReader();
+        await reader.isArtistOwned("Doom Regulator", "mbid-1");
 
-        await expect(
-            reader.isArtistOwned("Doom Regulator", "mbid-1")
-        ).resolves.toBe(false);
+        for (const call of asMock(prisma.artist.findFirst).mock.calls) {
+            expect(call[0].where.albums).toEqual({ some: {} });
+        }
     });
 
     it("counts an artist holding at least one album as owned", async () => {
-        asMock(prisma.artist.findFirst).mockResolvedValue({
-            id: "a1",
-            albums: [{ id: "al1" }],
-        });
+        asMock(prisma.artist.findFirst).mockResolvedValue({ id: "a1" });
 
         const reader = await openLibraryReader();
 
         await expect(reader.isArtistOwned("Doom Regulator")).resolves.toBe(
             true
         );
+    });
+
+    it("matches an artist by either spelling, for rows predating normalization", async () => {
+        asMock(prisma.artist.findFirst).mockResolvedValue(null);
+
+        const reader = await openLibraryReader();
+        await reader.isArtistOwned("Guns N' Roses");
+
+        expect(asMock(prisma.artist.findFirst).mock.calls[0][0].where.OR).toEqual(
+            [
+                { normalizedName: "guns n' roses" },
+                { name: { equals: "Guns N' Roses", mode: "insensitive" } },
+            ]
+        );
+    });
+
+    it("requires an album to hold tracks before counting it as owned", async () => {
+        // An album row with no tracks means the download never landed.
+        asMock(prisma.album.findFirst).mockResolvedValue(null);
+
+        const reader = await openLibraryReader();
+        await reader.isAlbumOwned(null, null, "rg-1");
+
+        expect(asMock(prisma.album.findFirst).mock.calls[0][0].where).toEqual({
+            rgMbid: "rg-1",
+            tracks: { some: {} },
+        });
+    });
+
+    it("keeps anchors to one track per album", async () => {
+        asMock(prisma.track.findMany).mockResolvedValue([
+            { id: "t1", title: "Raid", album: { id: "al1" } },
+            { id: "t2", title: "Skank Down", album: { id: "al1" } },
+            { id: "t3", title: "Redlight", album: { id: "al2" } },
+        ]);
+
+        const reader = await openLibraryReader();
+        const anchors = await reader.findAnchorTracks({
+            excludeTrackIds: new Set(),
+            excludeAlbumIds: new Set(),
+            limit: 10,
+        });
+
+        expect(anchors.map((t) => t.id)).toEqual(["t1", "t3"]);
     });
 });

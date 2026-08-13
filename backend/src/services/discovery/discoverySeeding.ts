@@ -10,7 +10,11 @@
 import { prisma } from '../../utils/db';
 import { logger } from '../../utils/logger';
 import { lidarrService } from '../lidarr';
-import { getJellyfinSeedArtists } from '../jellyfinArtistBridge';
+import {
+    getJellyfinLibrarySeedArtists,
+    getJellyfinSeedArtists,
+} from '../jellyfinArtistBridge';
+import { openLibraryReader } from './libraryLookup';
 import { subWeeks } from 'date-fns';
 
 export interface SeedArtist {
@@ -120,6 +124,15 @@ export class DiscoverySeeding {
     private async getFallbackSeedArtists(limit: number): Promise<SeedArtist[]> {
         logger.debug('[DiscoverySeeding] Insufficient play history, falling back to library');
 
+        const library = await openLibraryReader();
+        if (library.isJellyfin) {
+            const seeds = await getJellyfinLibrarySeedArtists(limit);
+            logger.debug(
+                `[DiscoverySeeding] Seeded from ${seeds.length} Jellyfin library artist(s)`
+            );
+            return seeds.map((a) => ({ name: a.name, mbid: a.mbid }));
+        }
+
         const albums = await prisma.album.groupBy({
             by: ['artistId'],
             where: { tracks: { some: {} } },
@@ -167,10 +180,8 @@ export class DiscoverySeeding {
      * - Lidarr
      */
     async isAlbumOwned(albumMbid: string, userId: string): Promise<boolean> {
-        const existingAlbum = await prisma.album.findFirst({
-            where: { rgMbid: albumMbid, tracks: { some: {} } },
-        });
-        if (existingAlbum) return true;
+        const library = await openLibraryReader();
+        if (await library.isAlbumOwned(null, null, albumMbid)) return true;
 
         const previousDiscovery = await prisma.discoveryAlbum.findFirst({
             where: { rgMbid: albumMbid, userId },

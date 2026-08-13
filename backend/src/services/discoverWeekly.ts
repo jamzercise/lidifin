@@ -12,7 +12,6 @@
  */
 
 import { logger } from "../utils/logger";
-import { normalizeArtistName } from "../utils/artistNormalization";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../utils/db";
 import axios from "axios";
@@ -29,7 +28,6 @@ import {
     discoveryAlbumLifecycle,
     discoverySeeding,
     openLibraryReader,
-    type LibraryReader,
     type LibraryTrackRef,
 } from "./discovery";
 import { shuffleArray } from "../utils/shuffle";
@@ -1771,6 +1769,9 @@ export class DiscoverWeeklyService {
             `   Found ${completedBatches.length} completed batch(es) from last 7 days`
         );
 
+        // Reconciliation runs after a scan, so the library has just changed.
+        const library = await openLibraryReader({ fresh: true });
+
         let totalTracksAdded = 0;
         let batchesChecked = 0;
 
@@ -1835,54 +1836,15 @@ export class DiscoverWeeklyService {
                     `     Album "${albumTitle}" by "${artistName}" missing from Discovery - checking library...`
                 );
 
-                // PRIMARY: Search by rgMbid (most accurate)
-                let tracks: any[] = [];
-                if (albumMbid) {
-                    tracks = await prisma.track.findMany({
-                        where: {
-                            album: { rgMbid: albumMbid },
-                        },
-                        include: {
-                            album: { include: { artist: true } },
-                        },
-                    });
-                    if (tracks.length > 0) {
-                        logger.debug(
-                            `       [MBID] Found ${tracks.length} tracks in library`
-                        );
-                    }
-                }
-
-                // FALLBACK: Search by artist name + album title (case-insensitive)
-                if (tracks.length === 0 && artistName && albumTitle) {
-                    logger.debug(
-                        `       [NAME] Trying name-based search: "${artistName}" - "${albumTitle}"`
-                    );
-                    tracks = await prisma.track.findMany({
-                        where: {
-                            album: {
-                                title: {
-                                    equals: albumTitle,
-                                    mode: "insensitive",
-                                },
-                                artist: {
-                                    name: {
-                                        equals: artistName,
-                                        mode: "insensitive",
-                                    },
-                                },
-                            },
-                        },
-                        include: {
-                            album: { include: { artist: true } },
-                        },
-                    });
-                    if (tracks.length > 0) {
-                        logger.debug(
-                            `       [NAME] Found ${tracks.length} tracks in library`
-                        );
-                    }
-                }
+                // Matched on the release MBID where possible, otherwise on the
+                // artist and album names.
+                const tracks = await library.findAlbumTracks([
+                    {
+                        artistName: artistName ?? "",
+                        albumTitle: albumTitle ?? "",
+                        albumMbid,
+                    },
+                ]);
 
                 if (tracks.length === 0) {
                     logger.debug(
@@ -2297,36 +2259,16 @@ export class DiscoverWeeklyService {
         artistName: string,
         artistMbid: string | undefined
     ): Promise<boolean> {
-        // Check by MBID first (most accurate)
-        if (artistMbid && !artistMbid.startsWith("temp-")) {
-            const byMbid = await prisma.artist.findFirst({
-                where: { mbid: artistMbid },
-                include: { albums: { take: 1 } },
-            });
-            if (byMbid && byMbid.albums.length > 0) {
-                logger.debug(
-                    `     [LIBRARY] ${artistName} IN LIBRARY (matched by MBID, ${byMbid.albums.length} album(s))`
-                );
-                return true;
-            }
+        const library = await openLibraryReader();
+        // A placeholder MBID matches nothing and would only cost a query.
+        const mbid =
+            artistMbid && !artistMbid.startsWith("temp-") ? artistMbid : null;
+        const owned = await library.isArtistOwned(artistName, mbid);
+
+        if (owned) {
+            logger.debug(`     [LIBRARY] ${artistName} IN LIBRARY`);
         }
-
-        // Check by name (case insensitive)
-        const byName = await prisma.artist.findFirst({
-            where: {
-                name: { equals: artistName, mode: "insensitive" },
-            },
-            include: { albums: { take: 1 } },
-        });
-
-        if (byName !== null && byName.albums.length > 0) {
-            logger.debug(
-                `     [LIBRARY] ${artistName} IN LIBRARY (matched by name, ${byName.albums.length} album(s))`
-            );
-            return true;
-        }
-
-        return false;
+        return owned;
     }
 
     /**
@@ -2349,18 +2291,14 @@ export class DiscoverWeeklyService {
             )
             .trim();
 
-        // Check Album table by name
-        const album = await prisma.album.findFirst({
-            where: {
-                title: { contains: normalizedAlbum, mode: "insensitive" },
-                artist: {
-                    name: { contains: normalizedArtist, mode: "insensitive" },
-                },
-            },
-        });
-        if (album) {
+        const library = await openLibraryReader();
+        const owned = await library.isAlbumOwned(
+            normalizedArtist,
+            normalizedAlbum
+        );
+        if (owned) {
             logger.debug(
-                `     [OWNED-NAME] Found "${albumTitle}" by "${artistName}" in Album table`
+                `     [OWNED-NAME] Found "${albumTitle}" by "${artistName}" in the library`
             );
             return true;
         }
@@ -2951,9 +2889,16 @@ export class DiscoverWeeklyService {
                 },
                 take: 500,
             });
-            const nativeTrackIds = recentPlays
-                .map((p) => p.trackId)
-                .filter((id): id is string => !!id && !id.startsWith("jellyfin:"));
+            const nativeTrackIds: string[] = [];
+            const jellyfinTrackIds: string[] = [];
+            for (const play of recentPlays) {
+                if (!play.trackId) continue;
+                if (play.trackId.startsWith("jellyfin:")) {
+                    jellyfinTrackIds.push(play.trackId);
+                } else {
+                    nativeTrackIds.push(play.trackId);
+                }
+            }
             const tracksWithArtist = await prisma.track.findMany({
                 where: { id: { in: nativeTrackIds } },
                 include: {
@@ -2965,6 +2910,28 @@ export class DiscoverWeeklyService {
             );
 
             const genreCounts = new Map<string, number>();
+            const countGenre = (genre: string) => {
+                const key = genre.trim().toLowerCase();
+                if (key) genreCounts.set(key, (genreCounts.get(key) || 0) + 1);
+            };
+
+            // Jellyfin plays carry their genres on the synced track metadata;
+            // there is no Artist row to read them from.
+            if (jellyfinTrackIds.length > 0) {
+                const jellyfinGenres =
+                    await prisma.jellyfinTrackMetadata.findMany({
+                        where: { jellyfinId: { in: jellyfinTrackIds } },
+                        select: { jellyfinId: true, genres: true },
+                    });
+                const genresByTrackId = new Map(
+                    jellyfinGenres.map((t) => [t.jellyfinId, t.genres])
+                );
+                for (const trackId of jellyfinTrackIds) {
+                    for (const genre of genresByTrackId.get(trackId) ?? []) {
+                        countGenre(genre);
+                    }
+                }
+            }
 
             for (const play of recentPlays) {
                 const artist = artistByTrackId.get(play.trackId);
@@ -2979,12 +2946,7 @@ export class DiscoverWeeklyService {
                               .map((g: string) => g.trim());
 
                     for (const genre of genres) {
-                        if (genre && typeof genre === "string") {
-                            genreCounts.set(
-                                genre.toLowerCase(),
-                                (genreCounts.get(genre.toLowerCase()) || 0) + 1
-                            );
-                        }
+                        if (typeof genre === "string") countGenre(genre);
                     }
                 }
 
@@ -2995,12 +2957,7 @@ export class DiscoverWeeklyService {
                         : [];
 
                     for (const genre of userGenres) {
-                        if (genre && typeof genre === "string") {
-                            genreCounts.set(
-                                genre.toLowerCase(),
-                                (genreCounts.get(genre.toLowerCase()) || 0) + 1
-                            );
-                        }
+                        if (typeof genre === "string") countGenre(genre);
                     }
                 }
             }

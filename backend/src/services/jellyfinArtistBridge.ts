@@ -275,6 +275,55 @@ export async function getJellyfinSeedArtists(
         .map((entry) => entry.artist);
 }
 
+/**
+ * Seed artists drawn from the Jellyfin library itself, for users whose play
+ * history is too thin to seed from. The native equivalent ranks artists by how
+ * many of their albums the user holds; this does the same over Jellyfin.
+ */
+export async function getJellyfinLibrarySeedArtists(
+    maxSeeds: number
+): Promise<BridgedArtist[]> {
+    const albums = await prisma.jellyfinTrackMetadata.groupBy({
+        by: ["artistName", "albumTitle"],
+        _count: { jellyfinId: true },
+    });
+    if (albums.length === 0) return [];
+
+    const albumsPerArtist = new Map<string, number>();
+    for (const album of albums) {
+        if (!album.artistName) continue;
+        albumsPerArtist.set(
+            album.artistName,
+            (albumsPerArtist.get(album.artistName) ?? 0) + 1
+        );
+    }
+
+    // Some names will not resolve to an MBID, and seeding needs one, so more
+    // candidates are tried than seeds are wanted.
+    const candidates = [...albumsPerArtist.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, maxSeeds * 3)
+        .map(([name]) => name);
+
+    const pLimit = (await import("p-limit")).default;
+    const limit = pLimit(5);
+    const resolved = await Promise.all(
+        candidates.map((name) =>
+            limit(() => resolveJellyfinArtistToNative(name))
+        )
+    );
+
+    const seeds: BridgedArtist[] = [];
+    const seen = new Set<string>();
+    for (const artist of resolved) {
+        if (!artist || seen.has(artist.mbid)) continue;
+        seen.add(artist.mbid);
+        seeds.push(artist);
+        if (seeds.length >= maxSeeds) break;
+    }
+    return seeds;
+}
+
 function isValidMbid(mbid: string | null | undefined): mbid is string {
     return !!mbid && !mbid.startsWith("temp-") && mbid.length >= 32;
 }
