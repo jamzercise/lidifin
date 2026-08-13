@@ -28,6 +28,9 @@ import {
     discoveryBatchLogger,
     discoveryAlbumLifecycle,
     discoverySeeding,
+    openLibraryReader,
+    type LibraryReader,
+    type LibraryTrackRef,
 } from "./discovery";
 import { shuffleArray } from "../utils/shuffle";
 import { config as appConfig } from "../config";
@@ -1273,196 +1276,61 @@ export class DiscoverWeeklyService {
 
         // Find tracks for completed jobs. Track-first mode (ADR 0007) matches
         // individual songs by title+artist; album mode matches whole albums.
-        let allTracks: any[] = [];
-
-        if (batch.mode === "track") {
-            for (const job of completedJobs) {
-                const m = job.metadata as any;
-                const artistName = (m?.artistName || "").trim();
-                const trackTitle = (m?.trackTitle || "").trim();
-                if (!artistName || !trackTitle) continue;
-
-                let tracks = await prisma.track.findMany({
-                    where: {
-                        title: { equals: trackTitle, mode: "insensitive" },
-                        album: {
-                            artist: {
-                                name: {
-                                    equals: artistName,
-                                    mode: "insensitive",
-                                },
-                            },
-                        },
-                    },
-                    include: { album: { include: { artist: true } } },
-                    take: 1,
-                });
-
-                // Fuzzy fallback: partial title + first artist token
-                if (tracks.length === 0) {
-                    tracks = await prisma.track.findMany({
-                        where: {
-                            title: {
-                                contains: trackTitle,
-                                mode: "insensitive",
-                            },
-                            album: {
-                                artist: {
-                                    name: {
-                                        contains: artistName.split(" ")[0],
-                                        mode: "insensitive",
-                                    },
-                                },
-                            },
-                        },
-                        include: { album: { include: { artist: true } } },
-                        take: 1,
-                    });
-                }
-
-                if (tracks.length > 0) {
-                    logger.debug(
-                        `     [TRACK] Matched "${trackTitle}" by "${artistName}"`
-                    );
-                    allTracks.push(...tracks);
-                } else {
-                    logger.debug(
-                        `     [MISS] No library track for "${trackTitle}" by "${artistName}"`
-                    );
-                }
-            }
-        } else {
-
-        // Build search criteria from completed jobs - use MBID (primary) + artist/album name (fallback)
-        const searchCriteria = completedJobs
-            .map((j) => {
-                const metadata = j.metadata as any;
-                return {
-                    artistName: metadata?.artistName || "",
-                    albumTitle: metadata?.albumTitle || "",
-                    albumMbid: metadata?.albumMbid || j.targetMbid || "",
-                };
-            })
-            .filter((c) => c.artistName && c.albumTitle);
-
-        logger.debug(
-            `   Searching for tracks using MBID (primary) + name fallback:`
-        );
-        for (const c of searchCriteria) {
-            logger.debug(
-                `     - "${c.albumTitle}" by "${c.artistName}" (MBID: ${
-                    c.albumMbid || "none"
-                })`
+        // Downloads have only just landed, and in Jellyfin mode the scan handoff
+        // has only just indexed them, so this has to read the library as it is
+        // now rather than any cached view of it.
+        const library = await openLibraryReader({ fresh: true });
+        if (library.isJellyfin && library.size === 0) {
+            logger.warn(
+                `   Jellyfin is the music source but no track metadata is stored, ` +
+                    `so nothing downloaded for this batch can be matched. ` +
+                    `Run the Jellyfin metadata sync from Settings.`
             );
         }
 
-        // Find tracks - try MBID first (most accurate), then fall back to name matching
-        for (const criteria of searchCriteria) {
-            let tracks: any[] = [];
+        let allTracks: LibraryTrackRef[] = [];
 
-            // PRIMARY: Search by rgMbid (most accurate)
-            if (criteria.albumMbid) {
-                tracks = await prisma.track.findMany({
-                    where: {
-                        album: { rgMbid: criteria.albumMbid },
-                    },
-                    include: {
-                        album: { include: { artist: true } },
-                    },
-                });
-                if (tracks.length > 0) {
-                    logger.debug(
-                        `     [MBID] Found ${tracks.length} tracks for "${criteria.albumTitle}"`
-                    );
-                }
-            }
+        if (batch.mode === "track") {
+            // Track-first jobs name one song. They carry no album MBID, so the
+            // album a track lands on is whatever the library says it is.
+            const trackCriteria = completedJobs
+                .map((job) => {
+                    const m = job.metadata as any;
+                    return {
+                        artistName: (m?.artistName || "").trim(),
+                        trackTitle: (m?.trackTitle || "").trim(),
+                        albumTitle: (m?.albumTitle || "").trim() || undefined,
+                    };
+                })
+                .filter((c) => c.artistName && c.trackTitle);
 
-            // FALLBACK: Search by artist name + album title (case-insensitive)
-            if (tracks.length === 0) {
-                tracks = await prisma.track.findMany({
-                    where: {
-                        album: {
-                            title: {
-                                equals: criteria.albumTitle,
-                                mode: "insensitive",
-                            },
-                            artist: {
-                                name: {
-                                    equals: criteria.artistName,
-                                    mode: "insensitive",
-                                },
-                            },
-                        },
-                    },
-                    include: {
-                        album: { include: { artist: true } },
-                    },
-                });
-                if (tracks.length > 0) {
-                    logger.debug(
-                        `     [NAME] Found ${tracks.length} tracks for "${criteria.albumTitle}"`
-                    );
-                }
-            }
+            allTracks = await library.findTracks(trackCriteria);
+        } else {
+            // Album jobs name a release, preferably by MBID.
+            const searchCriteria = completedJobs
+                .map((j) => {
+                    const metadata = j.metadata as any;
+                    return {
+                        artistName: metadata?.artistName || "",
+                        albumTitle: metadata?.albumTitle || "",
+                        albumMbid: metadata?.albumMbid || j.targetMbid || "",
+                    };
+                })
+                .filter((c) => c.artistName && c.albumTitle);
 
-            // FALLBACK 2: Normalized name search (handles Unicode/special chars)
-            if (tracks.length === 0) {
-                // Normalize for comparison
-                const normalizeStr = (s: string) =>
-                    s
-                        .toLowerCase()
-                        .normalize("NFKD") // Decompose Unicode
-                        .replace(/[\u0300-\u036f]/g, "") // Remove diacritics
-                        .replace(/[^\w\s]/g, " ") // Replace punctuation with space
-                        .replace(/\s+/g, " ") // Normalize whitespace
-                        .trim();
-
-                const normalizedAlbum = normalizeStr(criteria.albumTitle);
-                const normalizedArtist = normalizeStr(criteria.artistName);
-
-                // Get all albums from this artist (by normalized name)
-                const artistAlbums = await prisma.album.findMany({
-                    where: {
-                        artist: {
-                            name: {
-                                mode: "insensitive",
-                                contains: normalizedArtist.split(" ")[0],
-                            },
-                        },
-                    },
-                    include: { artist: true, tracks: true },
-                });
-
-                // Find matching album by normalized title
-                for (const album of artistAlbums) {
-                    if (
-                        normalizeStr(album.title) === normalizedAlbum ||
-                        normalizeStr(album.title).includes(normalizedAlbum) ||
-                        normalizedAlbum.includes(normalizeStr(album.title))
-                    ) {
-                        tracks = album.tracks.map((t: any) => ({
-                            ...t,
-                            album: { ...album, artist: album.artist },
-                        }));
-                        if (tracks.length > 0) {
-                            logger.debug(
-                                `     [NORMALIZED] Found ${tracks.length} tracks for "${criteria.albumTitle}"`
-                            );
-                            break;
-                        }
-                    }
-                }
-            }
-
-            if (tracks.length === 0) {
+            logger.debug(
+                `   Searching for tracks using MBID (primary) + name fallback:`
+            );
+            for (const c of searchCriteria) {
                 logger.debug(
-                    `     [MISS] No tracks found for "${criteria.albumTitle}" by "${criteria.artistName}"`
+                    `     - "${c.albumTitle}" by "${c.artistName}" (MBID: ${
+                        c.albumMbid || "none"
+                    })`
                 );
             }
 
-            allTracks.push(...tracks);
+            allTracks = await library.findAlbumTracks(searchCriteria);
         }
-        } // end album-mode matching
 
         // Remove duplicates (same track ID)
         const uniqueTracks = Array.from(
@@ -1473,21 +1341,20 @@ export class DiscoverWeeklyService {
         logger.debug(`   Found ${allTracks.length} tracks from imported albums`);
 
         if (allTracks.length === 0) {
-            logger.debug(
-                `   No tracks found after scan - albums may not have imported yet`
-            );
+            const reason =
+                library.isJellyfin && library.size === 0
+                    ? "No tracks found after scan - no Jellyfin track metadata is stored, so run the Jellyfin metadata sync from Settings"
+                    : "No tracks found after scan";
+            logger.debug(`   ${reason}`);
             await prisma.discoveryBatch.update({
                 where: { id: batchId },
                 data: {
                     status: "failed",
-                    errorMessage: "No tracks found after scan",
+                    errorMessage: reason,
                     completedAt: new Date(),
                 },
             });
-            await discoveryBatchLogger.error(
-                batchId,
-                "No tracks found after scan"
-            );
+            await discoveryBatchLogger.error(batchId, reason);
             return;
         }
 
@@ -1551,55 +1418,22 @@ export class DiscoverWeeklyService {
         const usedAlbumIds = new Set(discoverySelected.map((t) => t.album.id));
 
         if (seedArtistNames.length > 0 || seedArtistMbids.length > 0) {
-            const libraryTracks = await prisma.track.findMany({
-                where: {
-                    album: {
-                        artist: {
-                            OR: [
-                                { normalizedName: { in: seedArtistNames.map(n => normalizeArtistName(n)) } },
-                                ...(seedArtistMbids.length > 0
-                                    ? [{ mbid: { in: seedArtistMbids } }]
-                                    : []),
-                            ],
-                        },
-                        id: { notIn: Array.from(usedAlbumIds) }, // Exclude albums already in discovery
-                    },
-                    id: { notIn: Array.from(existingTrackIds) },
-                },
-                include: {
-                    album: { include: { artist: true } },
-                },
-                take: anchorCount * 10, // Get extra for 1-per-album selection
+            const seedAnchors = await library.findAnchorTracks({
+                artistNames: seedArtistNames,
+                artistMbids: seedArtistMbids,
+                excludeTrackIds: existingTrackIds,
+                excludeAlbumIds: usedAlbumIds,
+                limit: anchorCount,
             });
 
             logger.debug(
-                `   Found ${libraryTracks.length} candidate library tracks from ${seedArtistNames.length} seed artists`
+                `   Found ${seedAnchors.length} candidate library tracks from ${seedArtistNames.length} seed artists`
             );
 
-            if (libraryTracks.length > 0) {
-                // Group by album and pick 1 per album
-                const anchorsByAlbum = new Map<
-                    string,
-                    (typeof libraryTracks)[0]
-                >();
-                for (const track of libraryTracks) {
-                    if (
-                        !anchorsByAlbum.has(track.album.id) &&
-                        !usedAlbumIds.has(track.album.id)
-                    ) {
-                        anchorsByAlbum.set(track.album.id, track);
-                    }
-                }
-
-                // Shuffle and take what we need
-                const uniqueAnchors = shuffleArray(Array.from(anchorsByAlbum.values()));
-                libraryAnchors = uniqueAnchors.slice(0, anchorCount);
-
-                // Mark these as library anchors and track used albums
-                for (const track of libraryAnchors) {
-                    (track as any).isLibraryAnchor = true;
-                    usedAlbumIds.add(track.album.id);
-                }
+            libraryAnchors = shuffleArray(seedAnchors).slice(0, anchorCount);
+            for (const track of libraryAnchors) {
+                track.isLibraryAnchor = true;
+                usedAlbumIds.add(track.album.id);
             }
         }
 
@@ -1616,45 +1450,21 @@ export class DiscoverWeeklyService {
                 ...libraryAnchors.map((t) => t.id),
             ]);
 
-            // Find popular library tracks (from artists with most plays or albums)
-            // Exclude albums already used
-            const popularLibraryTracks = await prisma.track.findMany({
-                where: {
-                    album: {
-                        id: { notIn: Array.from(usedAlbumIds) }, // 1 per album
-                    },
-                    id: { notIn: Array.from(usedTrackIds) },
-                },
-                include: {
-                    album: { include: { artist: true } },
-                },
-                orderBy: {
-                    // Order by album's artist name for variety, or you could add play count
-                    album: { artist: { name: "asc" } },
-                },
-                take: needed * 10, // Get extra for 1-per-album selection
+            // Anywhere in the library will do at this point.
+            const extraAnchors = await library.findAnchorTracks({
+                excludeTrackIds: usedTrackIds,
+                excludeAlbumIds: usedAlbumIds,
+                limit: needed,
             });
 
-            if (popularLibraryTracks.length > 0) {
-                // Group by album and pick 1 per album
-                const popByAlbum = new Map<
-                    string,
-                    (typeof popularLibraryTracks)[0]
-                >();
-                for (const track of popularLibraryTracks) {
-                    if (
-                        !popByAlbum.has(track.album.id) &&
-                        !usedAlbumIds.has(track.album.id)
-                    ) {
-                        popByAlbum.set(track.album.id, track);
-                    }
-                }
-
-                const shuffledPopular = shuffleArray(Array.from(popByAlbum.values()));
-                const additionalAnchors = shuffledPopular.slice(0, needed);
+            if (extraAnchors.length > 0) {
+                const additionalAnchors = shuffleArray(extraAnchors).slice(
+                    0,
+                    needed
+                );
 
                 for (const track of additionalAnchors) {
-                    (track as any).isLibraryAnchor = true;
+                    track.isLibraryAnchor = true;
                     usedAlbumIds.add(track.album.id);
                 }
 

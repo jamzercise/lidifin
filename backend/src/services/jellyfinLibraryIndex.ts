@@ -40,6 +40,8 @@ export interface JellyfinLibraryEntry {
     trackTitle: string;
     albumTitle: string | null;
     rgMbid: string | null;
+    /** MusicBrainz artist id, when Jellyfin recorded one. */
+    artistMbid?: string | null;
 }
 
 export interface JellyfinTrackMatch {
@@ -62,6 +64,15 @@ export interface JellyfinTrackIndex {
     byArtistTitle: Map<string, JellyfinLibraryEntry[]>;
     /** `artistKey|bareTitleKey` -> tracks, ignoring any parenthetical. */
     byArtistBareTitle: Map<string, JellyfinLibraryEntry[]>;
+    /** Release-group MBID -> that release's tracks. */
+    byAlbumMbid: Map<string, JellyfinLibraryEntry[]>;
+    /** `artistKey|albumKey` -> that album's tracks. */
+    byArtistAlbum: Map<string, JellyfinLibraryEntry[]>;
+    /**
+     * Every entry exactly once. The maps above index each track under several
+     * keys, so they cannot be walked to enumerate the library.
+     */
+    entries: JellyfinLibraryEntry[];
     /** Total entries indexed; 0 means the metadata sync has not run. */
     size: number;
 }
@@ -117,6 +128,8 @@ export function buildJellyfinTrackIndex(
     const byArtist = new Map<string, JellyfinLibraryEntry[]>();
     const byArtistTitle = new Map<string, JellyfinLibraryEntry[]>();
     const byArtistBareTitle = new Map<string, JellyfinLibraryEntry[]>();
+    const byAlbumMbid = new Map<string, JellyfinLibraryEntry[]>();
+    const byArtistAlbum = new Map<string, JellyfinLibraryEntry[]>();
 
     for (const entry of entries) {
         // Every artist this track can reasonably be searched by: the album
@@ -133,6 +146,9 @@ export function buildJellyfinTrackIndex(
 
         const titleKey = trackTitleKey(entry.trackTitle);
         const bareKey = trackTitleBareKey(entry.trackTitle);
+        const albumKey = entry.albumTitle
+            ? normalizeAlbumForMatching(entry.albumTitle).toLowerCase()
+            : "";
 
         for (const key of artistKeys) {
             pushTo(byArtist, key, entry);
@@ -140,10 +156,59 @@ export function buildJellyfinTrackIndex(
             if (bareKey && bareKey !== titleKey) {
                 pushTo(byArtistBareTitle, `${key}|${bareKey}`, entry);
             }
+            if (albumKey) pushTo(byArtistAlbum, `${key}|${albumKey}`, entry);
         }
+
+        if (entry.rgMbid) pushTo(byAlbumMbid, entry.rgMbid, entry);
     }
 
-    return { byArtist, byArtistTitle, byArtistBareTitle, size: entries.length };
+    return {
+        byArtist,
+        byArtistTitle,
+        byArtistBareTitle,
+        byAlbumMbid,
+        byArtistAlbum,
+        entries,
+        size: entries.length,
+    };
+}
+
+/**
+ * Find every track of one album, for callers that acquired a whole release
+ * rather than individual songs.
+ *
+ * The release-group MBID is preferred when Jellyfin recorded one, since it
+ * identifies the release regardless of how the title is spelled. Otherwise the
+ * artist and album titles are matched with the same normalization used for
+ * tracks.
+ */
+export function lookupJellyfinAlbum(
+    index: JellyfinTrackIndex,
+    source: { artist: string; album: string; rgMbid?: string | null }
+): JellyfinLibraryEntry[] {
+    if (source.rgMbid) {
+        const byMbid = index.byAlbumMbid.get(source.rgMbid);
+        if (byMbid?.length) return byMbid;
+    }
+
+    const albumKey = source.album
+        ? normalizeAlbumForMatching(source.album).toLowerCase()
+        : "";
+    if (!albumKey) return [];
+
+    const artistKeys = [
+        ...new Set([
+            artistLookupKey(source.artist),
+            artistKeyWithoutArticle(source.artist),
+        ]),
+    ].filter(Boolean);
+
+    for (const artistKey of artistKeys) {
+        const hit = index.byArtistAlbum.get(`${artistKey}|${albumKey}`);
+        if (hit?.length) return hit;
+    }
+
+    return [];
 }
 
 function albumScore(
@@ -364,6 +429,7 @@ export async function loadJellyfinTrackIndex(): Promise<JellyfinTrackIndex> {
                 trackTitle: true,
                 albumTitle: true,
                 rgMbid: true,
+                artistMbid: true,
             },
             orderBy: { jellyfinId: "asc" },
             skip,

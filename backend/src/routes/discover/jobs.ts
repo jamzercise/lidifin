@@ -10,6 +10,12 @@ import { lastFmService } from "../../services/lastfm";
 import { lidarrService } from "../../services/lidarr";
 import { discoverQueue, scanQueue } from "../../workers/queues";
 import { getSystemSettings } from "../../utils/systemSettings";
+import { openLibraryReader } from "../../services/discovery";
+import {
+    resolveTrackReference,
+    resolveTrackReferences,
+    type ResolvedTrack,
+} from "../../services/jellyfin";
 
 /**
  * Discover Weekly job orchestration: batch-status, generate, status, current, rebuild.
@@ -188,47 +194,45 @@ export function registerJobsRoutes(router: Router): void {
             // Build track list from DiscoveryTrack records (the actual selected tracks)
             const tracks = [];
 
+            // A discovery track is a native id or a `jellyfin:` one depending on
+            // the music source, so it is resolved rather than read straight out
+            // of the scan tables. Resolved in one batch for the whole week
+            // instead of a query per album.
+            const discoveryTrackIds = discoveryAlbums.flatMap((album) =>
+                album.tracks
+                    .map((dt) => dt.trackId)
+                    .filter((id): id is string => !!id)
+            );
+            const resolvedTracks = new Map<string, ResolvedTrack>();
+            if (discoveryTrackIds.length > 0) {
+                const resolved = await resolveTrackReferences(discoveryTrackIds);
+                resolved.forEach((track, i) => {
+                    if (track) resolvedTracks.set(discoveryTrackIds[i], track);
+                });
+            }
+
+            const library = await openLibraryReader();
+
             for (const discoveryAlbum of discoveryAlbums) {
-                // If we have DiscoveryTrack records, use them (the actual selected tracks)
-                if (discoveryAlbum.tracks && discoveryAlbum.tracks.length > 0) {
-                    // Fetch all tracks in one query using their IDs
-                    const trackIds = discoveryAlbum.tracks
-                        .map((dt) => dt.trackId)
-                        .filter((id): id is string => id !== null);
-
-                    if (trackIds.length > 0) {
-                        const libraryTracks = await prisma.track.findMany({
-                            where: { id: { in: trackIds } },
-                            include: { album: { include: { artist: true } } },
-                        });
-
-                        // Create a map for quick lookup
-                        const trackMap = new Map(
-                            libraryTracks.map((t) => [t.id, t])
-                        );
-
-                        for (const dt of discoveryAlbum.tracks) {
-                            const track = dt.trackId
-                                ? trackMap.get(dt.trackId)
-                                : null;
-                            if (track) {
-                                tracks.push({
-                                    id: track.id,
-                                    title: track.title,
-                                    artist: discoveryAlbum.artistName,
-                                    album: discoveryAlbum.albumTitle,
-                                    albumId: discoveryAlbum.rgMbid,
-                                    isLiked: discoveryAlbum.status === "LIKED",
-                                    likedAt: discoveryAlbum.likedAt,
-                                    similarity: discoveryAlbum.similarity,
-                                    tier: discoveryAlbum.tier,
-                                    coverUrl: track.album?.coverUrl,
-                                    available: true,
-                                    duration: track.duration,
-                                });
-                            }
-                        }
-                    }
+                for (const dt of discoveryAlbum.tracks) {
+                    const track = dt.trackId
+                        ? resolvedTracks.get(dt.trackId)
+                        : null;
+                    if (!track) continue;
+                    tracks.push({
+                        id: track.id,
+                        title: track.title,
+                        artist: discoveryAlbum.artistName,
+                        album: discoveryAlbum.albumTitle,
+                        albumId: discoveryAlbum.rgMbid,
+                        isLiked: discoveryAlbum.status === "LIKED",
+                        likedAt: discoveryAlbum.likedAt,
+                        similarity: discoveryAlbum.similarity,
+                        tier: discoveryAlbum.tier,
+                        coverUrl: track.album?.coverArt,
+                        available: true,
+                        duration: track.duration,
+                    });
                 }
 
                 // Fallback: No DiscoveryTrack records or no valid trackIds, find ONE track from library
@@ -236,19 +240,18 @@ export function registerJobsRoutes(router: Router): void {
                     tracks.filter((t) => t.album === discoveryAlbum.albumTitle)
                         .length === 0
                 ) {
-                    const album = await prisma.album.findFirst({
-                        where: {
-                            title: discoveryAlbum.albumTitle,
-                            artist: { name: discoveryAlbum.artistName },
+                    const [candidate] = await library.findAlbumTracks([
+                        {
+                            artistName: discoveryAlbum.artistName,
+                            albumTitle: discoveryAlbum.albumTitle,
+                            albumMbid: discoveryAlbum.rgMbid,
                         },
-                        include: {
-                            artist: true,
-                            tracks: { take: 1, orderBy: { trackNo: "asc" } },
-                        },
-                    });
+                    ]);
+                    const track = candidate
+                        ? await resolveTrackReference(candidate.id)
+                        : null;
 
-                    if (album && album.tracks.length > 0) {
-                        const track = album.tracks[0];
+                    if (track) {
                         tracks.push({
                             id: track.id,
                             title: track.title,
@@ -259,7 +262,7 @@ export function registerJobsRoutes(router: Router): void {
                             likedAt: discoveryAlbum.likedAt,
                             similarity: discoveryAlbum.similarity,
                             tier: discoveryAlbum.tier,
-                            coverUrl: album.coverUrl,
+                            coverUrl: track.album?.coverArt,
                             available: true,
                             duration: track.duration,
                         });
