@@ -305,10 +305,14 @@ export async function getClapStats(timeoutMs = 10000): Promise<{
             };
         }
 
+        // AudioMuse reports the cache size as song_count; num_embeddings appears
+        // only in the endpoint's OpenAPI docstring, so treat it as a fallback.
+        const count = Number(res.data?.song_count ?? res.data?.num_embeddings ?? 0);
+
         return {
             stats: {
                 clapEnabled: Boolean(res.data?.clap_enabled),
-                numEmbeddings: Number(res.data?.num_embeddings ?? 0),
+                numEmbeddings: Number.isFinite(count) ? count : 0,
                 lastRefresh: res.data?.last_refresh ?? null,
             },
         };

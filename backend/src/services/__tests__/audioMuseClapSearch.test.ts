@@ -139,7 +139,31 @@ describe("getClapStats", () => {
         getSystemSettings.mockResolvedValue(ENABLED);
     });
 
-    it("maps AudioMuse's snake_case payload", async () => {
+    // Payload copied from a live AudioMuse 2.6.2 instance. The endpoint's own
+    // OpenAPI docstring advertises num_embeddings, but the handler returns
+    // song_count, and reading the documented name reported an empty index.
+    it("reads the cache size AudioMuse actually reports", async () => {
+        get.mockResolvedValue({
+            status: 200,
+            data: {
+                clap_enabled: true,
+                embedding_dimension: 512,
+                loaded: true,
+                memory_mb: 0.96,
+                song_count: 17889,
+            },
+        });
+
+        const { stats } = await getClapStats();
+
+        expect(stats).toEqual({
+            clapEnabled: true,
+            numEmbeddings: 17889,
+            lastRefresh: null,
+        });
+    });
+
+    it("falls back to num_embeddings when a build reports that instead", async () => {
         get.mockResolvedValue({
             status: 200,
             data: {
@@ -156,6 +180,17 @@ describe("getClapStats", () => {
             numEmbeddings: 4213,
             lastRefresh: "2026-08-14T10:00:00Z",
         });
+    });
+
+    it("reports an empty index as zero rather than NaN", async () => {
+        get.mockResolvedValue({
+            status: 200,
+            data: { clap_enabled: true, loaded: false, song_count: 0 },
+        });
+
+        const { stats } = await getClapStats();
+
+        expect(stats?.numEmbeddings).toBe(0);
     });
 
     it("honours a caller-supplied timeout", async () => {
