@@ -20,6 +20,7 @@ import { normalizeArtistName } from "../../utils/artistNormalization";
 import { prisma } from "../../utils/db";
 import { logger } from "../../utils/logger";
 import {
+    artistKeyWithoutArticle,
     artistLookupKey,
     normalizeAlbumForMatching,
 } from "../../utils/matchKeys";
@@ -162,6 +163,19 @@ export interface LibraryReader {
         rgMbid?: string | null
     ): Promise<boolean>;
     /**
+     * Of these artists, the ones the library does not already hold. Batched
+     * because recommendation shelves ask about a whole page at once.
+     */
+    unownedArtists<T extends ArtistRef>(candidates: T[]): Promise<T[]>;
+    /**
+     * Whether the library holds each album, lined up with the input.
+     *
+     * The native reader matches on release MBID alone, as this has always done.
+     * The Jellyfin reader also falls back to artist and album title, because
+     * plenty of Jellyfin libraries carry no MusicBrainz IDs at all.
+     */
+    ownedAlbums(candidates: AlbumOwnershipQuery[]): Promise<boolean[]>;
+    /**
      * Familiar tracks to mix in among the discoveries, at most one per album.
      *
      * Restricted to `artistNames`/`artistMbids` when given, so the anchors are
@@ -169,6 +183,21 @@ export interface LibraryReader {
      * library.
      */
     findAnchorTracks(opts: AnchorQuery): Promise<LibraryTrackRef[]>;
+}
+
+/** A recommended artist, as the shelves know them. */
+export interface ArtistRef {
+    /** Native artist id, or an MBID or bare name for a Last.fm suggestion. */
+    id: string;
+    name: string;
+    mbid?: string | null;
+}
+
+/** An album a shelf wants to mark as already in the library. */
+export interface AlbumOwnershipQuery {
+    artistName: string;
+    albumTitle: string;
+    rgMbid?: string | null;
 }
 
 /** Which familiar tracks may be used, and which are already spoken for. */
@@ -260,9 +289,43 @@ class JellyfinLibraryReader implements LibraryReader {
     }
 
     async isArtistOwned(name: string): Promise<boolean> {
+        return this.holdsArtist(name);
+    }
+
+    /**
+     * Both spellings are tried so that a leading article matches in either
+     * direction: the index carries each artist under their name and its
+     * article-stripped form, but the name asked about may be the one with the
+     * article ("The Slackers" against a library that says "Slackers").
+     */
+    private holdsArtist(name: string): boolean {
         if (!name) return false;
-        const key = artistLookupKey(name);
-        return !!key && (this.index.byArtist.get(key)?.length ?? 0) > 0;
+        const keys = new Set([
+            artistLookupKey(name),
+            artistKeyWithoutArticle(name),
+        ]);
+        for (const key of keys) {
+            if (key && (this.index.byArtist.get(key)?.length ?? 0) > 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    async unownedArtists<T extends ArtistRef>(candidates: T[]): Promise<T[]> {
+        // Jellyfin records no dependable artist MBID, so this goes by name.
+        return candidates.filter((artist) => !this.holdsArtist(artist.name));
+    }
+
+    async ownedAlbums(candidates: AlbumOwnershipQuery[]): Promise<boolean[]> {
+        return candidates.map(
+            (album) =>
+                lookupJellyfinAlbum(this.index, {
+                    artist: album.artistName,
+                    album: album.albumTitle,
+                    rgMbid: album.rgMbid ?? null,
+                }).length > 0
+        );
     }
 
     async isAlbumOwned(
@@ -534,6 +597,38 @@ class NativeLibraryReader implements LibraryReader {
             },
         });
         return !!byName;
+    }
+
+    async unownedArtists<T extends ArtistRef>(candidates: T[]): Promise<T[]> {
+        if (candidates.length === 0) return [];
+
+        // Matched on artist id: a suggestion the user owns will have been
+        // resolved to its native row upstream, and one that has not is keyed by
+        // MBID or name and so cannot collide with an id here.
+        const owned = await prisma.album.findMany({
+            where: { tracks: { some: {} } },
+            select: { artistId: true },
+            distinct: ["artistId"],
+            take: 50_000,
+        });
+        const ownedIds = new Set(owned.map((row) => row.artistId));
+        return candidates.filter((artist) => !ownedIds.has(artist.id));
+    }
+
+    async ownedAlbums(candidates: AlbumOwnershipQuery[]): Promise<boolean[]> {
+        const mbids = candidates
+            .map((album) => album.rgMbid)
+            .filter((mbid): mbid is string => !!mbid);
+        if (mbids.length === 0) return candidates.map(() => false);
+
+        const held = await prisma.album.findMany({
+            where: { rgMbid: { in: mbids } },
+            select: { rgMbid: true },
+        });
+        const heldMbids = new Set(held.map((album) => album.rgMbid));
+        return candidates.map(
+            (album) => !!album.rgMbid && heldMbids.has(album.rgMbid)
+        );
     }
 
     async findAnchorTracks(opts: AnchorQuery): Promise<LibraryTrackRef[]> {

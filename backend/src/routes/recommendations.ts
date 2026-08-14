@@ -5,6 +5,7 @@ import { prisma } from "../utils/db";
 import { lastFmService } from "../services/lastfm";
 import { resolveTrackReferences, getJellyfinArtistImagesBatch, getJellyfinConfig } from "../services/jellyfin";
 import { resolveJellyfinArtistToNative } from "../services/jellyfinArtistBridge";
+import { openLibraryReader } from "../services/discovery";
 import { imageProviderService } from "../services/imageProvider";
 import { redisClient } from "../utils/redis";
 
@@ -200,21 +201,14 @@ router.get("/for-you", async (req, res) => {
             ).values()
         );
 
-        // Filter out artists user already owns (from native library)
-        const ownedRows = await prisma.album.findMany({
-            where: { tracks: { some: {} } },
-            select: { artistId: true },
-            distinct: ["artistId"],
-            take: 50_000,
-        });
-        const ownedArtistIds = new Set(ownedRows.map((r) => r.artistId));
+        // Filter out artists the user already owns, in whichever library
+        const library = await openLibraryReader();
+        const newArtists = await library.unownedArtists(recommendedArtists);
 
         logger.debug(
-            `Filtering recommendations: ${ownedArtistIds.size} owned artists to exclude`
-        );
-
-        const newArtists = recommendedArtists.filter(
-            (artist) => !ownedArtistIds.has(artist.id)
+            `Filtering recommendations: ${
+                recommendedArtists.length - newArtists.length
+            } owned artists excluded`
         );
 
         // Get album counts for recommended artists (from enriched discography)

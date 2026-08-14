@@ -307,6 +307,71 @@ describe("ownership against Jellyfin", () => {
     });
 });
 
+describe("unownedArtists against Jellyfin", () => {
+    it("drops the artists the library already holds", async () => {
+        const reader = await readerFor([entry({ trackTitle: "Raid" })]);
+
+        const unowned = await reader.unownedArtists([
+            { id: "1", name: "Doom Regulator" },
+            { id: "2", name: "Some Other Band" },
+        ]);
+
+        expect(unowned.map((a) => a.name)).toEqual(["Some Other Band"]);
+    });
+
+    it("matches an artist whose article the recommendation carries", async () => {
+        // Last.fm says "The Slackers"; Jellyfin filed them under "Slackers".
+        const reader = await readerFor([
+            entry({ trackTitle: "Redlight", artistName: "Slackers" }),
+        ]);
+
+        const unowned = await reader.unownedArtists([
+            { id: "1", name: "The Slackers" },
+        ]);
+
+        expect(unowned).toEqual([]);
+    });
+
+    it("keeps everything when the library is empty", async () => {
+        const reader = await readerFor([]);
+
+        const unowned = await reader.unownedArtists([
+            { id: "1", name: "Doom Regulator" },
+        ]);
+
+        expect(unowned).toHaveLength(1);
+    });
+});
+
+describe("ownedAlbums against Jellyfin", () => {
+    it("answers in the order it was asked", async () => {
+        const reader = await readerFor([
+            entry({ trackTitle: "Raid", rgMbid: "rg-1" }),
+        ]);
+
+        await expect(
+            reader.ownedAlbums([
+                { artistName: "Nobody", albumTitle: "Nothing" },
+                { artistName: "Doom Regulator", albumTitle: "Skanking Hard" },
+            ])
+        ).resolves.toEqual([false, true]);
+    });
+
+    it("falls back to names for a library with no MusicBrainz IDs", async () => {
+        const reader = await readerFor([entry({ trackTitle: "Raid" })]);
+
+        await expect(
+            reader.ownedAlbums([
+                {
+                    artistName: "Doom Regulator",
+                    albumTitle: "Skanking Hard",
+                    rgMbid: "rg-unknown",
+                },
+            ])
+        ).resolves.toEqual([true]);
+    });
+});
+
 describe("isArtistInUserLibrary", () => {
     // The cleanup paths ask this before deleting an artist from Lidarr with
     // deleteFiles, so a false negative in Jellyfin mode costs the user files.
@@ -483,6 +548,34 @@ describe("the native reader", () => {
             rgMbid: "rg-1",
             tracks: { some: {} },
         });
+    });
+
+    it("excludes owned artists by id, as it always has", async () => {
+        asMock(prisma.album.findMany).mockResolvedValue([
+            { artistId: "a1" },
+        ]);
+
+        const reader = await openLibraryReader();
+        const unowned = await reader.unownedArtists([
+            { id: "a1", name: "Owned" },
+            { id: "a2", name: "New" },
+        ]);
+
+        expect(unowned.map((a) => a.id)).toEqual(["a2"]);
+    });
+
+    it("checks album ownership in one query rather than one per album", async () => {
+        asMock(prisma.album.findMany).mockResolvedValue([{ rgMbid: "rg-1" }]);
+
+        const reader = await openLibraryReader();
+        const owned = await reader.ownedAlbums([
+            { artistName: "A", albumTitle: "One", rgMbid: "rg-1" },
+            { artistName: "B", albumTitle: "Two", rgMbid: "rg-2" },
+            { artistName: "C", albumTitle: "Three" },
+        ]);
+
+        expect(owned).toEqual([true, false, false]);
+        expect(asMock(prisma.album.findMany)).toHaveBeenCalledTimes(1);
     });
 
     it("keeps anchors to one track per album", async () => {

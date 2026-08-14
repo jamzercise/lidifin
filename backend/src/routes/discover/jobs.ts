@@ -308,25 +308,11 @@ export function registerJobsRoutes(router: Router): void {
                     .replace(/\[.*?\]/g, "") // Remove bracketed content
                     .trim();
 
-                const existsInLibrary = await prisma.album.findFirst({
-                    where: {
-                        OR: [
-                            { rgMbid: album.albumMbid },
-                            {
-                                title: {
-                                    contains: normalizedAlbum,
-                                    mode: "insensitive",
-                                },
-                                artist: {
-                                    name: {
-                                        contains: normalizedArtist,
-                                        mode: "insensitive",
-                                    },
-                                },
-                            },
-                        ],
-                    },
-                });
+                const existsInLibrary = await library.isAlbumOwned(
+                    normalizedArtist,
+                    normalizedAlbum,
+                    album.albumMbid
+                );
 
                 if (existsInLibrary) {
                     continue; // User already owns this album, don't show as unavailable

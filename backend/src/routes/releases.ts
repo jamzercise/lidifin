@@ -12,6 +12,7 @@ import { Router } from "express";
 import { requireAuth } from "../middleware/auth";
 import { lidarrService, CalendarRelease } from "../services/lidarr";
 import { simpleDownloadManager } from "../services/simpleDownloadManager";
+import { openLibraryReader } from "../services/discovery";
 import { prisma } from "../utils/db";
 
 const router = Router();
@@ -101,19 +102,23 @@ router.get("/radar", async (req, res) => {
         logger.debug(`[Releases] Found ${lidarrReleases.length} Lidarr releases`);
         logger.debug(`[Releases] Found ${unmonitoredSimilar.length} unmonitored similar artists`);
 
-        // 4. Get albums in library to check what user already has
-        const libraryAlbums = await prisma.album.findMany({
-            select: {
-                rgMbid: true,
-            }
-        });
-        const libraryAlbumMbids = new Set(libraryAlbums.map(a => a.rgMbid).filter(Boolean));
+        // 4. Check which releases the user already has, in whichever library.
+        // This drives the download button as well as the badge, so getting it
+        // wrong offers to re-download music they hold.
+        const library = await openLibraryReader();
+        const alreadyHeld = await library.ownedAlbums(
+            lidarrReleases.map(release => ({
+                artistName: release.artistName,
+                albumTitle: release.title,
+                rgMbid: release.albumMbid,
+            }))
+        );
 
         // 5. Transform Lidarr releases
-        const releases: ReleaseItem[] = lidarrReleases.map(release => {
+        const releases: ReleaseItem[] = lidarrReleases.map((release, i) => {
             const releaseTime = new Date(release.releaseDate).getTime();
             const isUpcoming = releaseTime > now.getTime();
-            const inLibrary = release.hasFile || libraryAlbumMbids.has(release.albumMbid);
+            const inLibrary = release.hasFile || alreadyHeld[i];
 
             return {
                 id: release.id,
