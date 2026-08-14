@@ -22,25 +22,6 @@ import {
     Sparkles,
 } from "lucide-react";
 
-interface TrackFeatures {
-    energy: number;
-    valence: number;
-    arousal: number;
-    danceability: number;
-    instrumentalness: number;
-    acousticness: number;
-    speechiness: number;
-    bpm: number | null;
-    key: string | null;
-    moodHappy: number | null;
-    moodSad: number | null;
-    moodRelaxed: number | null;
-    moodAggressive: number | null;
-    moodParty: number | null;
-    moodAcoustic: number | null;
-    moodElectronic: number | null;
-}
-
 interface TrackData {
     id: string;
     title: string;
@@ -50,11 +31,8 @@ interface TrackData {
     albumId: string;
     coverUrl: string | null;
     duration: number;
-    features: TrackFeatures;
     distance?: number;
     similarity?: number;
-    lastfmTags?: string[];
-    essentiaGenres?: string[];
 }
 
 interface LibraryTrack {
@@ -85,16 +63,6 @@ function trackDataToTrack(track: TrackData) {
         artist: { name: track.artist, id: track.artistId },
         album: { title: track.album, id: track.albumId, coverArt: track.coverUrl || undefined },
         duration: track.duration,
-        audioFeatures: {
-            energy: track.features.energy,
-            valence: track.features.valence,
-            arousal: track.features.arousal,
-            danceability: track.features.danceability,
-            instrumentalness: track.features.instrumentalness,
-            acousticness: track.features.acousticness,
-            bpm: track.features.bpm,
-            keyScale: track.features.key,
-        },
     };
 }
 
@@ -107,26 +75,31 @@ const VIBE_PRESETS: VibePreset[] = [
     { id: "electronic", name: "Electronic", query: "electronic synth digital pulsing techno" },
 ];
 
-const FEATURE_CONFIG = [
-    { key: "energy", label: "Energy" },
-    { key: "valence", label: "Positivity" },
-    { key: "danceability", label: "Groove" },
-    { key: "acousticness", label: "Acoustic" },
-    { key: "instrumentalness", label: "Instrumental" },
-    { key: "arousal", label: "Intensity" },
-];
-
-const MOOD_CONFIG = [
-    { key: "moodHappy", label: "Happy" },
-    { key: "moodSad", label: "Sad" },
-    { key: "moodRelaxed", label: "Relaxed" },
-    { key: "moodAggressive", label: "Intense" },
-    { key: "moodParty", label: "Party" },
-    { key: "moodElectronic", label: "Electronic" },
-];
-
 function distanceToSimilarity(distance: number): number {
     return Math.max(0, 1 - distance / 2);
+}
+
+function toTrackData(trackInfo: {
+    id: string;
+    title: string;
+    duration: number;
+    album: { id: string; title: string; coverUrl?: string | null; coverArt?: string | null };
+    artist: { id: string; name: string };
+    distance?: number;
+    similarity?: number;
+}): TrackData {
+    return {
+        id: trackInfo.id,
+        title: trackInfo.title,
+        artist: trackInfo.artist.name,
+        artistId: trackInfo.artist.id,
+        album: trackInfo.album.title,
+        albumId: trackInfo.album.id,
+        coverUrl: trackInfo.album.coverUrl || trackInfo.album.coverArt || null,
+        duration: trackInfo.duration,
+        distance: trackInfo.distance,
+        similarity: trackInfo.similarity ?? (trackInfo.distance !== undefined ? distanceToSimilarity(trackInfo.distance) : undefined),
+    };
 }
 
 function CoverImage({
@@ -218,130 +191,6 @@ function SimilarityBadge({ similarity, size = "md" }: { similarity: number; size
     );
 }
 
-function FeatureComparison({
-    source,
-    match,
-}: {
-    source: TrackData;
-    match: TrackData;
-}) {
-    return (
-        <div className="space-y-3">
-            {FEATURE_CONFIG.map(({ key, label }) => {
-                const sVal = (source.features[key as keyof TrackFeatures] as number) || 0;
-                const mVal = (match.features[key as keyof TrackFeatures] as number) || 0;
-                const matchPct = Math.round((1 - Math.abs(sVal - mVal)) * 100);
-
-                return (
-                    <div key={key} className="group">
-                        <div className="flex items-center justify-between mb-1">
-                            <span className="text-xs text-[#737373] uppercase tracking-wide">{label}</span>
-                            <span className={cn(
-                                "text-xs tabular-nums transition-colors",
-                                matchPct >= 80 ? "text-[#22c55e]" : "text-[#525252] group-hover:text-[#737373]"
-                            )}>
-                                {matchPct}%
-                            </span>
-                        </div>
-                        <div className="relative h-1.5 bg-[#1a1a1a] rounded-full overflow-hidden">
-                            {/* Source bar */}
-                            <motion.div
-                                initial={{ width: 0 }}
-                                animate={{ width: `${sVal * 100}%` }}
-                                transition={{ duration: 0.5, ease: "easeOut" }}
-                                className="absolute h-full bg-[#eab308]/50 rounded-full"
-                            />
-                            {/* Match indicator */}
-                            <motion.div
-                                initial={{ left: 0 }}
-                                animate={{ left: `calc(${mVal * 100}% - 4px)` }}
-                                transition={{ duration: 0.5, ease: "easeOut" }}
-                                className="absolute top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-[#a855f7] shadow-[0_0_8px_rgba(168,85,247,0.5)]"
-                            />
-                        </div>
-                    </div>
-                );
-            })}
-        </div>
-    );
-}
-
-function MoodGrid({ source, match }: { source: TrackData; match: TrackData }) {
-    const validMoods = MOOD_CONFIG.filter(({ key }) => {
-        const sVal = source.features[key as keyof TrackFeatures];
-        const mVal = match.features[key as keyof TrackFeatures];
-        return sVal !== null || mVal !== null;
-    });
-
-    if (validMoods.length === 0) return null;
-
-    return (
-        <div className="grid grid-cols-3 gap-2">
-            {validMoods.map(({ key, label }) => {
-                const sVal = (source.features[key as keyof TrackFeatures] as number) || 0;
-                const mVal = (match.features[key as keyof TrackFeatures] as number) || 0;
-                const matchPct = Math.round((1 - Math.abs(sVal - mVal)) * 100);
-
-                return (
-                    <div
-                        key={key}
-                        className={cn(
-                            "px-2.5 py-2 rounded-md text-center transition-colors",
-                            matchPct >= 80 ? "bg-[#22c55e]/10" : "bg-[#1a1a1a]"
-                        )}
-                    >
-                        <div className="text-xs text-[#737373] mb-0.5">{label}</div>
-                        <div className={cn(
-                            "text-sm font-medium tabular-nums",
-                            matchPct >= 80 ? "text-[#22c55e]" : "text-[#a3a3a3]"
-                        )}>
-                            {matchPct}%
-                        </div>
-                    </div>
-                );
-            })}
-        </div>
-    );
-}
-
-function TagPills({ source, match }: { source: TrackData; match: TrackData }) {
-    const sourceTags = source.lastfmTags || [];
-    const matchTags = match.lastfmTags || [];
-    const allTags = [...new Set([...sourceTags, ...matchTags])];
-    const sharedTags = sourceTags.filter(t => matchTags.includes(t));
-
-    if (allTags.length === 0) return null;
-
-    return (
-        <div>
-            <div className="flex items-center gap-2 mb-2">
-                <span className="text-xs text-[#737373] uppercase tracking-wide">Tags</span>
-                {sharedTags.length > 0 && (
-                    <span className="text-xs text-[#22c55e]">{sharedTags.length} shared</span>
-                )}
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-                {allTags.slice(0, 10).map((tag) => {
-                    const isShared = sharedTags.includes(tag);
-                    return (
-                        <span
-                            key={tag}
-                            className={cn(
-                                "px-2 py-0.5 text-xs rounded-full transition-colors",
-                                isShared
-                                    ? "bg-[#22c55e]/15 text-[#22c55e] ring-1 ring-[#22c55e]/30"
-                                    : "bg-[#1a1a1a] text-[#737373]"
-                            )}
-                        >
-                            {tag}
-                        </span>
-                    );
-                })}
-            </div>
-        </div>
-    );
-}
-
 function ComparisonPanel({
     source,
     match,
@@ -396,7 +245,7 @@ function ComparisonPanel({
             </div>
 
             {/* Track details */}
-            <div className="grid grid-cols-2 divide-x divide-[#1c1c1c] border-b border-[#1c1c1c]">
+            <div className="grid grid-cols-2 divide-x divide-[#1c1c1c]">
                 <div className="p-4">
                     <div className="flex items-center gap-2 mb-2">
                         <div className="w-1.5 h-1.5 rounded-full bg-[#eab308]" />
@@ -404,18 +253,6 @@ function ComparisonPanel({
                     </div>
                     <p className="font-medium text-white text-sm truncate">{source.title}</p>
                     <p className="text-xs text-[#a3a3a3] truncate">{source.artist}</p>
-                    <div className="flex gap-1.5 mt-2">
-                        {source.features.bpm && (
-                            <span className="text-[10px] px-1.5 py-0.5 bg-[#1a1a1a] rounded text-[#525252]">
-                                {Math.round(source.features.bpm)} BPM
-                            </span>
-                        )}
-                        {source.features.key && (
-                            <span className="text-[10px] px-1.5 py-0.5 bg-[#1a1a1a] rounded text-[#525252]">
-                                {source.features.key}
-                            </span>
-                        )}
-                    </div>
                 </div>
                 <div className="p-4">
                     <div className="flex items-center gap-2 mb-2">
@@ -424,36 +261,7 @@ function ComparisonPanel({
                     </div>
                     <p className="font-medium text-white text-sm truncate">{match.title}</p>
                     <p className="text-xs text-[#a3a3a3] truncate">{match.artist}</p>
-                    <div className="flex gap-1.5 mt-2">
-                        {match.features.bpm && (
-                            <span className="text-[10px] px-1.5 py-0.5 bg-[#1a1a1a] rounded text-[#525252]">
-                                {Math.round(match.features.bpm)} BPM
-                            </span>
-                        )}
-                        {match.features.key && (
-                            <span className="text-[10px] px-1.5 py-0.5 bg-[#1a1a1a] rounded text-[#525252]">
-                                {match.features.key}
-                            </span>
-                        )}
-                    </div>
                 </div>
-            </div>
-
-            {/* Audio features */}
-            <div className="p-4 border-b border-[#1c1c1c]">
-                <h4 className="text-[10px] font-medium text-[#737373] uppercase tracking-wider mb-4">Audio DNA</h4>
-                <FeatureComparison source={source} match={match} />
-            </div>
-
-            {/* Mood profile */}
-            <div className="p-4 border-b border-[#1c1c1c]">
-                <h4 className="text-[10px] font-medium text-[#737373] uppercase tracking-wider mb-3">Mood Profile</h4>
-                <MoodGrid source={source} match={match} />
-            </div>
-
-            {/* Tags */}
-            <div className="p-4">
-                <TagPills source={source} match={match} />
             </div>
         </motion.div>
     );
@@ -563,7 +371,8 @@ export default function VibePage() {
                 <div className="bg-[#0f0f0f] border border-[#1c1c1c] rounded-lg p-6">
                     <p className="text-[#a3a3a3] mb-2">Feature not available</p>
                     <p className="text-sm text-[#737373]">
-                        Vibe similarity requires the CLAP analyzer service.
+                        Vibe search runs on AudioMuse-AI. Connect it in Settings and
+                        let it analyze your library to enable this page.
                     </p>
                 </div>
             </div>
@@ -577,7 +386,7 @@ function VibePageContent() {
     // State + controls only (no playback subscription) — vibe page
     // shouldn't re-render on every currentTime tick.
     const { playTracks } = useCastAwareAudioControls();
-    const { setVibeMode, setVibeSourceFeatures, setVibeQueueIds, currentTrack } = useAudioState();
+    const { setVibeMode, setVibeQueueIds, currentTrack } = useAudioState();
     const [libraryTracks, setLibraryTracks] = useState<LibraryTrack[]>([]);
     const [sourceTrack, setSourceTrack] = useState<TrackData | null>(null);
     const [similarTracks, setSimilarTracks] = useState<TrackData[]>([]);
@@ -585,7 +394,11 @@ function VibePageContent() {
     const [isLoading, setIsLoading] = useState(false);
     const [isSearching, setIsSearching] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [vibeStatus, setVibeStatus] = useState<{ totalTracks: number; embeddedTracks: number } | null>(null);
+    const [vibeStatus, setVibeStatus] = useState<{
+        totalTracks: number;
+        embeddedTracks: number;
+        message?: string;
+    } | null>(null);
     const [viewMode, setViewMode] = useState<ViewMode>("comparison");
     const [searchQuery, setSearchQuery] = useState<string | null>(null);
     const [inputValue, setInputValue] = useState("");
@@ -609,93 +422,12 @@ function VibePageContent() {
 
     const playAllSimilar = useCallback(async () => {
         if (similarTracks.length === 0) return;
-        const vibeSource = sourceTrack || similarTracks[0];
-        if (vibeSource) {
-            setVibeSourceFeatures({
-                energy: vibeSource.features.energy,
-                valence: vibeSource.features.valence,
-                danceability: vibeSource.features.danceability,
-                arousal: vibeSource.features.arousal,
-            });
-            const trackIds = similarTracks.map(t => t.id);
-            setVibeQueueIds(trackIds);
-            setVibeMode(true);
-            const tracks = similarTracks.map(trackDataToTrack);
-            await playTracks(tracks, 0, true);
-        }
-    }, [similarTracks, sourceTrack, playTracks, setVibeMode, setVibeSourceFeatures, setVibeQueueIds]);
-
-    const fetchTrackWithFeatures = useCallback(async (
-        trackInfo: {
-            id: string;
-            title: string;
-            duration: number;
-            album: { id: string; title: string; coverUrl?: string | null; coverArt?: string | null };
-            artist: { id: string; name: string };
-            distance?: number;
-            similarity?: number;
-        }
-    ): Promise<TrackData> => {
-        const incomingCover = trackInfo.album.coverUrl || trackInfo.album.coverArt || null;
-
-        try {
-            const analysis = await api.getTrackAnalysis(trackInfo.id);
-            return {
-                id: trackInfo.id,
-                title: trackInfo.title,
-                artist: trackInfo.artist.name,
-                artistId: trackInfo.artist.id,
-                album: trackInfo.album.title,
-                albumId: trackInfo.album.id,
-                coverUrl: incomingCover,
-                duration: trackInfo.duration,
-                distance: trackInfo.distance,
-                similarity: trackInfo.similarity ?? (trackInfo.distance !== undefined ? distanceToSimilarity(trackInfo.distance) : undefined),
-                features: {
-                    energy: analysis.energy ?? 0.5,
-                    valence: analysis.valence ?? 0.5,
-                    arousal: analysis.arousal ?? 0.5,
-                    danceability: analysis.danceability ?? 0.5,
-                    instrumentalness: analysis.instrumentalness ?? 0.5,
-                    acousticness: analysis.acousticness ?? 0.5,
-                    speechiness: analysis.speechiness ?? 0.1,
-                    bpm: analysis.bpm,
-                    key: analysis.key ? `${analysis.key}${analysis.keyScale ? ` ${analysis.keyScale}` : ""}` : null,
-                    moodHappy: analysis.moodHappy ?? null,
-                    moodSad: analysis.moodSad ?? null,
-                    moodRelaxed: analysis.moodRelaxed ?? null,
-                    moodAggressive: analysis.moodAggressive ?? null,
-                    moodParty: analysis.moodParty ?? null,
-                    moodAcoustic: analysis.moodAcoustic ?? null,
-                    moodElectronic: analysis.moodElectronic ?? null,
-                },
-                lastfmTags: analysis.lastfmTags || [],
-                essentiaGenres: analysis.essentiaGenres || [],
-            };
-        } catch {
-            return {
-                id: trackInfo.id,
-                title: trackInfo.title,
-                artist: trackInfo.artist.name,
-                artistId: trackInfo.artist.id,
-                album: trackInfo.album.title,
-                albumId: trackInfo.album.id,
-                coverUrl: incomingCover,
-                duration: trackInfo.duration,
-                distance: trackInfo.distance,
-                similarity: trackInfo.similarity ?? (trackInfo.distance !== undefined ? distanceToSimilarity(trackInfo.distance) : undefined),
-                features: {
-                    energy: 0.5, valence: 0.5, arousal: 0.5, danceability: 0.5,
-                    instrumentalness: 0.5, acousticness: 0.5, speechiness: 0.1,
-                    bpm: null, key: null,
-                    moodHappy: null, moodSad: null, moodRelaxed: null,
-                    moodAggressive: null, moodParty: null, moodAcoustic: null, moodElectronic: null,
-                },
-                lastfmTags: [],
-                essentiaGenres: [],
-            };
-        }
-    }, []);
+        const trackIds = similarTracks.map(t => t.id);
+        setVibeQueueIds(trackIds);
+        setVibeMode(true);
+        const tracks = similarTracks.map(trackDataToTrack);
+        await playTracks(tracks, 0, true);
+    }, [similarTracks, playTracks, setVibeMode, setVibeQueueIds]);
 
     const loadSimilarTracks = useCallback(async (track: LibraryTrack) => {
         setIsLoading(true);
@@ -713,7 +445,7 @@ function VibePageContent() {
                 return;
             }
 
-            const sourceData = await fetchTrackWithFeatures({
+            setSourceTrack(toTrackData({
                 id: track.id,
                 title: track.title,
                 duration: track.duration,
@@ -724,19 +456,15 @@ function VibePageContent() {
                     coverArt: track.album.coverArt,
                 },
                 artist: track.album.artist,
-            });
-            setSourceTrack(sourceData);
+            }));
 
-            const similarWithFeatures = await Promise.all(
-                result.tracks.map(t => fetchTrackWithFeatures(t))
-            );
-            setSimilarTracks(similarWithFeatures);
+            setSimilarTracks(result.tracks.map(t => toTrackData(t)));
         } catch (err) {
             setError(err instanceof Error ? err.message : "Failed to load similar tracks");
         } finally {
             setIsLoading(false);
         }
-    }, [fetchTrackWithFeatures]);
+    }, []);
 
     const handleVibeSearch = useCallback(async (query: string) => {
         setRecentSearches(prev => {
@@ -763,16 +491,13 @@ function VibePageContent() {
                 return;
             }
 
-            const tracksWithFeatures = await Promise.all(
-                result.tracks.map(t => fetchTrackWithFeatures(t))
-            );
-            setSimilarTracks(tracksWithFeatures);
+            setSimilarTracks(result.tracks.map(t => toTrackData(t)));
         } catch (err) {
             setError(err instanceof Error ? err.message : "Search failed");
         } finally {
             setIsSearching(false);
         }
-    }, [fetchTrackWithFeatures]);
+    }, []);
 
     const handleSelectSearchResult = useCallback(async (track: TrackData) => {
         setIsLoading(true);
@@ -790,17 +515,14 @@ function VibePageContent() {
 
             setSourceTrack(track);
 
-            const similarWithFeatures = await Promise.all(
-                result.tracks.map(t => fetchTrackWithFeatures(t))
-            );
-            setSimilarTracks(similarWithFeatures);
+            setSimilarTracks(result.tracks.map(t => toTrackData(t)));
             setSelectedMatch(null);
         } catch (err) {
             setError(err instanceof Error ? err.message : "Failed to load similar tracks");
         } finally {
             setIsLoading(false);
         }
-    }, [fetchTrackWithFeatures]);
+    }, []);
 
     const handleRandomTrack = useCallback(() => {
         if (libraryTracks.length === 0) return;
@@ -1144,7 +866,7 @@ function VibePageContent() {
                                                 <Disc3 className="w-8 h-8 text-[#333]" />
                                             </div>
                                             <p className="text-sm text-[#525252]">
-                                                Select a track to compare audio DNA
+                                                Select a track to see how it matches
                                             </p>
                                         </motion.div>
                                     )}
@@ -1222,7 +944,8 @@ function VibePageContent() {
 
                         {vibeStatus && vibeStatus.embeddedTracks === 0 && (
                             <p className="text-xs text-[#ef4444] mt-6">
-                                No tracks analyzed yet. Run the CLAP analyzer to enable vibe search.
+                                {vibeStatus.message ??
+                                    "AudioMuse hasn't indexed any tracks yet. Run an analysis there to enable vibe search."}
                             </p>
                         )}
                     </div>

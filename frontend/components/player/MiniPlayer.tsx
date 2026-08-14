@@ -23,15 +23,13 @@ import {
     Loader2,
     AudioWaveform,
     ChevronLeft,
-    ChevronUp,
-    ChevronDown,
     AlertTriangle,
     RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/utils/cn";
 import { clampTime } from "@/utils/formatTime";
-import { useState, useRef, useEffect, lazy, Suspense } from "react";
+import { useState, useRef, useEffect } from "react";
 import { KeyboardShortcutsTooltip } from "./KeyboardShortcutsTooltip";
 import { SeekSlider } from "./SeekSlider";
 import { SleepTimerButton } from "./SleepTimerButton";
@@ -41,8 +39,6 @@ import { useFeatures } from "@/lib/features-context";
 import { useCast } from "@/lib/cast-context";
 import { CastIcon } from "./CastIcon";
 import { useFavorites } from "@/hooks/useFavorites";
-
-const EnhancedVibeOverlay = lazy(() => import("./VibeOverlayEnhanced").then(mod => ({ default: mod.EnhancedVibeOverlay })));
 
 export function MiniPlayer() {
     const {
@@ -59,8 +55,6 @@ export function MiniPlayer() {
         canSeek,
         downloadProgress,
         vibeMode,
-        queue,
-        currentIndex,
         audioError,
         clearAudioError,
         pause,
@@ -91,12 +85,8 @@ export function MiniPlayer() {
     const [isMinimized, setIsMinimized] = useState(false);
     const [isDismissed, setIsDismissed] = useState(false);
     const [swipeOffset, setSwipeOffset] = useState(0);
-    const [isVibePanelExpanded, setIsVibePanelExpanded] = useState(false);
     const touchStartX = useRef<number | null>(null);
     const lastMediaIdRef = useRef<string | null>(null);
-
-    // Get current track's audio features for vibe comparison
-    const currentTrackFeatures = queue[currentIndex]?.audioFeatures || null;
 
     // Reset dismissed/minimized state when a new track starts playing
     const currentMediaId =
@@ -476,429 +466,381 @@ export function MiniPlayer() {
     }
 
     return (
-        <div className="relative">
-            {/* Collapsible Vibe Panel - slides up from player */}
-            {vibeMode && (
-                <div
-                    className={cn(
-                        "absolute left-0 right-0 bottom-full transition-all duration-300 ease-out overflow-hidden border-t border-white/[0.08]",
-                        isVibePanelExpanded ? "max-h-[500px]" : "max-h-0"
-                    )}
-                >
-                    <div className="bg-[#121212]">
-                        <Suspense fallback={<div className="p-4 text-center text-white/50">Loading vibe analysis...</div>}>
-                            <EnhancedVibeOverlay
-                                currentTrackFeatures={currentTrackFeatures}
-                                variant="inline"
-                                onClose={() => setIsVibePanelExpanded(false)}
-                            />
-                        </Suspense>
-                    </div>
-                </div>
-            )}
+        <div className="bg-gradient-to-t from-[#080808] via-[#0c0c0c] to-[#0a0a0a] border-t border-white/[0.08] relative">
+            {/* Subtle top glow */}
+            <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent" />
 
-            {/* Vibe Tab - shows when vibe mode is active */}
-            {vibeMode && (
-                <button
-                    onClick={() => setIsVibePanelExpanded(!isVibePanelExpanded)}
-                    className={cn(
-                        "absolute -top-8 left-1/2 -translate-x-1/2 z-10",
-                        "flex items-center gap-1.5 px-3 py-1 rounded-t-lg",
-                        "bg-[#121212] border border-b-0 border-white/[0.08]",
-                        "text-xs font-medium transition-colors",
-                        isVibePanelExpanded
-                            ? "text-brand"
-                            : "text-white/70 hover:text-brand"
-                    )}
-                    aria-label={isVibePanelExpanded ? "Hide vibe analysis" : "Show vibe analysis"}
-                    aria-expanded={isVibePanelExpanded}
-                >
-                    <AudioWaveform className="w-3.5 h-3.5" />
-                    <span>Vibe Analysis</span>
-                    {isVibePanelExpanded ? (
-                        <ChevronDown className="w-3.5 h-3.5" />
+            {/* Progress Bar */}
+            <SeekSlider
+                progress={progress}
+                duration={duration}
+                currentTime={clampedCurrentTime}
+                onSeek={handleSeek}
+                canSeek={canSeek}
+                hasMedia={hasMedia}
+                downloadProgress={downloadProgress}
+                variant="minimal"
+                className="absolute top-0 left-0 right-0"
+            />
+
+
+            {/* Player Content */}
+            <div className="px-3 py-2.5 pt-3">
+                {/* Artwork & Track Info */}
+                <div className="flex items-center gap-2 mb-2">
+                    {/* Artwork */}
+                    {mediaLink ? (
+                        <Link
+                            href={mediaLink}
+                            className="relative flex-shrink-0 group w-12 h-12"
+                        >
+                            <div className="absolute inset-0 bg-gradient-to-br from-white/20 to-transparent rounded-full blur-sm opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+                            <div className="relative w-full h-full bg-gradient-to-br from-[#2a2a2a] to-[#1a1a1a] rounded-full overflow-hidden shadow-lg flex items-center justify-center">
+                                {coverUrl ? (
+                                    <Image
+                                        key={coverUrl}
+                                        src={coverUrl}
+                                        alt={title}
+                                        fill
+                                        sizes="56px"
+                                        className="object-cover"
+                                        priority
+                                        unoptimized
+                                    />
+                                ) : (
+                                    <MusicIcon className="w-6 h-6 text-gray-500" />
+                                )}
+                            </div>
+                        </Link>
                     ) : (
-                        <ChevronUp className="w-3.5 h-3.5" />
+                        <div className="relative flex-shrink-0 w-12 h-12">
+                            <div className="relative w-full h-full bg-gradient-to-br from-[#2a2a2a] to-[#1a1a1a] rounded-full overflow-hidden shadow-lg flex items-center justify-center">
+                                <MusicIcon className="w-6 h-6 text-gray-500" />
+                            </div>
+                        </div>
                     )}
-                </button>
-            )}
 
-            <div className="bg-gradient-to-t from-[#080808] via-[#0c0c0c] to-[#0a0a0a] border-t border-white/[0.08] relative">
-                {/* Subtle top glow */}
-                <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent" />
-
-                {/* Progress Bar */}
-                <SeekSlider
-                    progress={progress}
-                    duration={duration}
-                    currentTime={clampedCurrentTime}
-                    onSeek={handleSeek}
-                    canSeek={canSeek}
-                    hasMedia={hasMedia}
-                    downloadProgress={downloadProgress}
-                    variant="minimal"
-                    className="absolute top-0 left-0 right-0"
-                />
-
-
-                {/* Player Content */}
-                <div className="px-3 py-2.5 pt-3">
-                    {/* Artwork & Track Info */}
-                    <div className="flex items-center gap-2 mb-2">
-                        {/* Artwork */}
+                    {/* Track Info */}
+                    <div className="flex-1 min-w-0">
                         {mediaLink ? (
                             <Link
                                 href={mediaLink}
-                                className="relative flex-shrink-0 group w-12 h-12"
+                                className="block hover:underline"
                             >
-                                <div className="absolute inset-0 bg-gradient-to-br from-white/20 to-transparent rounded-full blur-sm opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-                                <div className="relative w-full h-full bg-gradient-to-br from-[#2a2a2a] to-[#1a1a1a] rounded-full overflow-hidden shadow-lg flex items-center justify-center">
-                                    {coverUrl ? (
-                                        <Image
-                                            key={coverUrl}
-                                            src={coverUrl}
-                                            alt={title}
-                                            fill
-                                            sizes="56px"
-                                            className="object-cover"
-                                            priority
-                                            unoptimized
-                                        />
-                                    ) : (
-                                        <MusicIcon className="w-6 h-6 text-gray-500" />
-                                    )}
-                                </div>
-                            </Link>
-                        ) : (
-                            <div className="relative flex-shrink-0 w-12 h-12">
-                                <div className="relative w-full h-full bg-gradient-to-br from-[#2a2a2a] to-[#1a1a1a] rounded-full overflow-hidden shadow-lg flex items-center justify-center">
-                                    <MusicIcon className="w-6 h-6 text-gray-500" />
-                                </div>
-                            </div>
-                        )}
-
-                        {/* Track Info */}
-                        <div className="flex-1 min-w-0">
-                            {mediaLink ? (
-                                <Link
-                                    href={mediaLink}
-                                    className="block hover:underline"
-                                >
-                                    <p className="text-white font-semibold truncate text-sm">
-                                        {title}
-                                    </p>
-                                </Link>
-                            ) : (
                                 <p className="text-white font-semibold truncate text-sm">
                                     {title}
                                 </p>
-                            )}
-                            <p className="text-gray-400 truncate text-xs">
-                                {subtitle}
+                            </Link>
+                        ) : (
+                            <p className="text-white font-semibold truncate text-sm">
+                                {title}
                             </p>
-                        </div>
-
-                        {/* Mode Switch Buttons */}
-                        <div className="flex items-center gap-1 flex-shrink-0">
-                            <button
-                                onClick={() => setPlayerMode("full")}
-                                className="text-gray-400 hover:text-white transition p-1"
-                                aria-label="Show bottom player"
-                                title="Show bottom player"
-                            >
-                                <MonitorUp className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                                onClick={() => setPlayerMode("overlay")}
-                                className={cn(
-                                    "transition p-1",
-                                    hasMedia
-                                        ? "text-gray-400 hover:text-white"
-                                        : "text-gray-600 cursor-not-allowed"
-                                )}
-                                disabled={!hasMedia}
-                                aria-label="Expand player"
-                                title="Expand to full screen"
-                            >
-                                <Maximize2 className="w-3.5 h-3.5" />
-                            </button>
-                        </div>
+                        )}
+                        <p className="text-gray-400 truncate text-xs">
+                            {subtitle}
+                        </p>
                     </div>
 
-                    {/* Playback Controls */}
-                    <div className="flex items-center justify-between gap-1">
-                        {/* Shuffle */}
+                    {/* Mode Switch Buttons */}
+                    <div className="flex items-center gap-1 flex-shrink-0">
                         <button
-                            onClick={toggleShuffle}
-                            disabled={!hasMedia || !canSkip}
-                            className={cn(
-                                "rounded p-1.5 transition-colors",
-                                hasMedia && canSkip
-                                    ? isShuffle
-                                        ? "text-green-500 hover:text-green-400"
-                                        : "text-gray-400 hover:text-white"
-                                    : "text-gray-600 cursor-not-allowed"
-                            )}
-                            aria-label="Shuffle"
-                            aria-pressed={isShuffle}
-                            title={canSkip ? "Shuffle" : "Shuffle (music only)"}
+                            onClick={() => setPlayerMode("full")}
+                            className="text-gray-400 hover:text-white transition p-1"
+                            aria-label="Show bottom player"
+                            title="Show bottom player"
                         >
-                            <Shuffle className="w-3.5 h-3.5" />
+                            <MonitorUp className="w-3.5 h-3.5" />
                         </button>
-
-                        {/* Skip Backward 30s */}
                         <button
-                            onClick={() => skipBackward(30)}
-                            disabled={!hasMedia}
+                            onClick={() => setPlayerMode("overlay")}
                             className={cn(
-                                "rounded p-1.5 transition-colors relative",
-                                hasMedia
-                                    ? "text-gray-400 hover:text-white"
-                                    : "text-gray-600 cursor-not-allowed"
-                            )}
-                            aria-label="Skip backward 30 seconds"
-                            title="Rewind 30 seconds"
-                        >
-                            <RotateCcw className="w-3.5 h-3.5" />
-                            <span className="absolute text-[8px] font-bold top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
-                                30
-                            </span>
-                        </button>
-
-                        {/* Previous */}
-                        <button
-                            onClick={() => previous()}
-                            disabled={!hasMedia || !canSkip}
-                            className={cn(
-                                "rounded p-1.5 transition-colors",
-                                hasMedia && canSkip
-                                    ? "text-gray-400 hover:text-white"
-                                    : "text-gray-600 cursor-not-allowed"
-                            )}
-                            aria-label="Previous track"
-                            title={
-                                canSkip ? "Previous" : "Previous (music only)"
-                            }
-                        >
-                            <SkipBack className="w-4 h-4" />
-                        </button>
-
-                        {/* Play/Pause */}
-                        <button
-                            onClick={
-                                isBuffering
-                                    ? undefined
-                                    : isPlaying
-                                    ? pause
-                                    : resume
-                            }
-                            disabled={!hasMedia || isBuffering}
-                            className={cn(
-                                "w-8 h-8 rounded-full flex items-center justify-center transition",
-                                hasMedia && !isBuffering
-                                    ? "bg-white text-black hover:scale-105"
-                                    : isBuffering
-                                    ? "bg-white/80 text-black"
-                                    : "bg-gray-700 text-gray-500 cursor-not-allowed"
-                            )}
-                            aria-label={isPlaying ? "Pause" : "Play"}
-                            title={
-                                isBuffering
-                                    ? "Buffering..."
-                                    : isPlaying
-                                    ? "Pause"
-                                    : "Play"
-                            }
-                        >
-                            {isBuffering ? (
-                                <Loader2 className="w-4 h-4 animate-spin" />
-                            ) : isPlaying ? (
-                                <Pause className="w-4 h-4" />
-                            ) : (
-                                <Play className="w-4 h-4 ml-0.5" />
-                            )}
-                        </button>
-
-                        {/* Next */}
-                        <button
-                            onClick={() => next()}
-                            disabled={!hasMedia || !canSkip}
-                            className={cn(
-                                "rounded p-1.5 transition-colors",
-                                hasMedia && canSkip
-                                    ? "text-gray-400 hover:text-white"
-                                    : "text-gray-600 cursor-not-allowed"
-                            )}
-                            aria-label="Next track"
-                            title={canSkip ? "Next" : "Next (music only)"}
-                        >
-                            <SkipForward className="w-4 h-4" />
-                        </button>
-
-                        {/* Skip Forward 30s */}
-                        <button
-                            onClick={() => skipForward(30)}
-                            disabled={!hasMedia}
-                            className={cn(
-                                "rounded p-1.5 transition-colors relative",
-                                hasMedia
-                                    ? "text-gray-400 hover:text-white"
-                                    : "text-gray-600 cursor-not-allowed"
-                            )}
-                            aria-label="Skip forward 30 seconds"
-                            title="Forward 30 seconds"
-                        >
-                            <RotateCw className="w-3.5 h-3.5" />
-                            <span className="absolute text-[8px] font-bold top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
-                                30
-                            </span>
-                        </button>
-
-                        {/* Repeat */}
-                        <button
-                            onClick={toggleRepeat}
-                            disabled={!hasMedia || !canSkip}
-                            className={cn(
-                                "rounded p-1.5 transition-colors",
-                                hasMedia && canSkip
-                                    ? repeatMode !== "off"
-                                        ? "text-green-500 hover:text-green-400"
-                                        : "text-gray-400 hover:text-white"
-                                    : "text-gray-600 cursor-not-allowed"
-                            )}
-                            aria-label={repeatMode === 'one' ? "Repeat one" : repeatMode === 'all' ? "Repeat all" : "Repeat off"}
-                            aria-pressed={repeatMode !== 'off'}
-                            title={
-                                canSkip
-                                    ? repeatMode === "off"
-                                        ? "Repeat: Off"
-                                        : repeatMode === "all"
-                                        ? "Repeat: All"
-                                        : "Repeat: One"
-                                    : "Repeat (music only)"
-                            }
-                        >
-                            {repeatMode === "one" ? (
-                                <Repeat1 className="w-3.5 h-3.5" />
-                            ) : (
-                                <Repeat className="w-3.5 h-3.5" />
-                            )}
-                        </button>
-
-                        {/* Sleep timer */}
-                        <SleepTimerButton
-                            sleepTimerEndsAt={sleepTimerEndsAt}
-                            setSleepTimer={setSleepTimer}
-                            hasMedia={hasMedia}
-                            dropdownPlacement="top"
-                            size="sm"
-                        />
-
-                        {/* Playback speed - podcast/audiobook only */}
-                        <PlaybackSpeedButton
-                            playbackRate={playbackRate}
-                            setPlaybackRate={setPlaybackRate}
-                            visible={playbackType === "podcast" || playbackType === "audiobook"}
-                            dropdownPlacement="top"
-                            size="sm"
-                        />
-
-                        {/* Jellyfin favorites - track only */}
-                        {playbackType === "track" && currentTrack?.id?.startsWith("jellyfin:") && (
-                            <button
-                                type="button"
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    const isFav = favoriteIds.has(currentTrack.id);
-                                    if (isFav) removeFavorite(currentTrack.id);
-                                    else addFavorite(currentTrack.id);
-                                }}
-                                className={cn(
-                                    "transition-all duration-200 hover:scale-110",
-                                    "text-gray-400 hover:text-white"
-                                )}
-                                aria-label={favoriteIds.has(currentTrack.id) ? "Remove from Favorites" : "Add to Favorites"}
-                                title={favoriteIds.has(currentTrack.id) ? "Remove from Favorites" : "Add to Favorites"}
-                            >
-                                <Heart
-                                    className={cn("w-3.5 h-3.5", favoriteIds.has(currentTrack.id) && "fill-current text-red-400")}
-                                />
-                            </button>
-                        )}
-
-                        {/* Now playing queue */}
-                        <button
-                            type="button"
-                            onClick={openQueue}
-                            className={cn(
-                                "transition-all duration-200 hover:scale-110",
+                                "transition p-1",
                                 hasMedia
                                     ? "text-gray-400 hover:text-white"
                                     : "text-gray-600 cursor-not-allowed"
                             )}
                             disabled={!hasMedia}
-                            aria-label="Now playing queue"
-                            title="Now playing queue"
+                            aria-label="Expand player"
+                            title="Expand to full screen"
                         >
-                            <ListMusic className="w-3.5 h-3.5" />
+                            <Maximize2 className="w-3.5 h-3.5" />
                         </button>
-
-                        <button
-                            type="button"
-                            onClick={isAvailable ? (isCasting ? stopCasting : requestSession) : undefined}
-                            className={cn(
-                                "transition-all duration-200 hover:scale-110",
-                                isCasting
-                                    ? "text-[#B1D2C3] hover:text-[#9bc4b3]"
-                                    : isAvailable && hasMedia
-                                      ? "text-gray-400 hover:text-white"
-                                      : "text-gray-500/60 cursor-not-allowed"
-                            )}
-                            disabled={!isAvailable || (!hasMedia && !isCasting)}
-                            aria-label={isCasting ? "Stop casting" : "Cast to device"}
-                            title={
-                                isCasting
-                                    ? "Stop casting"
-                                    : isAvailable
-                                      ? "Cast to device"
-                                      : "Cast requires Chrome or Edge"
-                            }
-                        >
-                            <CastIcon isCasting={isCasting} className="w-3.5 h-3.5" size={14} />
-                        </button>
-
-                        {/* Vibe Mode Toggle - only when embeddings available */}
-                        {!featuresLoading && vibeEmbeddings && (
-                            <button
-                                onClick={handleVibeToggle}
-                                disabled={!hasMedia || !canSkip || isVibeLoading}
-                                className={cn(
-                                    "rounded p-1.5 transition-colors",
-                                    !hasMedia || !canSkip
-                                        ? "text-gray-600 cursor-not-allowed"
-                                        : vibeMode
-                                        ? "text-brand hover:text-brand-hover"
-                                        : "text-gray-400 hover:text-brand"
-                                )}
-                                aria-label="Toggle vibe visualization"
-                                aria-pressed={vibeMode}
-                                title={
-                                    vibeMode
-                                        ? "Turn off vibe mode"
-                                        : "Match this vibe - find similar sounding tracks"
-                                }
-                            >
-                                {isVibeLoading ? (
-                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                ) : (
-                                    <AudioWaveform className="w-3.5 h-3.5" />
-                                )}
-                            </button>
-                        )}
-
-                        {/* Keyboard Shortcuts */}
-                        <KeyboardShortcutsTooltip />
                     </div>
+                </div>
+
+                {/* Playback Controls */}
+                <div className="flex items-center justify-between gap-1">
+                    {/* Shuffle */}
+                    <button
+                        onClick={toggleShuffle}
+                        disabled={!hasMedia || !canSkip}
+                        className={cn(
+                            "rounded p-1.5 transition-colors",
+                            hasMedia && canSkip
+                                ? isShuffle
+                                    ? "text-green-500 hover:text-green-400"
+                                    : "text-gray-400 hover:text-white"
+                                : "text-gray-600 cursor-not-allowed"
+                        )}
+                        aria-label="Shuffle"
+                        aria-pressed={isShuffle}
+                        title={canSkip ? "Shuffle" : "Shuffle (music only)"}
+                    >
+                        <Shuffle className="w-3.5 h-3.5" />
+                    </button>
+
+                    {/* Skip Backward 30s */}
+                    <button
+                        onClick={() => skipBackward(30)}
+                        disabled={!hasMedia}
+                        className={cn(
+                            "rounded p-1.5 transition-colors relative",
+                            hasMedia
+                                ? "text-gray-400 hover:text-white"
+                                : "text-gray-600 cursor-not-allowed"
+                        )}
+                        aria-label="Skip backward 30 seconds"
+                        title="Rewind 30 seconds"
+                    >
+                        <RotateCcw className="w-3.5 h-3.5" />
+                        <span className="absolute text-[8px] font-bold top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
+                            30
+                        </span>
+                    </button>
+
+                    {/* Previous */}
+                    <button
+                        onClick={() => previous()}
+                        disabled={!hasMedia || !canSkip}
+                        className={cn(
+                            "rounded p-1.5 transition-colors",
+                            hasMedia && canSkip
+                                ? "text-gray-400 hover:text-white"
+                                : "text-gray-600 cursor-not-allowed"
+                        )}
+                        aria-label="Previous track"
+                        title={
+                            canSkip ? "Previous" : "Previous (music only)"
+                        }
+                    >
+                        <SkipBack className="w-4 h-4" />
+                    </button>
+
+                    {/* Play/Pause */}
+                    <button
+                        onClick={
+                            isBuffering
+                                ? undefined
+                                : isPlaying
+                                ? pause
+                                : resume
+                        }
+                        disabled={!hasMedia || isBuffering}
+                        className={cn(
+                            "w-8 h-8 rounded-full flex items-center justify-center transition",
+                            hasMedia && !isBuffering
+                                ? "bg-white text-black hover:scale-105"
+                                : isBuffering
+                                ? "bg-white/80 text-black"
+                                : "bg-gray-700 text-gray-500 cursor-not-allowed"
+                        )}
+                        aria-label={isPlaying ? "Pause" : "Play"}
+                        title={
+                            isBuffering
+                                ? "Buffering..."
+                                : isPlaying
+                                ? "Pause"
+                                : "Play"
+                        }
+                    >
+                        {isBuffering ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : isPlaying ? (
+                            <Pause className="w-4 h-4" />
+                        ) : (
+                            <Play className="w-4 h-4 ml-0.5" />
+                        )}
+                    </button>
+
+                    {/* Next */}
+                    <button
+                        onClick={() => next()}
+                        disabled={!hasMedia || !canSkip}
+                        className={cn(
+                            "rounded p-1.5 transition-colors",
+                            hasMedia && canSkip
+                                ? "text-gray-400 hover:text-white"
+                                : "text-gray-600 cursor-not-allowed"
+                        )}
+                        aria-label="Next track"
+                        title={canSkip ? "Next" : "Next (music only)"}
+                    >
+                        <SkipForward className="w-4 h-4" />
+                    </button>
+
+                    {/* Skip Forward 30s */}
+                    <button
+                        onClick={() => skipForward(30)}
+                        disabled={!hasMedia}
+                        className={cn(
+                            "rounded p-1.5 transition-colors relative",
+                            hasMedia
+                                ? "text-gray-400 hover:text-white"
+                                : "text-gray-600 cursor-not-allowed"
+                        )}
+                        aria-label="Skip forward 30 seconds"
+                        title="Forward 30 seconds"
+                    >
+                        <RotateCw className="w-3.5 h-3.5" />
+                        <span className="absolute text-[8px] font-bold top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
+                            30
+                        </span>
+                    </button>
+
+                    {/* Repeat */}
+                    <button
+                        onClick={toggleRepeat}
+                        disabled={!hasMedia || !canSkip}
+                        className={cn(
+                            "rounded p-1.5 transition-colors",
+                            hasMedia && canSkip
+                                ? repeatMode !== "off"
+                                    ? "text-green-500 hover:text-green-400"
+                                    : "text-gray-400 hover:text-white"
+                                : "text-gray-600 cursor-not-allowed"
+                        )}
+                        aria-label={repeatMode === 'one' ? "Repeat one" : repeatMode === 'all' ? "Repeat all" : "Repeat off"}
+                        aria-pressed={repeatMode !== 'off'}
+                        title={
+                            canSkip
+                                ? repeatMode === "off"
+                                    ? "Repeat: Off"
+                                    : repeatMode === "all"
+                                    ? "Repeat: All"
+                                    : "Repeat: One"
+                                : "Repeat (music only)"
+                        }
+                    >
+                        {repeatMode === "one" ? (
+                            <Repeat1 className="w-3.5 h-3.5" />
+                        ) : (
+                            <Repeat className="w-3.5 h-3.5" />
+                        )}
+                    </button>
+
+                    {/* Sleep timer */}
+                    <SleepTimerButton
+                        sleepTimerEndsAt={sleepTimerEndsAt}
+                        setSleepTimer={setSleepTimer}
+                        hasMedia={hasMedia}
+                        dropdownPlacement="top"
+                        size="sm"
+                    />
+
+                    {/* Playback speed - podcast/audiobook only */}
+                    <PlaybackSpeedButton
+                        playbackRate={playbackRate}
+                        setPlaybackRate={setPlaybackRate}
+                        visible={playbackType === "podcast" || playbackType === "audiobook"}
+                        dropdownPlacement="top"
+                        size="sm"
+                    />
+
+                    {/* Jellyfin favorites - track only */}
+                    {playbackType === "track" && currentTrack?.id?.startsWith("jellyfin:") && (
+                        <button
+                            type="button"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                const isFav = favoriteIds.has(currentTrack.id);
+                                if (isFav) removeFavorite(currentTrack.id);
+                                else addFavorite(currentTrack.id);
+                            }}
+                            className={cn(
+                                "transition-all duration-200 hover:scale-110",
+                                "text-gray-400 hover:text-white"
+                            )}
+                            aria-label={favoriteIds.has(currentTrack.id) ? "Remove from Favorites" : "Add to Favorites"}
+                            title={favoriteIds.has(currentTrack.id) ? "Remove from Favorites" : "Add to Favorites"}
+                        >
+                            <Heart
+                                className={cn("w-3.5 h-3.5", favoriteIds.has(currentTrack.id) && "fill-current text-red-400")}
+                            />
+                        </button>
+                    )}
+
+                    {/* Now playing queue */}
+                    <button
+                        type="button"
+                        onClick={openQueue}
+                        className={cn(
+                            "transition-all duration-200 hover:scale-110",
+                            hasMedia
+                                ? "text-gray-400 hover:text-white"
+                                : "text-gray-600 cursor-not-allowed"
+                        )}
+                        disabled={!hasMedia}
+                        aria-label="Now playing queue"
+                        title="Now playing queue"
+                    >
+                        <ListMusic className="w-3.5 h-3.5" />
+                    </button>
+
+                    <button
+                        type="button"
+                        onClick={isAvailable ? (isCasting ? stopCasting : requestSession) : undefined}
+                        className={cn(
+                            "transition-all duration-200 hover:scale-110",
+                            isCasting
+                                ? "text-[#B1D2C3] hover:text-[#9bc4b3]"
+                                : isAvailable && hasMedia
+                                  ? "text-gray-400 hover:text-white"
+                                  : "text-gray-500/60 cursor-not-allowed"
+                        )}
+                        disabled={!isAvailable || (!hasMedia && !isCasting)}
+                        aria-label={isCasting ? "Stop casting" : "Cast to device"}
+                        title={
+                            isCasting
+                                ? "Stop casting"
+                                : isAvailable
+                                  ? "Cast to device"
+                                  : "Cast requires Chrome or Edge"
+                        }
+                    >
+                        <CastIcon isCasting={isCasting} className="w-3.5 h-3.5" size={14} />
+                    </button>
+
+                    {/* Vibe Mode Toggle - only when embeddings available */}
+                    {!featuresLoading && vibeEmbeddings && (
+                        <button
+                            onClick={handleVibeToggle}
+                            disabled={!hasMedia || !canSkip || isVibeLoading}
+                            className={cn(
+                                "rounded p-1.5 transition-colors",
+                                !hasMedia || !canSkip
+                                    ? "text-gray-600 cursor-not-allowed"
+                                    : vibeMode
+                                    ? "text-brand hover:text-brand-hover"
+                                    : "text-gray-400 hover:text-brand"
+                            )}
+                            aria-label="Toggle vibe visualization"
+                            aria-pressed={vibeMode}
+                            title={
+                                vibeMode
+                                    ? "Turn off vibe mode"
+                                    : "Match this vibe - find similar sounding tracks"
+                            }
+                        >
+                            {isVibeLoading ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                                <AudioWaveform className="w-3.5 h-3.5" />
+                            )}
+                        </button>
+                    )}
+
+                    {/* Keyboard Shortcuts */}
+                    <KeyboardShortcutsTooltip />
                 </div>
             </div>
         </div>

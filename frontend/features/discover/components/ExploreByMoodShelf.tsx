@@ -32,12 +32,8 @@ const MIN_STATION_TRACKS = 10;
 
 /**
  * "Explore by mood" on the Discover hub. Tapping a mood shuffles a station drawn
- * from Last.fm mood tags on the user's own library.
- *
- * This used to deep-link into the Vibe page, which needed the bundled CLAP
- * analyzer — absent from the Jellyfin image, so the shelf hid itself and the
- * feature simply never appeared. Mood tags are enriched for Jellyfin libraries
- * already, so this path needs no analyzer and no AudioMuse.
+ * from Last.fm mood tags on the user's own library, so it needs no audio
+ * analyzer and no AudioMuse.
  */
 export function ExploreByMoodShelf() {
     const { playTracks } = useAudioControls();
