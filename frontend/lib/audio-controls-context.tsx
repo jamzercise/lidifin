@@ -191,7 +191,6 @@ export function AudioControlsProvider({ children }: { children: ReactNode }) {
             // If vibe mode is on and this track isn't in the vibe queue, disable vibe mode
             if (state.vibeMode && !state.vibeQueueIds.includes(track.id)) {
                 state.setVibeMode(false);
-                state.setVibeSourceFeatures(null);
                 state.setVibeQueueIds([]);
             }
             
@@ -226,7 +225,6 @@ export function AudioControlsProvider({ children }: { children: ReactNode }) {
             // If not a vibe queue and vibe mode is on, disable it
             if (!isVibeQueue && state.vibeMode) {
                 state.setVibeMode(false);
-                state.setVibeSourceFeatures(null);
                 state.setVibeQueueIds([]);
             }
 
@@ -840,7 +838,6 @@ export function AudioControlsProvider({ children }: { children: ReactNode }) {
 
             // Set vibe mode state
             state.setVibeMode(true);
-            state.setVibeSourceFeatures(currentTrack.audioFeatures || null);
             state.setVibeQueueIds(queueIds);
 
             // Build new queue: current track + similar tracks
@@ -862,7 +859,6 @@ export function AudioControlsProvider({ children }: { children: ReactNode }) {
 
     const stopVibeMode = useCallback(() => {
         state.setVibeMode(false);
-        state.setVibeSourceFeatures(null);
         state.setVibeQueueIds([]);
     }, [state]);
 

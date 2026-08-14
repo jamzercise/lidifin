@@ -44,7 +44,6 @@ export function useAudio() {
 
         // Vibe mode state
         vibeMode: state.vibeMode,
-        vibeSourceFeatures: state.vibeSourceFeatures,
         vibeQueueIds: state.vibeQueueIds,
 
         // Playback

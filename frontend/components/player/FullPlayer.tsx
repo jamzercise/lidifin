@@ -27,7 +27,7 @@ import {
     RefreshCw,
 } from "lucide-react";
 import { CastIcon } from "./CastIcon";
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 import { KeyboardShortcutsTooltip } from "./KeyboardShortcutsTooltip";
 import { SleepTimerButton } from "./SleepTimerButton";
@@ -57,9 +57,6 @@ export function FullPlayer() {
         isShuffle,
         repeatMode,
         vibeMode,
-        vibeSourceFeatures,
-        queue,
-        currentIndex,
         sleepTimerEndsAt,
         playbackRate,
         setPlaybackRate,
@@ -99,32 +96,6 @@ export function FullPlayer() {
     const { openQueue } = useQueuePanel();
     const { favoriteIds, addFavorite, removeFavorite } = useFavorites();
     const { isAvailable, isCasting, requestSession, stopCasting } = useCast();
-
-    // Get current track's audio features for vibe comparison
-    const currentTrackFeatures = queue[currentIndex]?.audioFeatures || null;
-
-    // Calculate vibe match score (simplified version - compares key audio features)
-    const vibeMatchScore = useMemo(() => {
-        if (!vibeMode || !vibeSourceFeatures || !currentTrackFeatures) return null;
-
-        // Compare key features: energy, valence, danceability, arousal
-        const features = ['energy', 'valence', 'danceability', 'arousal'] as const;
-        const scores: number[] = [];
-
-        for (const key of features) {
-            const sourceVal = vibeSourceFeatures[key as keyof typeof vibeSourceFeatures];
-            const currentVal = currentTrackFeatures[key as keyof typeof currentTrackFeatures];
-
-            if (typeof sourceVal === 'number' && typeof currentVal === 'number') {
-                const diff = Math.abs(sourceVal - currentVal);
-                scores.push(1 - diff);
-            }
-        }
-
-        if (scores.length === 0) return null;
-        const avgScore = scores.reduce((a, b) => a + b, 0) / scores.length;
-        return Math.round(avgScore * 100);
-    }, [vibeMode, vibeSourceFeatures, currentTrackFeatures]);
 
     // Handle Vibe Mode toggle - finds tracks that sound like the current track
     const handleVibeToggle = async () => {
@@ -294,22 +265,6 @@ export function FullPlayer() {
                                 <p className="text-xs text-gray-400 truncate">
                                     {subtitle}
                                 </p>
-                            )}
-                            {/* Vibe match score when in vibe mode */}
-                            {vibeMode && vibeMatchScore !== null && (
-                                <span
-                                    className={cn(
-                                        "inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded mt-1",
-                                        vibeMatchScore >= 80
-                                            ? "bg-green-500/20 text-green-400"
-                                            : vibeMatchScore >= 60
-                                            ? "bg-brand/20 text-brand"
-                                            : "bg-orange-500/20 text-orange-400"
-                                    )}
-                                >
-                                    <AudioWaveform className="w-2.5 h-2.5" />
-                                    {vibeMatchScore}% match
-                                </span>
                             )}
                         </div>
                     </div>

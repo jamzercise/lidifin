@@ -31,7 +31,7 @@ function queueDebugLog(message: string, data?: Record<string, unknown>) {
 
 export type { PlayerMode, AudioFeatures } from "@/types";
 export type { Track } from "@/types/music";
-import type { PlayerMode, AudioFeatures } from "@/types";
+import type { PlayerMode } from "@/types";
 import type { Track } from "@/types/music";
 
 export interface Audiobook {
@@ -90,7 +90,6 @@ interface AudioStateContextType {
 
     // Vibe mode state
     vibeMode: boolean;
-    vibeSourceFeatures: AudioFeatures | null;
     vibeQueueIds: string[];
 
     // Sleep timer (session-only, not persisted). Timestamp (ms) when timer should fire; null = off.
@@ -124,9 +123,6 @@ interface AudioStateContextType {
     setLastServerSync: (date: SetStateAction<Date | null>) => void;
     setRepeatOneCount: (count: SetStateAction<number>) => void;
     setVibeMode: (mode: SetStateAction<boolean>) => void;
-    setVibeSourceFeatures: (
-        features: SetStateAction<AudioFeatures | null>
-    ) => void;
     setVibeQueueIds: (ids: SetStateAction<string[]>) => void;
     setSleepTimerEndsAt: (timestamp: number | null) => void;
     setPlaybackRate: (rate: number) => void;
@@ -279,8 +275,6 @@ export function AudioStateProvider({ children }: { children: ReactNode }) {
 
     // Vibe mode state
     const [vibeMode, setVibeMode] = useState(false);
-    const [vibeSourceFeatures, setVibeSourceFeatures] =
-        useState<AudioFeatures | null>(null);
     const [vibeQueueIds, setVibeQueueIds] = useState<string[]>([]);
 
     // Sleep timer: endsAt = timestamp when timer fires; null = off (session-only, not persisted)
@@ -727,7 +721,6 @@ export function AudioStateProvider({ children }: { children: ReactNode }) {
             volume,
             isMuted,
             vibeMode,
-            vibeSourceFeatures,
             vibeQueueIds,
             sleepTimerEndsAt,
             playbackRate,
@@ -751,7 +744,6 @@ export function AudioStateProvider({ children }: { children: ReactNode }) {
             setLastServerSync,
             setRepeatOneCount,
             setVibeMode,
-            setVibeSourceFeatures,
             setVibeQueueIds,
             setSleepTimerEndsAt,
             setPlaybackRate,
@@ -772,7 +764,6 @@ export function AudioStateProvider({ children }: { children: ReactNode }) {
             volume,
             isMuted,
             vibeMode,
-            vibeSourceFeatures,
             vibeQueueIds,
             sleepTimerEndsAt,
             playbackRate,
