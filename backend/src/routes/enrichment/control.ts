@@ -7,7 +7,6 @@ import {
     reRunArtistsOnly,
     reRunMoodTagsOnly,
     reRunAudioAnalysisOnly,
-    reRunVibeEmbeddingsOnly,
     triggerEnrichmentNow,
 } from "../../workers/unifiedEnrichment";
 import { clearEnrichmentCache } from "./progressStatus";
@@ -122,23 +121,6 @@ export function registerEnrichmentControlRoutes(router: Router): void {
         } catch (error) {
             logger.error("Reset audio analysis error:", error);
             res.status(500).json({ error: "Failed to reset audio analysis" });
-        }
-    });
-
-    router.post("/reset-vibe-embeddings", requireAdmin, async (req, res) => {
-        try {
-            const queued = await reRunVibeEmbeddingsOnly();
-
-            res.json({
-                message: "Vibe embeddings reset",
-                description: `${queued} tracks queued for vibe embedding re-analysis`,
-                count: queued,
-            });
-        } catch (error) {
-            logger.error("Reset vibe embeddings error:", error);
-            res.status(500).json({
-                error: "Failed to reset vibe embeddings",
-            });
         }
     });
 

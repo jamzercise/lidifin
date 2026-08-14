@@ -16,7 +16,7 @@ export interface CleanupResult {
     downloadJobs: { cleaned: number; ids: string[] };
     spotifyImportJobs: { cleaned: number; ids: string[] };
     bullQueues: { cleaned: number; queues: string[] };
-    audioAnalysis: { reset: number; permanentlyFailed: number; recovered: number };
+    audioAnalysis: { reset: number; permanentlyFailed: number };
     totalCleaned: number;
 }
 

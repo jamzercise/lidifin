@@ -3,16 +3,15 @@
  * Arch-X.b.1.
  *
  * Purpose:
- *   - Provide a small, intention-revealing API for the audio analyzer and
- *     CLAP vibe analyzer to record their results without each writer
- *     spelling out the exact upsert payload (and accidentally drifting on
- *     status transitions).
+ *   - Provide a small, intention-revealing API for the audio analyzer to
+ *     record its results without each writer spelling out the exact upsert
+ *     payload (and accidentally drifting on status transitions).
  *   - Provide narrow read paths for mix generators / mood buckets so they
  *     don't construct ad-hoc Prisma queries against a wide table.
  *
  * The Essentia worker (`services/audio-analyzer/analyzer.py`) writes
  * directly to PostgreSQL for both `Track` and `JellyfinTrackAnalysis`
- * (see Arch-X.b.W). CLAP / other analyzers may use HTTP endpoints. This
+ * (see Arch-X.b.W). Other analyzers may use HTTP endpoints. This
  * service is the canonical place for any new endpoint or worker that needs
  * to read or write Jellyfin track analysis data — and the future migration target
  * for the existing routes that still operate against `Track`. See
@@ -31,12 +30,6 @@ import { prisma } from "../utils/db";
 import type { JellyfinTrackAnalysis, Prisma } from "@prisma/client";
 
 export type JellyfinTrackAnalysisStatus =
-    | "pending"
-    | "processing"
-    | "completed"
-    | "failed";
-
-export type JellyfinTrackVibeStatus =
     | "pending"
     | "processing"
     | "completed"
@@ -240,54 +233,6 @@ export async function resetAudioAnalysisToPending(
             analysisError: null,
             analysisStartedAt: null,
         },
-    });
-}
-
-/**
- * Status transition for the CLAP vibe analyzer. Vibe analysis stores
- * its embedding in `track_embeddings` (separate Postgres table managed
- * outside Prisma); this helper only records the lifecycle state on the
- * analysis row.
- */
-export async function setVibeAnalysisStatus(
-    id: string,
-    status: JellyfinTrackVibeStatus,
-    options: { error?: string | null; bumpRetry?: boolean } = {}
-): Promise<JellyfinTrackAnalysis> {
-    assertJellyfinTrackId(id);
-    const now = new Date();
-    const truncatedError =
-        options.error !== undefined && options.error !== null
-            ? options.error.slice(0, 1000)
-            : options.error;
-
-    const baseUpdate: Prisma.JellyfinTrackAnalysisUpdateInput = {
-        vibeAnalysisStatus: status,
-        vibeAnalysisStatusUpdatedAt: now,
-    };
-    if (truncatedError !== undefined) {
-        baseUpdate.vibeAnalysisError = truncatedError;
-    }
-    if (status === "processing") {
-        baseUpdate.vibeAnalysisStartedAt = now;
-    }
-    if (options.bumpRetry) {
-        baseUpdate.vibeAnalysisRetryCount = { increment: 1 };
-    }
-
-    return prisma.jellyfinTrackAnalysis.upsert({
-        where: { jellyfinTrackId: id },
-        create: {
-            jellyfinTrackId: id,
-            vibeAnalysisStatus: status,
-            vibeAnalysisStatusUpdatedAt: now,
-            ...(status === "processing" && { vibeAnalysisStartedAt: now }),
-            ...(truncatedError !== undefined && {
-                vibeAnalysisError: truncatedError,
-            }),
-            ...(options.bumpRetry && { vibeAnalysisRetryCount: 1 }),
-        },
-        update: baseUpdate,
     });
 }
 

@@ -129,7 +129,6 @@ class AudioAnalysisCleanupService {
     async cleanupStaleProcessing(): Promise<{
         reset: number;
         permanentlyFailed: number;
-        recovered: number;
     }> {
         const cutoff = new Date(
             Date.now() - STALE_THRESHOLD_MINUTES * 60 * 1000
@@ -160,7 +159,6 @@ class AudioAnalysisCleanupService {
             return {
                 reset: jfOnly.reset,
                 permanentlyFailed: jfOnly.permanent,
-                recovered: 0,
             };
         }
 
@@ -168,46 +166,16 @@ class AudioAnalysisCleanupService {
             `[AudioAnalysisCleanup] Found ${staleTracks.length} stale tracks (processing > ${STALE_THRESHOLD_MINUTES} min)`
         );
 
-        const staleIds = staleTracks.map((t) => t.id);
-        const withEmbedding = await prisma.$queryRaw<{ track_id: string }[]>`
-            SELECT track_id FROM track_embeddings WHERE track_id IN (${Prisma.join(staleIds)})
-        `;
-        const recoveredIdSet = new Set(withEmbedding.map((r) => r.track_id));
-
-        const recoveredIds: string[] = [];
         const permanentTracks: typeof staleTracks = [];
         const resetTracks: typeof staleTracks = [];
 
         for (const track of staleTracks) {
             const newRetryCount = (track.analysisRetryCount || 0) + 1;
-            if (recoveredIdSet.has(track.id)) {
-                recoveredIds.push(track.id);
-                continue;
-            }
             if (newRetryCount >= MAX_RETRIES) {
                 permanentTracks.push(track);
             } else {
                 resetTracks.push(track);
             }
-        }
-
-        if (recoveredIds.length > 0) {
-            await prisma.track.updateMany({
-                where: { id: { in: recoveredIds } },
-                data: {
-                    analysisStatus: "completed",
-                    analysisError: null,
-                    analysisStartedAt: null,
-                },
-            });
-            recoveredIds.forEach((id) => {
-                const t = staleTracks.find((x) => x.id === id);
-                if (t) {
-                    logger.info(
-                        `[AudioAnalysisCleanup] Recovered stale track with existing embedding: ${t.album.artist.name} - ${t.title}`
-                    );
-                }
-            });
         }
 
         for (const track of permanentTracks) {
@@ -258,26 +226,20 @@ class AudioAnalysisCleanupService {
 
         const resetCount = resetTracks.length;
         const permanentlyFailedCount = permanentTracks.length;
-        const recoveredCount = recoveredIds.length;
 
         if (resetCount > 0 || permanentlyFailedCount > 0) {
             this.onFailure(resetCount, permanentlyFailedCount);
         }
 
-        if (recoveredCount > 0) {
-            this.onSuccess();
-        }
-
         const jfStale = await cleanupStaleJellyfinAnalysisRows(cutoff);
 
         logger.debug(
-            `[AudioAnalysisCleanup] Cleanup complete: ${resetCount + jfStale.reset} reset, ${permanentlyFailedCount + jfStale.permanent} permanently failed, ${recoveredCount} recovered`
+            `[AudioAnalysisCleanup] Cleanup complete: ${resetCount + jfStale.reset} reset, ${permanentlyFailedCount + jfStale.permanent} permanently failed`
         );
 
         return {
             reset: resetCount + jfStale.reset,
             permanentlyFailed: permanentlyFailedCount + jfStale.permanent,
-            recovered: recoveredCount,
         };
     }
 

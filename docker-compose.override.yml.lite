@@ -1,7 +1,7 @@
 # Lite Mode Override
 #
-# Copy this file to docker-compose.override.yml to disable the ML analyzers
-# and reduce RAM usage by ~3-4GB.
+# Copy this file to docker-compose.override.yml to disable the ML analyzer
+# and reduce RAM usage.
 #
 # Usage:
 #   cp docker-compose.override.yml.lite docker-compose.override.yml
@@ -11,7 +11,6 @@
 #
 # What you lose in lite mode:
 #   - Audio analysis (BPM, key, mood, energy detection)
-#   - Vibe similarity search ("find similar tracks")
 #
 # What still works:
 #   - All music playback
@@ -23,9 +22,5 @@
 
 services:
   audio-analyzer:
-    deploy:
-      replicas: 0
-
-  audio-analyzer-clap:
     deploy:
       replicas: 0

@@ -1234,36 +1234,9 @@ class AnalysisWorker:
         logger.info(f"Process pool recreated with {NUM_WORKERS} workers")
     
     def _cleanup_stale_processing(self):
-        """Reset tracks stuck in 'processing' status (from crashed workers).
-        Checks for existing embeddings first to avoid resetting completed work.
-        """
+        """Reset tracks stuck in 'processing' status (from crashed workers)."""
         cursor = self.db.get_cursor()
         try:
-            # First: recover tracks that have embeddings but are stuck in processing
-            cursor.execute("""
-                UPDATE "Track" t
-                SET
-                    "analysisStatus" = 'completed',
-                    "analysisError" = NULL,
-                    "analysisStartedAt" = NULL
-                FROM track_embeddings te
-                WHERE t.id = te.track_id
-                AND t."analysisStatus" = 'processing'
-                AND (
-                    (t."analysisStartedAt" IS NOT NULL AND t."analysisStartedAt" < NOW() - INTERVAL '%s minutes')
-                    OR
-                    (t."analysisStartedAt" IS NULL AND t."updatedAt" < NOW() - INTERVAL '%s minutes')
-                )
-                RETURNING t.id
-            """, (STALE_PROCESSING_MINUTES, STALE_PROCESSING_MINUTES))
-
-            recovered_ids = cursor.fetchall()
-            recovered_count = len(recovered_ids)
-
-            if recovered_count > 0:
-                logger.info(f"Recovered {recovered_count} stale tracks that already had embeddings")
-
-            # Then: reset truly stale tracks (no embedding) back to pending
             cursor.execute("""
                 UPDATE "Track" t
                 SET
@@ -1277,7 +1250,6 @@ class AnalysisWorker:
                     (t."analysisStartedAt" IS NULL AND t."updatedAt" < NOW() - INTERVAL '%s minutes')
                 )
                 AND COALESCE(t."analysisRetryCount", 0) < %s
-                AND NOT EXISTS (SELECT 1 FROM track_embeddings te WHERE te.track_id = t.id)
                 RETURNING t.id
             """, (STALE_PROCESSING_MINUTES, STALE_PROCESSING_MINUTES, MAX_RETRIES))
 
@@ -1340,29 +1312,9 @@ class AnalysisWorker:
             cursor.close()
     
     def _retry_failed_tracks(self):
-        """Retry failed tracks that haven't exceeded max retries.
-        Recovers tracks that have embeddings but are incorrectly marked failed.
-        """
+        """Retry failed tracks that haven't exceeded max retries."""
         cursor = self.db.get_cursor()
         try:
-            # First: recover tracks marked failed that actually have embeddings
-            cursor.execute("""
-                UPDATE "Track" t
-                SET
-                    "analysisStatus" = 'completed',
-                    "analysisError" = NULL,
-                    "analysisStartedAt" = NULL
-                FROM track_embeddings te
-                WHERE t.id = te.track_id
-                AND t."analysisStatus" = 'failed'
-                RETURNING t.id
-            """)
-
-            recovered_ids = cursor.fetchall()
-            if len(recovered_ids) > 0:
-                logger.info(f"Recovered {len(recovered_ids)} 'failed' tracks that already had embeddings")
-
-            # Then: retry truly failed tracks (no embedding)
             cursor.execute("""
                 UPDATE "Track" t
                 SET
@@ -1370,7 +1322,6 @@ class AnalysisWorker:
                     "analysisError" = NULL
                 WHERE t."analysisStatus" = 'failed'
                 AND COALESCE(t."analysisRetryCount", 0) < %s
-                AND NOT EXISTS (SELECT 1 FROM track_embeddings te WHERE te.track_id = t.id)
                 RETURNING t.id
             """, (MAX_RETRIES,))
             

@@ -149,11 +149,6 @@ describe("mapJellyfinAnalysisToApiPayload", () => {
         analysisError: null,
         analysisRetryCount: 0,
         analysisStartedAt: null,
-        vibeAnalysisStatus: "completed",
-        vibeAnalysisStartedAt: null,
-        vibeAnalysisError: null,
-        vibeAnalysisRetryCount: 0,
-        vibeAnalysisStatusUpdatedAt: null,
         createdAt: new Date(),
         updatedAt: new Date(),
     };

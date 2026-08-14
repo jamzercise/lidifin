@@ -11,7 +11,7 @@ import { useAuth } from "@/lib/auth-context";
 export default function OnboardingPage() {
     const router = useRouter();
     const { user, isLoading: authLoading } = useAuth();
-    const { musicCNN, vibeEmbeddings, loading: featuresLoading } = useFeatures();
+    const { musicCNN, loading: featuresLoading } = useFeatures();
     const [step, setStep] = useState(1);
     const [loading, setLoading] = useState(false);
     const [initialLoading, setInitialLoading] = useState(true);
@@ -647,25 +647,12 @@ export default function OnboardingPage() {
                                                             Extracts BPM, musical key, mood, energy, danceability, and other audio features using neural networks trained on music.
                                                         </p>
                                                     </div>
-                                                    <div className={`p-4 rounded-lg border ${vibeEmbeddings ? "bg-green-500/5 border-green-500/20" : "bg-white/5 border-white/10"}`}>
-                                                        <div className="flex items-center gap-3 mb-2">
-                                                            <span className={vibeEmbeddings ? "text-green-400" : "text-gray-500"}>
-                                                                {vibeEmbeddings ? "\u2713" : "\u2014"}
-                                                            </span>
-                                                            <span className={`font-medium ${vibeEmbeddings ? "text-white" : "text-gray-500"}`}>
-                                                                CLAP Vibe Embeddings
-                                                            </span>
-                                                        </div>
-                                                        <p className="text-sm text-white/50 ml-7">
-                                                            Creates audio fingerprints that capture the overall &quot;vibe&quot; of each track, enabling &quot;find similar tracks&quot; functionality.
-                                                        </p>
-                                                    </div>
                                                 </div>
                                             )}
 
                                             <div className="mt-6 pt-4 border-t border-white/10">
                                                 <p className="text-sm text-gray-400">
-                                                    {(musicCNN || vibeEmbeddings) ? (
+                                                    {musicCNN ? (
                                                         <>
                                                             These analyzers run in the background and use ~3-4GB RAM combined.
                                                             To disable them and save resources, copy{" "}

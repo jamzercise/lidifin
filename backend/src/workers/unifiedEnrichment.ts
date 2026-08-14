@@ -22,9 +22,7 @@ import { enrichmentStateService } from "../services/enrichmentState";
 import { enrichmentFailureService } from "../services/enrichmentFailureService";
 import { audioAnalysisCleanupService } from "../services/audioAnalysisCleanup";
 import { rateLimiter } from "../services/rateLimiter";
-import { vibeAnalysisCleanupService } from "../services/vibeAnalysisCleanup";
 import { getSystemSettings } from "../utils/systemSettings";
-import { featureDetection } from "../services/featureDetection";
 import pLimit from "p-limit";
 
 // Configuration
@@ -411,19 +409,11 @@ async function runEnrichmentCycle(fullMode: boolean): Promise<{
         }
         audioQueued = audioResult;
 
-        const vibeResult = await runPhase("vibe", executeVibePhase);
-        if (vibeResult === null) {
-            return { artists: artistsProcessed, tracks: tracksProcessed, audioQueued };
-        }
-        const vibeQueued = vibeResult;
-
         // Podcast refresh phase -- only runs if subscriptions exist
         await runPhase("podcasts", executePodcastRefreshPhase);
 
-        const features = await featureDetection.getFeatures();
-
          // Log progress (only if work was done)
-         if (artistsProcessed > 0 || tracksProcessed > 0 || audioQueued > 0 || vibeQueued > 0) {
+         if (artistsProcessed > 0 || tracksProcessed > 0 || audioQueued > 0) {
             const progress = await getEnrichmentProgress();
             logger.debug(`\n[Enrichment Progress]`);
             logger.debug(
@@ -435,11 +425,6 @@ async function runEnrichmentCycle(fullMode: boolean): Promise<{
             logger.debug(
                 `   Audio Analysis: ${progress.audioAnalysis.completed}/${progress.audioAnalysis.total} (${progress.audioAnalysis.progress}%) [background]`,
             );
-            if (features.vibeEmbeddings) {
-                logger.debug(
-                    `   Vibe Embeddings: ${progress.clapEmbeddings.completed}/${progress.clapEmbeddings.total} (${progress.clapEmbeddings.progress}%) [background]`,
-                );
-            }
             logger.debug("");
 
             // Update state with progress
@@ -977,56 +962,6 @@ async function queueAudioAnalysis(): Promise<number> {
 }
 
 /**
- * Step 4: Queue tracks for CLAP vibe embeddings
- * Only runs if CLAP analyzer is available
- */
-const VIBE_QUEUE_BATCH_SIZE = 100; // Cap per cycle to avoid flooding CLAP workers
-
-async function queueVibeEmbeddings(): Promise<number> {
-    const tracks = await prisma.$queryRaw<{ id: string; filePath: string }[]>`
-        SELECT t.id, t."filePath"
-        FROM "Track" t
-        LEFT JOIN track_embeddings te ON t.id = te.track_id
-        WHERE te.track_id IS NULL
-          AND t."filePath" IS NOT NULL
-          AND (t."vibeAnalysisStatus" IS NULL OR t."vibeAnalysisStatus" = 'pending')
-        LIMIT ${VIBE_QUEUE_BATCH_SIZE}
-    `;
-
-    if (tracks.length === 0) {
-        return 0;
-    }
-
-    const redis = getRedis();
-    const multi = redis.multi();
-    const now = new Date();
-    const ids = tracks.map((t) => t.id);
-
-    for (const track of tracks) {
-        multi.rPush(
-            "audio:clap:queue",
-            JSON.stringify({ trackId: track.id, filePath: track.filePath })
-        );
-    }
-
-    try {
-        await multi.exec();
-        await prisma.track.updateMany({
-            where: { id: { in: ids } },
-            data: {
-                vibeAnalysisStatus: "processing",
-                vibeAnalysisStartedAt: now,
-                vibeAnalysisStatusUpdatedAt: now,
-            },
-        });
-    } catch (error) {
-        logger.error(`   Failed to queue vibe embedding batch:`, error);
-        return 0;
-    }
-    return tracks.length;
-}
-
-/**
  * Check if enrichment should stop and handle state cleanup if stopping.
  * Returns true if cycle should halt (either stopping or paused).
  */
@@ -1046,7 +981,7 @@ async function shouldHaltCycle(): Promise<boolean> {
  * Run a phase and return result. Returns null if cycle should halt.
  */
 async function runPhase(
-    phaseName: "artists" | "tracks" | "audio" | "vibe" | "podcasts",
+    phaseName: "artists" | "tracks" | "audio" | "podcasts",
     executor: () => Promise<number>,
 ): Promise<number | null> {
     await enrichmentStateService.updateState({
@@ -1083,7 +1018,7 @@ async function executeAudioPhase(): Promise<number> {
         await audioAnalysisCleanupService.cleanupStaleProcessing();
     if (cleanupResult.reset > 0 || cleanupResult.permanentlyFailed > 0) {
         logger.debug(
-            `[Enrichment] Audio analysis cleanup: ${cleanupResult.reset} reset, ${cleanupResult.permanentlyFailed} permanently failed, ${cleanupResult.recovered} recovered`,
+            `[Enrichment] Audio analysis cleanup: ${cleanupResult.reset} reset, ${cleanupResult.permanentlyFailed} permanently failed`,
         );
     }
 
@@ -1154,46 +1089,6 @@ async function executePodcastRefreshPhase(): Promise<number> {
     }
 
     return refreshed;
-}
-
-async function executeVibePhase(): Promise<number> {
-    const features = await featureDetection.getFeatures();
-    if (!features.vibeEmbeddings) {
-        return 0;
-    }
-
-    const audioProcessing = await prisma.track.count({
-        where: { analysisStatus: "processing" },
-    });
-    const audioQueue = await getRedis().lLen("audio:analysis:queue");
-    if (audioProcessing > 0 || audioQueue > 0) {
-        logger.debug(
-            `[Enrichment] Skipping vibe phase - audio still running (${audioProcessing} processing, ${audioQueue} queued)`,
-        );
-        return 0;
-    }
-
-    const { reset, permanentlyFailed } =
-        await vibeAnalysisCleanupService.cleanupStaleProcessing();
-    if (reset > 0 || permanentlyFailed > 0) {
-        logger.debug(
-            `[ENRICHMENT] Vibe cleanup: ${reset} reset, ${permanentlyFailed} permanently failed`
-        );
-    }
-
-    if (vibeAnalysisCleanupService.isCircuitOpen()) {
-        logger.warn(
-            "[Enrichment] Vibe embedding circuit breaker OPEN - skipping queue"
-        );
-        return 0;
-    }
-
-    const result = await queueVibeEmbeddings();
-    if (result > 0) {
-        logger.debug(`[ENRICHMENT] Queued ${result} tracks for vibe embedding`);
-    }
-
-    return result;
 }
 
 /**
@@ -1289,22 +1184,6 @@ export async function getEnrichmentProgress() {
         where: { analysisStatus: "failed" },
     });
 
-    // CLAP embedding progress (for vibe similarity)
-    const [clapEmbeddingCount, clapProcessing, clapQueueLength, clapFailedCount] = await Promise.all([
-        prisma.$queryRaw<{ count: bigint }[]>`
-            SELECT COUNT(*) as count FROM track_embeddings
-        `,
-        prisma.track.count({
-            where: { vibeAnalysisStatus: "processing" },
-        }),
-        getRedis().lLen("audio:clap:queue"),
-        prisma.enrichmentFailure.count({
-            where: { entityType: "vibe", resolved: false, skipped: false },
-        }),
-    ]);
-    const clapCompleted = Number(clapEmbeddingCount[0]?.count || 0);
-    const clapFailed = clapFailedCount;
-
     // Core enrichment is complete when artists and track tags are done
     // Audio analysis is separate - it runs in background and doesn't block
     const coreComplete =
@@ -1350,29 +1229,10 @@ export async function getEnrichmentProgress() {
             isBackground: true, // Flag to indicate this runs separately
         },
 
-        // CLAP embeddings (for vibe similarity search)
-        clapEmbeddings: {
-            total: trackTotal,
-            completed: clapCompleted,
-            pending: trackTotal - clapCompleted - clapFailed,
-            processing: clapProcessing,
-            failed: clapFailed,
-            progress:
-                trackTotal > 0 ?
-                    Math.round((clapCompleted / trackTotal) * 100)
-                :   0,
-            isBackground: true,
-        },
-
         // Overall status
         coreComplete, // True when artists + track tags are done
         isFullyComplete:
-            coreComplete &&
-            audioPending === 0 &&
-            audioProcessing === 0 &&
-            clapProcessing === 0 &&
-            clapQueueLength === 0 &&
-            clapCompleted + clapFailed >= trackTotal,
+            coreComplete && audioPending === 0 && audioProcessing === 0,
     };
 }
 
@@ -1453,28 +1313,6 @@ export async function triggerEnrichmentNow(): Promise<{
      const queued = await queueAudioAnalysis();
 
      logger.debug(`[Enrichment] Queued ${queued} tracks for audio analysis`);
-
-     return queued;
- }
-
- /**
-  * Re-run vibe embeddings only
-  * Cleans up stale jobs and queues for vibe embeddings
-  */
- export async function reRunVibeEmbeddingsOnly(): Promise<number> {
-     logger.debug("[Enrichment] Re-running vibe embeddings only...");
-
-     const features = await featureDetection.getFeatures();
-     if (!features.vibeEmbeddings) {
-         logger.debug("[Enrichment] Vibe embeddings not available, skipping");
-         return 0;
-     }
-
-     await vibeAnalysisCleanupService.cleanupStaleProcessing();
-
-     const queued = await queueVibeEmbeddings();
-
-     logger.debug(`[Enrichment] Queued ${queued} tracks for vibe embeddings`);
 
      return queued;
  }

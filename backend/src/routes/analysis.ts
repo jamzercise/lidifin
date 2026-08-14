@@ -4,7 +4,6 @@ import { prisma } from "../utils/db";
 import { redisClient } from "../utils/redis";
 import { requireAuth, requireAdmin } from "../middleware/auth";
 import { getSystemSettings } from "../utils/systemSettings";
-import { enrichmentFailureService } from "../services/enrichmentFailureService";
 import {
     findByJellyfinTrackId,
     getAudioAnalysisStatusCounts as getJellyfinAudioAnalysisStatusCounts,
@@ -20,32 +19,8 @@ const router = Router();
 
 // Redis queue key for audio analysis
 const ANALYSIS_QUEUE = "audio:analysis:queue";
-const VIBE_QUEUE = "audio:clap:queue";
 
 const MAX_ANALYSIS_START_LIMIT = 1000;
-const MAX_VIBE_START_LIMIT = 2000;
-
-/** Reject internal endpoints if INTERNAL_API_SECRET is not configured (security) */
-function requireInternalSecret(
-    req: { headers: Record<string, string | string[] | undefined> },
-    res: { status: (n: number) => { json: (o: object) => void } }
-): boolean {
-    const secret = process.env.INTERNAL_API_SECRET;
-    if (!secret || secret.length === 0) {
-        logger.warn("[Analysis] INTERNAL_API_SECRET not set - rejecting internal request");
-        res.status(503).json({
-            error: "Service misconfigured (internal API secret not set)",
-        });
-        return false;
-    }
-    const provided = req.headers["x-internal-secret"];
-    const providedStr = Array.isArray(provided) ? provided[0] : provided;
-    if (providedStr !== secret) {
-        res.status(403).json({ error: "Forbidden" });
-        return false;
-    }
-    return true;
-}
 
 /** Coerce positive integer and cap to max (for limit params) */
 function clampLimit(value: unknown, defaultVal: number, max: number): number {
@@ -66,22 +41,17 @@ router.get("/status", requireAuth, async (req, res) => {
         // `JellyfinTrackAnalysis` table from X.b.1. Until X.d removes the
         // legacy columns, both can hold rows in mixed deployments and the
         // status dashboard should reflect the full picture.
-        const [trackCounts, jellyfinCounts, queueLength, embeddingCount] =
-            await Promise.all([
-                prisma.track.groupBy({
-                    by: ["analysisStatus"],
-                    _count: true,
-                }),
-                getJellyfinAudioAnalysisStatusCounts(),
-                redisClient.lLen(ANALYSIS_QUEUE),
-                prisma.$queryRaw<{ count: bigint }[]>`
-                    SELECT COUNT(*) as count FROM track_embeddings
-                `,
-            ]);
+        const [trackCounts, jellyfinCounts, queueLength] = await Promise.all([
+            prisma.track.groupBy({
+                by: ["analysisStatus"],
+                _count: true,
+            }),
+            getJellyfinAudioAnalysisStatusCounts(),
+            redisClient.lLen(ANALYSIS_QUEUE),
+        ]);
 
         const { total, completed, failed, processing, pending } =
             combineAnalysisStatusCounts(trackCounts, jellyfinCounts);
-        const withEmbeddings = Number(embeddingCount[0]?.count || 0);
         const progress = total > 0 ? Math.round((completed / total) * 100) : 0;
 
         res.json({
@@ -93,13 +63,6 @@ router.get("/status", requireAuth, async (req, res) => {
             queueLength,
             progress,
             isComplete: pending === 0 && processing === 0 && queueLength === 0,
-            clap: {
-                withEmbeddings,
-                embeddingProgress:
-                    total > 0
-                        ? Math.round((withEmbeddings / total) * 100)
-                        : 0,
-            },
         });
     } catch (error: any) {
         logger.error("Analysis status error:", error);
@@ -452,240 +415,6 @@ router.put("/workers", requireAuth, requireAdmin, async (req, res) => {
     } catch (error: any) {
         logger.error("Update workers config error:", error);
         res.status(500).json({ error: "Failed to update worker configuration" });
-    }
-});
-
-/**
- * GET /api/analysis/clap-workers
- * Get current CLAP analyzer worker configuration
- */
-router.get("/clap-workers", requireAuth, requireAdmin, async (req, res) => {
-    try {
-        const settings = await getSystemSettings();
-        const cpuCores = os.cpus().length;
-        const currentWorkers = settings?.clapWorkers || 2;
-
-        const recommended = Math.max(1, Math.min(8, Math.floor(cpuCores / 2)));
-
-        res.json({
-            workers: currentWorkers,
-            cpuCores,
-            recommended,
-            description: `Using ${currentWorkers} of ${cpuCores} available CPU cores`,
-        });
-    } catch (error: any) {
-        logger.error("Get CLAP workers config error:", error);
-        res.status(500).json({ error: "Failed to get CLAP worker configuration" });
-    }
-});
-
-/**
- * PUT /api/analysis/clap-workers
- * Update CLAP analyzer worker count
- */
-router.put("/clap-workers", requireAuth, requireAdmin, async (req, res) => {
-    try {
-        const { workers } = req.body;
-
-        if (typeof workers !== 'number' || workers < 1 || workers > 8) {
-            return res.status(400).json({
-                error: "CLAP workers must be a number between 1 and 8"
-            });
-        }
-
-        // Update SystemSettings
-        await prisma.systemSettings.update({
-            where: { id: "default" },
-            data: { clapWorkers: workers },
-        });
-
-        // Publish control signal to Redis for CLAP analyzer to pick up
-        await redisClient.publish(
-            "audio:clap:control",
-            JSON.stringify({ command: "set_workers", count: workers })
-        );
-
-        const cpuCores = os.cpus().length;
-        const recommended = Math.max(1, Math.min(8, Math.floor(cpuCores / 2)));
-
-        logger.info(`CLAP analyzer workers updated to ${workers}`);
-
-        res.json({
-            workers,
-            cpuCores,
-            recommended,
-            description: `Using ${workers} of ${cpuCores} available CPU cores`,
-        });
-    } catch (error: any) {
-        logger.error("Update CLAP workers config error:", error);
-        res.status(500).json({ error: "Failed to update CLAP worker configuration" });
-    }
-});
-
-/**
- * POST /api/analysis/vibe/failure
- * Record a vibe embedding failure (called by CLAP analyzer)
- */
-router.post("/vibe/failure", async (req, res) => {
-    if (!requireInternalSecret(req, res)) return;
-
-    try {
-        const { trackId, trackName, errorMessage, errorCode } = req.body;
-
-        if (typeof trackId !== "string" || trackId.length === 0 || trackId.length > 100) {
-            return res.status(400).json({ error: "Valid trackId is required" });
-        }
-
-        await enrichmentFailureService.recordFailure({
-            entityType: "vibe",
-            entityId: trackId,
-            entityName: trackName,
-            errorMessage: errorMessage || "Vibe embedding generation failed",
-            errorCode: errorCode,
-        });
-
-        res.json({ message: "Failure recorded" });
-    } catch (error: any) {
-        logger.error("Record vibe failure error:", error);
-        res.status(500).json({ error: "Failed to record failure" });
-    }
-});
-
-/**
- * POST /api/analysis/vibe/start
- * Queue tracks for vibe embedding generation (admin only)
- *
- * @param force - If true, delete all embeddings and re-queue all tracks
- */
-router.post("/vibe/start", requireAuth, requireAdmin, async (req, res) => {
-    try {
-        const limit = clampLimit(req.body?.limit, 500, MAX_VIBE_START_LIMIT);
-        const force = Boolean(req.body?.force);
-
-        if (force) {
-            await prisma.$executeRaw`DELETE FROM track_embeddings`;
-            await enrichmentFailureService.clearAllFailures("vibe");
-            logger.info("Cleared all vibe embeddings for re-generation");
-        }
-
-        const tracks = await prisma.$queryRaw<{ id: string; filePath: string; duration: number; title: string }[]>`
-            SELECT t.id, t."filePath", t.duration, t.title
-            FROM "Track" t
-            LEFT JOIN track_embeddings te ON t.id = te.track_id
-            WHERE te.track_id IS NULL
-            AND t."filePath" IS NOT NULL
-            ORDER BY t."fileModified" DESC
-            LIMIT ${limit}
-        `;
-
-        if (tracks.length === 0) {
-            return res.json({
-                message: "All tracks have vibe embeddings",
-                queued: 0,
-            });
-        }
-
-        // Queue tracks for CLAP embedding
-        const pipeline = redisClient.multi();
-        for (const track of tracks) {
-            pipeline.rPush(VIBE_QUEUE, JSON.stringify({
-                trackId: track.id,
-                filePath: track.filePath,
-                duration: track.duration,
-            }));
-        }
-        await pipeline.exec();
-
-        // Clear any existing vibe failures for these tracks
-        for (const track of tracks) {
-            await enrichmentFailureService.clearFailure("vibe", track.id);
-        }
-
-        logger.info(`Queued ${tracks.length} tracks for vibe embedding${force ? " (force reset)" : ""}`);
-
-        res.json({
-            message: `Queued ${tracks.length} tracks for vibe embedding`,
-            queued: tracks.length,
-        });
-    } catch (error: any) {
-        logger.error("Start vibe embedding error:", error);
-        res.status(500).json({ error: "Failed to start vibe embedding" });
-    }
-});
-
-/**
- * POST /api/analysis/vibe/retry
- * Retry failed vibe embeddings (admin only)
- */
-router.post("/vibe/retry", requireAuth, requireAdmin, async (req, res) => {
-    try {
-        // Get all vibe failures
-        const { failures } = await enrichmentFailureService.getFailures({
-            entityType: "vibe",
-            includeSkipped: false,
-            includeResolved: false,
-        });
-
-        if (failures.length === 0) {
-            return res.json({
-                message: "No vibe failures to retry",
-                queued: 0,
-            });
-        }
-
-        // Get track details for failed tracks
-        const trackIds = failures.map(f => f.entityId);
-        const tracks = await prisma.track.findMany({
-            where: { id: { in: trackIds } },
-            select: { id: true, filePath: true, duration: true, title: true },
-        });
-
-        // Queue for retry
-        const pipeline = redisClient.multi();
-        for (const track of tracks) {
-            pipeline.rPush(VIBE_QUEUE, JSON.stringify({
-                trackId: track.id,
-                filePath: track.filePath,
-                duration: track.duration,
-            }));
-        }
-        await pipeline.exec();
-
-        // Reset retry counts
-        await enrichmentFailureService.resetRetryCount(failures.map(f => f.id));
-
-        logger.info(`Retrying ${tracks.length} failed vibe embeddings`);
-
-        res.json({
-            message: `Queued ${tracks.length} failed tracks for vibe embedding retry`,
-            queued: tracks.length,
-        });
-    } catch (error: any) {
-        logger.error("Retry vibe failures error:", error);
-        res.status(500).json({ error: "Failed to retry vibe failures" });
-    }
-});
-
-/**
- * POST /api/analysis/vibe/success
- * Resolve failure records when a vibe embedding succeeds (called by CLAP analyzer)
- */
-router.post("/vibe/success", async (req, res) => {
-    if (!requireInternalSecret(req, res)) return;
-
-    try {
-        const trackId = req.body?.trackId;
-        if (typeof trackId !== "string" || trackId.length === 0 || trackId.length > 100) {
-            return res.status(400).json({ error: "Valid trackId is required" });
-        }
-
-        // Resolve any stale failure records for this track
-        await enrichmentFailureService.resolveByEntity("vibe", trackId);
-
-        res.json({ message: "Stale failures resolved" });
-    } catch (error: any) {
-        logger.error("Resolve vibe failure error:", error);
-        res.status(500).json({ error: "Failed to resolve failures" });
     }
 });
 

@@ -49,7 +49,7 @@ function toTrack(raw: RawSimilarTrack): Track {
  * existing similarity engines with graceful fallback so it works regardless of
  * which analyzers are configured:
  *   1. AudioMuse similar tracks (best quality, library-resolved) — Jellyfin ids
- *   2. Vibe / CLAP similarity (library-resolved)
+ *   2. Vibe similarity (library-resolved)
  *   3. Last.fm similar tracks mapped to owned library tracks
  *
  * The seed track plays first, followed by the similar queue.
@@ -79,7 +79,7 @@ export function useSongRadio() {
                     }
                 }
 
-                // 2. Vibe / CLAP similarity
+                // 2. Vibe similarity
                 if (similar.length === 0) {
                     try {
                         const res = await api.getVibeSimilarTracks(seed.id, 30);

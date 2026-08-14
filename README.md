@@ -334,12 +334,11 @@ See [docs/AUDIOMUSE-AI.md](docs/AUDIOMUSE-AI.md) for setup notes and behavior.
 
 ### Standalone analyzers (local-files path only)
 
-The repository also contains two Python analyzer services under `services/`:
+The repository also contains a Python analyzer service under `services/`:
 
 - **`audio-analyzer`** — Essentia and MusiCNN for BPM, key, energy, and mood
-- **`audio-analyzer-clap`** — LAION CLAP embeddings for similarity search, stored in pgvector
 
-These read audio files directly from disk and are **not included in the all-in-one image**. They exist for the local-files development path and run via `docker-compose.dev.yml` or your own compose file. They benefit from an NVIDIA GPU via the NVIDIA Container Toolkit; passing `--gpus` to the Lidifin container itself has no effect, since it performs no analysis.
+It reads audio files directly from disk and is **not included in the all-in-one image**. It exists for the local-files development path and runs via `docker-compose.dev.yml` or your own compose file. It benefits from an NVIDIA GPU via the NVIDIA Container Toolkit; passing `--gpus` to the Lidifin container itself has no effect, since it performs no analysis.
 
 ### Vibe API endpoints
 

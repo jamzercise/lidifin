@@ -798,7 +798,7 @@ export function AudioControlsProvider({ children }: { children: ReactNode }) {
         state.setIsMuted((prev) => !prev);
     }, [state]);
 
-    // Vibe mode controls - uses CLAP similarity API
+    // Vibe mode controls - uses the vibe similarity API
     const startVibeMode = useCallback(async (): Promise<{
         success: boolean;
         trackCount: number;

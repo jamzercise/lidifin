@@ -65,7 +65,6 @@ declare module "./client" {
             artists: { total: number; completed: number; pending: number; failed: number; progress: number };
             trackTags: { total: number; enriched: number; pending: number; progress: number };
             audioAnalysis: { total: number; completed: number; pending: number; processing: number; failed: number; progress: number; isBackground: boolean };
-            clapEmbeddings: { total: number; completed: number; pending: number; processing: number; failed: number; progress: number; isBackground: boolean };
             coreComplete: boolean;
             isFullyComplete: boolean;
         }>;

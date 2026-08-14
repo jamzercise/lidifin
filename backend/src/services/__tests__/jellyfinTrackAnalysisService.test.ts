@@ -7,7 +7,6 @@ import {
     recordAudioAnalysisCompleted,
     recordAudioAnalysisFailed,
     resetAudioAnalysisToPending,
-    setVibeAnalysisStatus,
 } from "../jellyfinTrackAnalysisService";
 
 jest.mock("../../utils/db", () => ({
@@ -234,64 +233,6 @@ describe("resetAudioAnalysisToPending", () => {
                 analysisStartedAt: null,
             },
         });
-    });
-});
-
-describe("setVibeAnalysisStatus", () => {
-    it("stamps vibeAnalysisStartedAt when transitioning to processing", async () => {
-        ops.upsert.mockResolvedValue({});
-        await setVibeAnalysisStatus(VALID_ID, "processing");
-
-        const call = ops.upsert.mock.calls[0][0];
-        expect(call.update.vibeAnalysisStatus).toBe("processing");
-        expect(call.update.vibeAnalysisStartedAt).toBeInstanceOf(Date);
-        expect(call.update.vibeAnalysisStatusUpdatedAt).toBeInstanceOf(Date);
-    });
-
-    it("does NOT overwrite vibeAnalysisStartedAt when transitioning to completed", async () => {
-        ops.upsert.mockResolvedValue({});
-        await setVibeAnalysisStatus(VALID_ID, "completed");
-
-        const call = ops.upsert.mock.calls[0][0];
-        expect(call.update.vibeAnalysisStatus).toBe("completed");
-        expect(call.update).not.toHaveProperty("vibeAnalysisStartedAt");
-    });
-
-    it("records error message + bumps retry counter when bumpRetry=true", async () => {
-        ops.upsert.mockResolvedValue({});
-        await setVibeAnalysisStatus(VALID_ID, "failed", {
-            error: "embedding timed out",
-            bumpRetry: true,
-        });
-
-        const call = ops.upsert.mock.calls[0][0];
-        expect(call.update.vibeAnalysisStatus).toBe("failed");
-        expect(call.update.vibeAnalysisError).toBe("embedding timed out");
-        expect(call.update.vibeAnalysisRetryCount).toEqual({ increment: 1 });
-    });
-
-    it("does not increment retry when bumpRetry is omitted", async () => {
-        ops.upsert.mockResolvedValue({});
-        await setVibeAnalysisStatus(VALID_ID, "completed");
-
-        const call = ops.upsert.mock.calls[0][0];
-        expect(call.update).not.toHaveProperty("vibeAnalysisRetryCount");
-    });
-
-    it("explicitly clears error when null is passed", async () => {
-        ops.upsert.mockResolvedValue({});
-        await setVibeAnalysisStatus(VALID_ID, "completed", { error: null });
-
-        const call = ops.upsert.mock.calls[0][0];
-        expect(call.update.vibeAnalysisError).toBeNull();
-    });
-
-    it("leaves error untouched when not passed at all", async () => {
-        ops.upsert.mockResolvedValue({});
-        await setVibeAnalysisStatus(VALID_ID, "processing");
-
-        const call = ops.upsert.mock.calls[0][0];
-        expect(call.update).not.toHaveProperty("vibeAnalysisError");
     });
 });
 

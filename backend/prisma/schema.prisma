@@ -101,7 +101,6 @@ model SystemSettings {
   enrichmentConcurrency       Int      @default(1)
   lidarrWebhookSecret         String?
   audioAnalyzerWorkers        Int      @default(2)
-  clapWorkers                 Int      @default(2)
   lastfmApiKey                String?
   soulseekConcurrentDownloads Int      @default(4)
   // Lidifin: Jellyfin as music library and streaming source
@@ -203,8 +202,6 @@ model Track {
   acousticness       Float?
   speechiness        Float?
   // Legacy mood fields - populated by MusiCNN analyzer
-  // These may be derived from CLAP text-anchor similarity in future
-  // Consider removing in v2.0 if vibe similarity fully replaces mood-based features
   moodHappy          Float?
   moodSad            Float?
   moodRelaxed        Float?
@@ -228,18 +225,10 @@ model Track {
   hasUserOverrides   Boolean                  @default(false)
   analysisStartedAt  DateTime?
 
-  // Vibe analysis status tracking
-  vibeAnalysisStatus          String? // Analysis status: pending, processing, completed, failed
-  vibeAnalysisStartedAt       DateTime?
-  vibeAnalysisError           String?
-  vibeAnalysisRetryCount      Int       @default(0)
-  vibeAnalysisStatusUpdatedAt DateTime? // When the status was last updated
-
   moodBuckets     MoodBucket[]
   album           Album            @relation(fields: [albumId], references: [id], onDelete: Cascade)
   trackGenres     TrackGenre[]
   transcodedFiles TranscodedFile[]
-  embedding       TrackEmbedding?
 
   @@index([albumId])
   @@index([fileModified])
@@ -322,13 +311,13 @@ model SavedDiscoveryAlbum {
   @@index([rgMbid])
 }
 
-/// Audio + vibe analysis for Jellyfin-sourced tracks, keyed by jellyfin:uuid.
+/// Audio analysis for Jellyfin-sourced tracks, keyed by jellyfin:uuid.
 ///
 /// Decouples analysis from the legacy `Track` table (which is keyed by
 /// Prisma cuid and bound to local `filePath` / `fileModified`). In
 /// Jellyfin-only mode, there are no local files and `Track` rows are not
-/// produced, so analysis storage moves here. Writers (audio analyzer +
-/// CLAP vibe analyzer) and readers (mix generators, mood buckets) migrate
+/// produced, so analysis storage moves here. Writers (audio analyzer) and
+/// readers (mix generators, mood buckets) migrate
 /// to this table incrementally in Arch-X.b.2/X.b.3 follow-ups; until then
 /// the model exists empty and the legacy `Track.*` analysis columns
 /// remain in use for any local-files-mode deployments. The legacy columns
@@ -337,7 +326,7 @@ model SavedDiscoveryAlbum {
 ///
 /// Field set mirrors `Track`'s analysis surface 1:1 except for tag arrays
 /// already living on `JellyfinTrackMetadata` (lastfmTags) and
-/// FK-coupled relations (moodBuckets, embedding) — those are redirected
+/// FK-coupled relations (moodBuckets) — those are redirected
 /// to use `jellyfinTrackId` separately as part of the Track removal in
 /// Arch-X.d.
 model JellyfinTrackAnalysis {
@@ -377,12 +366,6 @@ model JellyfinTrackAnalysis {
   analysisRetryCount   Int       @default(0)
   analysisStartedAt    DateTime?
 
-  vibeAnalysisStatus          String?
-  vibeAnalysisStartedAt       DateTime?
-  vibeAnalysisError           String?
-  vibeAnalysisRetryCount      Int       @default(0)
-  vibeAnalysisStatusUpdatedAt DateTime?
-
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -402,7 +385,6 @@ model JellyfinTrackAnalysis {
   @@index([moodParty])
   @@index([moodAcoustic])
   @@index([moodElectronic])
-  @@index([vibeAnalysisStatus])
 }
 
 /// Jellyfin track metadata for mood/vibe and genre radio when Jellyfin is music source.
@@ -1047,13 +1029,3 @@ enum ListenSource {
   DISCOVERY_KEPT
 }
 
-model TrackEmbedding {
-  trackId      String                     @id @map("track_id")
-  embedding    Unsupported("vector(512)")
-  modelVersion String                     @default("laion-clap-music") @map("model_version") @db.VarChar(50)
-  analyzedAt   DateTime                   @default(now()) @map("analyzed_at") @db.Timestamptz
-  track        Track                      @relation(fields: [trackId], references: [id], onDelete: Cascade)
-
-  @@index([modelVersion])
-  @@map("track_embeddings")
-}

@@ -22,7 +22,7 @@ export function EnrichmentFailuresModal({
     onClose,
 }: EnrichmentFailuresModalProps) {
     const [selectedType, setSelectedType] = useState<
-        "all" | "artist" | "track" | "audio" | "vibe"
+        "all" | "artist" | "track" | "audio"
     >("all");
     const [selectedFailures, setSelectedFailures] = useState<Set<string>>(
         new Set()
@@ -108,7 +108,7 @@ export function EnrichmentFailuresModal({
 
     // Clear all mutation
     const clearAllMutation = useMutation({
-        mutationFn: (entityType?: "artist" | "track" | "audio" | "vibe") =>
+        mutationFn: (entityType?: "artist" | "track" | "audio") =>
             enrichmentApi.clearAllFailures(entityType),
         onSuccess: () => {
             queryClient.invalidateQueries({
@@ -215,11 +215,6 @@ export function EnrichmentFailuresModal({
                                 key: "audio" as const,
                                 label: "Audio Analysis",
                                 count: counts?.audio || 0,
-                            },
-                            {
-                                key: "vibe" as const,
-                                label: "Vibe Embeddings",
-                                count: counts?.vibe || 0,
                             },
                         ]
                     ).map((tab) => (

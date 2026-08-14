@@ -67,7 +67,7 @@ export interface SavedMoodMixResponse {
     mix: MoodBucketMix & { generatedAt: string };
 }
 
-// Vibe (CLAP Similarity) Types
+// Vibe (Similarity) Types
 export interface SimilarTrack {
     id: string;
     title: string;
