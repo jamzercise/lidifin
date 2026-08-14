@@ -1,47 +1,95 @@
+/**
+ * Vibe routes: natural-language search and track-to-track similarity.
+ *
+ * These used to run on a bundled CLAP analyzer that embedded local files and
+ * keyed the vectors to the Prisma `Track` table. That combination cannot work in
+ * Jellyfin-first mode — `Track` is empty and there are no local file paths — so
+ * the work now goes to AudioMuse-AI, which analyzes the Jellyfin library itself
+ * and answers in Jellyfin item IDs.
+ */
+
 import { Router } from "express";
-import { randomUUID } from "crypto";
 import { logger } from "../utils/logger";
 import { prisma } from "../utils/db";
-import { redisClient } from "../utils/redis";
 import { requireAuth } from "../middleware/auth";
 import { findSimilarTracks } from "../services/hybridSimilarity";
 import {
-    getVocabulary,
-    expandQueryWithVocabulary,
-    rerankWithFeatures,
-    loadVocabulary,
-    VocabTerm
-} from "../services/vibeVocabulary";
+    getClapStats,
+    getClapTopQueries,
+    getSimilarTracks,
+    searchByText,
+    warmupClap,
+    type AudioMuseUnavailableReason,
+} from "../services/audioMuseService";
+import {
+    isJellyfinMusicSource,
+    resolveTrackReferences,
+    type ResolvedTrack,
+} from "../services/jellyfin";
 
 const router = Router();
 
-// Load vocabulary at module initialization
-loadVocabulary();
+const JELLYFIN_PREFIX = "jellyfin:";
 
-interface TextSearchResult {
-    id: string;
-    title: string;
-    duration: number;
-    trackNo: number;
-    distance: number;
-    albumId: string;
-    albumTitle: string;
-    albumCoverUrl: string | null;
-    artistId: string;
-    artistName: string;
-    // Audio features for re-ranking
-    energy: number | null;
-    valence: number | null;
-    danceability: number | null;
-    acousticness: number | null;
-    instrumentalness: number | null;
-    arousal: number | null;
-    speechiness: number | null;
+/**
+ * Cosine distance (0 identical, 2 opposite) to a 0-1 match score, for endpoints
+ * that report a distance rather than a similarity.
+ */
+function distanceToSimilarity(distance: number): number {
+    return Math.max(0, 1 - distance / 2);
+}
+
+/** A missing AudioMuse is a configuration problem, not a server fault. */
+function statusForReason(reason?: AudioMuseUnavailableReason): number {
+    return reason === "failed" ? 500 : 503;
+}
+
+function formatTrack(
+    track: ResolvedTrack,
+    scores: { similarity: number; distance: number }
+) {
+    return {
+        id: track.id,
+        title: track.title,
+        duration: track.duration,
+        trackNo: 0,
+        distance: scores.distance,
+        similarity: scores.similarity,
+        album: {
+            id: track.album.id,
+            title: track.album.title,
+            coverUrl: track.album.coverArt,
+        },
+        artist: track.artist,
+    };
+}
+
+/**
+ * Turn AudioMuse item IDs into full tracks, preserving AudioMuse's ordering and
+ * scores. Tracks Jellyfin no longer serves resolve to null and are dropped.
+ */
+async function resolveScoredTracks(
+    scored: { itemId: string; similarity: number; distance: number }[]
+) {
+    const resolved = await resolveTrackReferences(
+        scored.map((s) => `${JELLYFIN_PREFIX}${s.itemId}`)
+    );
+    return resolved
+        .map((track, i) => (track ? formatTrack(track, scored[i]) : null))
+        .filter((t): t is NonNullable<typeof t> => t !== null);
+}
+
+/** Library size, for showing analysis coverage as a percentage. */
+async function countLibraryTracks(): Promise<number> {
+    return (await isJellyfinMusicSource())
+        ? prisma.jellyfinTrackMetadata.count()
+        : prisma.track.count();
 }
 
 /**
  * GET /api/vibe/similar/:trackId
- * Find tracks similar to a given track using hybrid similarity (CLAP + audio features)
+ * Sonically similar tracks. Jellyfin IDs go to AudioMuse; native IDs keep using
+ * local audio-feature similarity.
  */
 router.get("/similar/:trackId", requireAuth, async (req, res) => {
     try {
@@ -50,6 +98,31 @@ router.get("/similar/:trackId", requireAuth, async (req, res) => {
             Math.max(1, parseInt(req.query.limit as string) || 20),
             100
         );
+
+        if (trackId.startsWith(JELLYFIN_PREFIX)) {
+            const { tracks: similar, error } = await getSimilarTracks(trackId, limit);
+            if (error) {
+                return res.status(503).json({
+                    error: "Similar tracks unavailable",
+                    message: error,
+                });
+            }
+            const tracks = await resolveScoredTracks(
+                similar.map((t) => ({
+                    itemId: t.itemId,
+                    distance: t.distance,
+                    similarity: distanceToSimilarity(t.distance),
+                }))
+            );
+            if (tracks.length === 0) {
+                return res.status(404).json({
+                    error: "No similar tracks found",
+                    message:
+                        "AudioMuse-AI has no sonic neighbours for this track yet. Run an analysis in AudioMuse if you have added music recently.",
+                });
+            }
+            return res.json({ sourceTrackId: trackId, tracks });
+        }
 
         const tracks = await findSimilarTracks(trackId, limit);
 
@@ -79,24 +152,14 @@ router.get("/similar/:trackId", requireAuth, async (req, res) => {
             })),
         });
     } catch (error: any) {
-        logger.error("Hybrid similarity error:", error);
+        logger.error("Vibe similarity error:", error);
         res.status(500).json({ error: "Failed to find similar tracks" });
     }
 });
 
-// Convert CLAP cosine distance (0-2 range) to similarity percentage (0-1)
-// distance 0 = identical, distance 1 = orthogonal, distance 2 = opposite
-function distanceToSimilarity(distance: number): number {
-    return Math.max(0, 1 - distance / 2);
-}
-
-// Minimum similarity threshold for search results
-// 0.65 = 65% match, meaning distance <= 0.7
-const MIN_SEARCH_SIMILARITY = 0.60;
-
 /**
  * POST /api/vibe/search
- * Search for tracks using natural language text via CLAP text embeddings
+ * Natural-language track search, e.g. "calm piano songs".
  */
 router.post("/search", requireAuth, async (req, res) => {
     try {
@@ -108,205 +171,112 @@ router.post("/search", requireAuth, async (req, res) => {
             });
         }
 
-        const limit = Math.min(
-            Math.max(1, requestedLimit || 20),
-            100
+        const limit = Math.min(Math.max(1, requestedLimit || 20), 100);
+
+        // AudioMuse already ranks and truncates, and its similarity scale is its
+        // own, so no floor is applied unless the caller asks for one.
+        const similarityThreshold =
+            typeof minSimilarity === "number"
+                ? Math.max(0, Math.min(1, minSimilarity))
+                : 0;
+
+        const { tracks: matches, error, reason } = await searchByText(query, limit);
+
+        if (error) {
+            return res.status(statusForReason(reason)).json({
+                error: "Vibe search unavailable",
+                message: error,
+                reason,
+            });
+        }
+
+        const tracks = await resolveScoredTracks(
+            matches
+                .filter((m) => m.similarity >= similarityThreshold)
+                .map((m) => ({
+                    itemId: m.itemId,
+                    similarity: m.similarity,
+                    distance: 2 * (1 - m.similarity),
+                }))
         );
 
-        // Allow override but default to MIN_SEARCH_SIMILARITY
-        const similarityThreshold = typeof minSimilarity === "number"
-            ? Math.max(0, Math.min(1, minSimilarity))
-            : MIN_SEARCH_SIMILARITY;
-
-        // Convert similarity threshold to max distance
-        // similarity = 1 - (distance / 2), so distance = 2 * (1 - similarity)
-        const maxDistance = 2 * (1 - similarityThreshold);
-
-        const requestId = randomUUID();
-        const responseChannel = `audio:text:embed:response:${requestId}`;
-        const requestChannel = "audio:text:embed";
-
-        // Create a duplicate client for subscribing (redis client cannot subscribe and publish on same connection)
-        const subscriber = redisClient.duplicate();
-        await subscriber.connect();
-
-        try {
-            // Set up response handling
-            let resolveEmbedding: (value: number[]) => void;
-            let rejectEmbedding: (reason: Error) => void;
-            const embeddingPromise = new Promise<number[]>((resolve, reject) => {
-                resolveEmbedding = resolve;
-                rejectEmbedding = reject;
-            });
-
-            const timeout = setTimeout(() => {
-                rejectEmbedding!(new Error("Text embedding request timed out"));
-            }, 30000);
-
-            // Subscribe and wait for Redis to confirm before publishing
-            await subscriber.subscribe(responseChannel, (message) => {
-                clearTimeout(timeout);
-                try {
-                    const data = JSON.parse(message);
-                    if (data.error) {
-                        rejectEmbedding!(new Error(data.error));
-                    } else {
-                        resolveEmbedding!(data.embedding);
-                    }
-                } catch (e) {
-                    rejectEmbedding!(new Error("Invalid response from analyzer"));
-                }
-            });
-
-            // Publish the text embedding request
-            await redisClient.publish(
-                requestChannel,
-                JSON.stringify({ requestId, text: query.trim() })
-            );
-
-            // Wait for embedding response
-            const textEmbedding = await embeddingPromise;
-
-            // Query expansion with vocabulary
-            const vocab = getVocabulary();
-            let searchEmbedding = textEmbedding;
-            let genreConfidence = 0;
-            let matchedTerms: VocabTerm[] = [];
-
-            if (vocab) {
-                const expansion = expandQueryWithVocabulary(textEmbedding, query.trim(), vocab);
-                searchEmbedding = expansion.embedding;
-                genreConfidence = expansion.genreConfidence;
-                matchedTerms = expansion.matchedTerms;
-
-                logger.info(`[VIBE-SEARCH] Query "${query.trim()}" expanded with terms: ${matchedTerms.map(t => t.name).join(", ") || "none"}, genre confidence: ${(genreConfidence * 100).toFixed(0)}%`);
-            }
-
-            // Query for similar tracks using the (possibly expanded) embedding
-            // Fetch more candidates for re-ranking (3x limit)
-            // Filter by max distance to exclude poor matches
-            const similarTracks = await prisma.$queryRaw<TextSearchResult[]>`
-                SELECT
-                    t.id,
-                    t.title,
-                    t.duration,
-                    t."trackNo",
-                    te.embedding <=> ${searchEmbedding}::vector AS distance,
-                    a.id as "albumId",
-                    a.title as "albumTitle",
-                    a."coverUrl" as "albumCoverUrl",
-                    ar.id as "artistId",
-                    ar.name as "artistName",
-                    t.energy,
-                    t.valence,
-                    t.danceability,
-                    t.acousticness,
-                    t.instrumentalness,
-                    t.arousal,
-                    t.speechiness
-                FROM track_embeddings te
-                JOIN "Track" t ON te.track_id = t.id
-                JOIN "Album" a ON t."albumId" = a.id
-                JOIN "Artist" ar ON a."artistId" = ar.id
-                WHERE te.embedding <=> ${searchEmbedding}::vector <= ${maxDistance}
-                ORDER BY te.embedding <=> ${searchEmbedding}::vector
-                LIMIT ${limit * 3}
-            `;
-
-            logger.info(`Vibe search "${query.trim()}": found ${similarTracks.length} candidates above ${Math.round(similarityThreshold * 100)}% similarity (max distance: ${maxDistance.toFixed(2)})`);
-
-            // Re-rank using audio features if we have vocabulary matches
-            let rankedTracks: typeof similarTracks | ReturnType<typeof rerankWithFeatures<TextSearchResult>> = similarTracks;
-            if (vocab && matchedTerms.length > 0) {
-                const reranked = rerankWithFeatures(similarTracks, matchedTerms, genreConfidence);
-                rankedTracks = reranked.slice(0, limit);
-
-                logger.info(`[VIBE-SEARCH] Re-ranked ${similarTracks.length} candidates, top result: ${rankedTracks[0]?.title || "none"}`);
-            } else {
-                rankedTracks = similarTracks.slice(0, limit);
-            }
-
-            // If we have results, log the similarity range
-            if (rankedTracks.length > 0) {
-                const first = rankedTracks[0];
-                const last = rankedTracks[rankedTracks.length - 1];
-                const bestSim = "finalScore" in first ? first.finalScore : distanceToSimilarity(first.distance);
-                const worstSim = "finalScore" in last ? last.finalScore : distanceToSimilarity(last.distance);
-                logger.info(`Vibe search similarity range: ${Math.round(bestSim * 100)}% - ${Math.round(worstSim * 100)}%`);
-            }
-
-            const tracks = rankedTracks.map((row) => ({
-                id: row.id,
-                title: row.title,
-                duration: row.duration,
-                trackNo: row.trackNo,
-                distance: row.distance,
-                similarity: "finalScore" in row ? row.finalScore : distanceToSimilarity(row.distance),
-                album: {
-                    id: row.albumId,
-                    title: row.albumTitle,
-                    coverUrl: row.albumCoverUrl,
-                },
-                artist: {
-                    id: row.artistId,
-                    name: row.artistName,
-                },
-            }));
-
-            res.json({
-                query: query.trim(),
-                tracks,
-                minSimilarity: similarityThreshold,
-                totalAboveThreshold: tracks.length,
-                debug: {
-                    matchedTerms: matchedTerms.map(t => t.name),
-                    genreConfidence,
-                    featureWeight: matchedTerms.length > 0 ? 0.2 + (genreConfidence * 0.5) : 0
-                }
-            });
-        } finally {
-            await subscriber.unsubscribe(responseChannel);
-            await subscriber.disconnect();
-        }
+        res.json({
+            query: query.trim(),
+            tracks,
+            minSimilarity: similarityThreshold,
+            totalAboveThreshold: tracks.length,
+        });
     } catch (error: any) {
         logger.error("Vibe text search error:", error);
-        if (error.message?.includes("timed out")) {
-            return res.status(504).json({
-                error: "Text embedding service unavailable",
-                message: "The CLAP analyzer service did not respond in time",
-            });
-        }
         res.status(500).json({ error: "Failed to search tracks by vibe" });
     }
 });
 
 /**
  * GET /api/vibe/status
- * Get embedding analysis progress statistics
+ * How much of the library AudioMuse has embedded.
  */
 router.get("/status", requireAuth, async (req, res) => {
     try {
-        const totalTracks = await prisma.track.count();
+        const [{ stats, error, reason }, totalTracks] = await Promise.all([
+            getClapStats(),
+            countLibraryTracks(),
+        ]);
 
-        const embeddedTracks = await prisma.$queryRaw<{ count: bigint }[]>`
-            SELECT COUNT(*) as count FROM track_embeddings
-        `;
+        if (!stats) {
+            return res.json({
+                totalTracks,
+                embeddedTracks: 0,
+                progress: 0,
+                isComplete: false,
+                available: false,
+                message: error,
+                reason,
+            });
+        }
 
-        const embeddedCount = Number(embeddedTracks[0]?.count || 0);
-        const progress = totalTracks > 0
-            ? Math.round((embeddedCount / totalTracks) * 100)
-            : 0;
+        const embeddedCount = stats.numEmbeddings;
+        const progress =
+            totalTracks > 0
+                ? Math.min(100, Math.round((embeddedCount / totalTracks) * 100))
+                : 0;
 
         res.json({
             totalTracks,
             embeddedTracks: embeddedCount,
             progress,
-            isComplete: embeddedCount >= totalTracks && totalTracks > 0,
+            isComplete: embeddedCount > 0 && embeddedCount >= totalTracks,
+            available: stats.clapEnabled && embeddedCount > 0,
+            lastRefresh: stats.lastRefresh,
         });
     } catch (error: any) {
         logger.error("Vibe status error:", error);
         res.status(500).json({ error: "Failed to get embedding status" });
     }
+});
+
+/**
+ * GET /api/vibe/suggestions
+ * Suggested queries AudioMuse derived from this library, for search placeholders
+ * and the Discover mood shelf.
+ */
+router.get("/suggestions", requireAuth, async (req, res) => {
+    try {
+        const { queries, ready } = await getClapTopQueries();
+        res.json({ queries, ready });
+    } catch (error: any) {
+        logger.error("Vibe suggestions error:", error);
+        res.json({ queries: [], ready: false });
+    }
+});
+
+/**
+ * POST /api/vibe/warmup
+ * Preload AudioMuse's search model so the first query is fast. Best-effort.
+ */
+router.post("/warmup", requireAuth, async (req, res) => {
+    void warmupClap();
+    res.status(202).json({ warming: true });
 });
 
 export default router;

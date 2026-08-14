@@ -160,6 +160,212 @@ function toRawId(id: string): string {
     return id.startsWith("jellyfin:") ? id.slice(9) : id;
 }
 
+/**
+ * Why an AudioMuse-backed feature can't answer right now. Callers map these to
+ * status codes and copy: "disabled" and "cache-cold" are the user's to fix in
+ * AudioMuse itself, so they deserve different wording than a dead connection.
+ */
+export type AudioMuseUnavailableReason =
+    | "not-configured"
+    | "disabled"
+    | "cache-cold"
+    | "unreachable"
+    | "failed";
+
+function describeNetworkError(err: {
+    code?: string;
+    message?: string;
+}): { error: string; reason: AudioMuseUnavailableReason } {
+    const unreachable =
+        err.code === "ECONNREFUSED" ||
+        err.code === "ENOTFOUND" ||
+        err.code === "ENETUNREACH" ||
+        err.code === "ECONNABORTED";
+    return unreachable
+        ? { error: "Cannot reach AudioMuse-AI. Is it running?", reason: "unreachable" }
+        : { error: err.message || "AudioMuse-AI request failed", reason: "failed" };
+}
+
+export interface ClapSearchResult {
+    itemId: string;
+    title: string;
+    author: string;
+    /** 0-1, higher is closer. AudioMuse returns this directly; no distance math needed. */
+    similarity: number;
+}
+
+/**
+ * Natural-language track search via AudioMuse-AI's DCLAP text↔audio embeddings.
+ * This is the replacement for Lidifin's own CLAP analyzer: AudioMuse indexes the
+ * Jellyfin library itself, so results come back as Jellyfin item IDs and work in
+ * Jellyfin-first mode where the local Track table is empty.
+ */
+export async function searchByText(
+    query: string,
+    limit = 50
+): Promise<{
+    tracks: ClapSearchResult[];
+    error?: string;
+    reason?: AudioMuseUnavailableReason;
+}> {
+    const config = await getAudioMuseConfig();
+    if (!config) {
+        return {
+            tracks: [],
+            error: "AudioMuse-AI is not configured",
+            reason: "not-configured",
+        };
+    }
+
+    try {
+        const res = await axios.post(
+            `${config.url}/api/clap/search`,
+            { query: query.trim(), limit: Math.min(Math.max(1, limit), 500) },
+            {
+                // The first query after an idle period loads the DCLAP model.
+                timeout: 60000,
+                headers: { "Content-Type": "application/json" },
+                validateStatus: () => true,
+            }
+        );
+
+        if (res.status === 503) {
+            return {
+                tracks: [],
+                error: "AudioMuse-AI has not analyzed your library yet. Run an analysis in AudioMuse, then try again.",
+                reason: "cache-cold",
+            };
+        }
+        if (res.status === 400) {
+            const message: string = res.data?.error || "Invalid search query";
+            return {
+                tracks: [],
+                error: message,
+                reason: /disabled/i.test(message) ? "disabled" : "failed",
+            };
+        }
+        if (res.status !== 200) {
+            return {
+                tracks: [],
+                error: res.data?.error || `Request failed (${res.status})`,
+                reason: "failed",
+            };
+        }
+
+        const results = Array.isArray(res.data?.results) ? res.data.results : [];
+        const tracks: ClapSearchResult[] = results
+            .filter((r: { item_id?: string }) => typeof r?.item_id === "string")
+            .map((r: any) => ({
+                itemId: r.item_id,
+                title: r.title ?? "",
+                author: r.author ?? "",
+                similarity: typeof r.similarity === "number" ? r.similarity : 0,
+            }));
+
+        logger.info(
+            `[AudioMuse] Text search "${query.trim()}" returned ${tracks.length} tracks`
+        );
+        return { tracks };
+    } catch (err: any) {
+        logger.warn("[AudioMuse] searchByText error:", err.message);
+        return { tracks: [], ...describeNetworkError(err) };
+    }
+}
+
+export interface ClapStats {
+    clapEnabled: boolean;
+    numEmbeddings: number;
+    lastRefresh: string | null;
+}
+
+/**
+ * Size and freshness of AudioMuse's embedding cache. Doubles as the availability
+ * probe for the vibe feature flag: embeddings present means search can answer.
+ */
+export async function getClapStats(timeoutMs = 10000): Promise<{
+    stats?: ClapStats;
+    error?: string;
+    reason?: AudioMuseUnavailableReason;
+}> {
+    const config = await getAudioMuseConfig();
+    if (!config) {
+        return { error: "AudioMuse-AI is not configured", reason: "not-configured" };
+    }
+
+    try {
+        const res = await axios.get(`${config.url}/api/clap/stats`, {
+            timeout: timeoutMs,
+            validateStatus: () => true,
+        });
+
+        if (res.status !== 200) {
+            return {
+                error: res.data?.error || `Request failed (${res.status})`,
+                reason: "failed",
+            };
+        }
+
+        return {
+            stats: {
+                clapEnabled: Boolean(res.data?.clap_enabled),
+                numEmbeddings: Number(res.data?.num_embeddings ?? 0),
+                lastRefresh: res.data?.last_refresh ?? null,
+            },
+        };
+    } catch (err: any) {
+        logger.debug("[AudioMuse] getClapStats error:", err.message);
+        return describeNetworkError(err);
+    }
+}
+
+/**
+ * AudioMuse's precomputed suggestion queries, derived from the user's own
+ * library rather than a hardcoded list.
+ */
+export async function getClapTopQueries(): Promise<{
+    queries: string[];
+    ready: boolean;
+}> {
+    const config = await getAudioMuseConfig();
+    if (!config) return { queries: [], ready: false };
+
+    try {
+        const res = await axios.get(`${config.url}/api/clap/top_queries`, {
+            timeout: 10000,
+            validateStatus: () => true,
+        });
+
+        if (res.status !== 200) return { queries: [], ready: false };
+
+        const queries = Array.isArray(res.data?.queries)
+            ? res.data.queries.filter((q: unknown): q is string => typeof q === "string")
+            : [];
+        return { queries, ready: Boolean(res.data?.ready) && queries.length > 0 };
+    } catch (err: any) {
+        logger.debug("[AudioMuse] getClapTopQueries error:", err.message);
+        return { queries: [], ready: false };
+    }
+}
+
+/**
+ * Preload AudioMuse's DCLAP model. It idle-evicts after ~10 minutes, so calling
+ * this when the search UI opens keeps the first real query fast. Fire-and-forget:
+ * a failed warmup only costs latency on the next search.
+ */
+export async function warmupClap(): Promise<void> {
+    const config = await getAudioMuseConfig();
+    if (!config) return;
+
+    try {
+        await axios.post(`${config.url}/api/clap/warmup`, undefined, {
+            timeout: 60000,
+            validateStatus: () => true,
+        });
+    } catch (err: any) {
+        logger.debug("[AudioMuse] warmupClap error:", err.message);
+    }
+}
+
 export interface SimilarTrackResult {
     itemId: string;
     title: string;
