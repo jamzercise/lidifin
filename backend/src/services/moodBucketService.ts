@@ -102,6 +102,9 @@ export const MOOD_CONFIG = {
 export type MoodType = keyof typeof MOOD_CONFIG;
 export const VALID_MOODS = Object.keys(MOOD_CONFIG) as MoodType[];
 
+/** Below this a mix is too thin to be worth showing. */
+const MIN_MOOD_TRACKS = 8;
+
 // Mood gradient colors for mix display
 const MOOD_GRADIENTS: Record<MoodType, string> = {
     happy: "linear-gradient(to bottom, rgba(217, 119, 6, 0.5), rgba(161, 98, 7, 0.4), rgba(68, 64, 60, 0.4))",
@@ -528,8 +531,39 @@ export class MoodBucketService {
     }
 
     /**
+     * Mood tracks chosen by the Last.fm tags on `JellyfinTrackMetadata`.
+     *
+     * This is the fallback for the common deployment where Essentia never runs —
+     * it is not in the all-in-one image — leaving `JellyfinTrackAnalysis` empty
+     * and every mood mix short. Tag enrichment does run for Jellyfin libraries,
+     * so these tags are usually the only mood signal available. The sentinel tags
+     * mark rows enrichment could not resolve and must not count as matches.
+     */
+    private async jellyfinMoodTrackIdsFromTags(
+        mood: MoodType,
+        limit: number
+    ): Promise<string[]> {
+        const keywords = MOOD_CONFIG[mood].moodTagKeywords;
+
+        const rows = await prisma.jellyfinTrackMetadata.findMany({
+            where: {
+                AND: [
+                    { lastfmTags: { hasSome: [...keywords] } },
+                    { NOT: { lastfmTags: { has: "_no_mood_tags" } } },
+                    { NOT: { lastfmTags: { has: "_not_found" } } },
+                ],
+            },
+            select: { jellyfinId: true },
+            take: 400,
+        });
+
+        return shuffleArray(rows.map((r) => r.jellyfinId)).slice(0, limit);
+    }
+
+    /**
      * Jellyfin library: mood scores from `JellyfinTrackAnalysis` (MoodBucket is
-     * FK-bound to `Track` only, so we score in memory — same rules as buckets).
+     * FK-bound to `Track` only, so we score in memory — same rules as buckets),
+     * falling back to Last.fm tags when no analysis exists.
      */
     private async getJellyfinMoodMixFromAnalysis(
         mood: MoodType,
@@ -562,18 +596,21 @@ export class MoodBucketService {
             }
         }
 
-        if (scored.length < 8) {
+        let trackIds: string[];
+        if (scored.length >= MIN_MOOD_TRACKS) {
+            scored.sort((a, b) => b.score - a.score);
+            const shuffled = shuffleArray(scored.slice(0, 100));
+            trackIds = shuffled.slice(0, limit).map((s) => s.trackId);
+        } else {
+            trackIds = await this.jellyfinMoodTrackIdsFromTags(mood, limit);
+        }
+
+        if (trackIds.length < MIN_MOOD_TRACKS) {
             logger.debug(
-                `[MoodBucket] Jellyfin: not enough tracks for mood ${mood}: ${scored.length}`
+                `[MoodBucket] Jellyfin: not enough tracks for mood ${mood}: ${trackIds.length}`
             );
             return null;
         }
-
-        scored.sort((a, b) => b.score - a.score);
-        const topPool = scored.slice(0, 100);
-        const shuffled = shuffleArray(topPool);
-        const selected = shuffled.slice(0, limit);
-        const trackIds = selected.map((s) => s.trackId);
 
         const resolved = await resolveTrackReferences(trackIds);
         const coverUrls = resolved
