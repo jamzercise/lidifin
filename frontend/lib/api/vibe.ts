@@ -29,6 +29,7 @@ declare module "./client" {
             minSimilarity: number;
             totalAboveThreshold: number;
         }>;
+        warmupVibeSearch(): Promise<void>;
         getVibeStatus(): Promise<{
             totalTracks: number;
             embeddedTracks: number;
@@ -53,4 +54,13 @@ ApiClient.prototype.vibeSearch = async function (this: ApiClient, query: string,
 
 ApiClient.prototype.getVibeStatus = async function (this: ApiClient) {
     return this.request("/vibe/status");
+};
+
+/**
+ * AudioMuse unloads its text model after ~10 minutes idle, which makes the first
+ * search of a session slow. Called when the vibe page opens so the model is
+ * loading while the user is still typing.
+ */
+ApiClient.prototype.warmupVibeSearch = async function (this: ApiClient) {
+    await this.request("/vibe/warmup", { method: "POST" });
 };

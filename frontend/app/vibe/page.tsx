@@ -66,13 +66,16 @@ function trackDataToTrack(track: TrackData) {
     };
 }
 
+// Queries stay to 2-3 words of musical vocabulary: AudioMuse's CLAP model is
+// tuned for short genre/instrument/mood phrases and gets vaguer as synonyms pile
+// up, so longer prompts match worse rather than better.
 const VIBE_PRESETS: VibePreset[] = [
-    { id: "chill", name: "Chill", query: "relaxing calm ambient peaceful mellow" },
-    { id: "energy", name: "High Energy", query: "energetic powerful intense driving upbeat" },
-    { id: "dark", name: "Dark", query: "dark atmospheric moody brooding cinematic" },
-    { id: "happy", name: "Feel Good", query: "happy upbeat cheerful bright positive" },
-    { id: "melancholic", name: "Melancholic", query: "sad melancholic emotional nostalgic bittersweet" },
-    { id: "electronic", name: "Electronic", query: "electronic synth digital pulsing techno" },
+    { id: "chill", name: "Chill", query: "relaxed ambient" },
+    { id: "energy", name: "High Energy", query: "energetic fast-paced" },
+    { id: "dark", name: "Dark", query: "dark cinematic" },
+    { id: "happy", name: "Feel Good", query: "happy upbeat" },
+    { id: "melancholic", name: "Melancholic", query: "sad melancholic" },
+    { id: "electronic", name: "Electronic", query: "synth electronica" },
 ];
 
 function distanceToSimilarity(distance: number): number {
@@ -535,6 +538,9 @@ function VibePageContent() {
         if (hasInitialized) return;
         setHasInitialized(true);
 
+        // Fire-and-forget: a failed warmup only costs latency on the first search.
+        api.warmupVibeSearch().catch(() => {});
+
         const init = async () => {
             try {
                 const [status, { tracks }] = await Promise.all([
@@ -551,8 +557,8 @@ function VibePageContent() {
         init();
     }, [hasInitialized]);
 
-    // Deep-link support: /vibe?q=<query> auto-runs a vibe search on mount so the
-    // Discover hub's "Explore by mood" tiles land on a ready result set.
+    // Deep-link support: /vibe?q=<query> auto-runs a search on mount, so a shared
+    // or bookmarked link lands on a ready result set.
     // Reads window.location directly (not useSearchParams) to avoid forcing a
     // Suspense boundary on this client page at build time.
     useEffect(() => {

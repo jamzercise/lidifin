@@ -7,6 +7,7 @@ import {
     Settings,
     RefreshCw,
     LogOut,
+    AudioWaveform,
     Compass,
     X,
     Bookmark,
@@ -23,6 +24,7 @@ import {
 import { cn } from "@/utils/cn";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
+import { useFeatures } from "@/lib/features-context";
 import { useToast } from "@/lib/toast-context";
 import Image from "next/image";
 
@@ -34,7 +36,12 @@ interface MobileSidebarProps {
 // Grouped nav mirroring the desktop sidebar (Initiative C).
 const mobileSections: Array<{
     label: string;
-    items: Array<{ name: string; href: string; icon: LucideIcon }>;
+    items: Array<{
+        name: string;
+        href: string;
+        icon: LucideIcon;
+        requiresVibeSearch?: boolean;
+    }>;
 }> = [
     {
         label: "Music",
@@ -52,6 +59,12 @@ const mobileSections: Array<{
             { name: "New Releases", href: "/releases", icon: Disc3 },
             { name: "Import Playlist", href: "/browse/playlists", icon: ListPlus },
             { name: "Saved albums", href: "/library/saved-albums", icon: Bookmark },
+            {
+                name: "Vibe",
+                href: "/vibe",
+                icon: AudioWaveform,
+                requiresVibeSearch: true,
+            },
         ],
     },
     {
@@ -68,6 +81,14 @@ export function MobileSidebar({ isOpen, onClose }: MobileSidebarProps) {
     const { logout } = useAuth();
     const { toast } = useToast();
     const [isSyncing, setIsSyncing] = useState(false);
+    const { vibeEmbeddings } = useFeatures();
+
+    const visibleSections = mobileSections.map((section) => ({
+        label: section.label,
+        items: section.items.filter(
+            (item) => !item.requiresVibeSearch || vibeEmbeddings
+        ),
+    }));
 
     // Close on route change
     useEffect(() => {
@@ -156,7 +177,7 @@ export function MobileSidebar({ isOpen, onClose }: MobileSidebarProps) {
                     aria-label="Mobile menu"
                 >
                     {/* Grouped navigation (mirrors desktop sidebar) */}
-                    {mobileSections.map((section) => (
+                    {visibleSections.map((section) => (
                         <div key={section.label} className="px-3 mb-6">
                             <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest px-3 mb-2">
                                 {section.label}

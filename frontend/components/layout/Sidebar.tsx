@@ -10,6 +10,7 @@ import { useAuth } from "@/lib/auth-context";
 import { useAudioState } from "@/lib/audio-state-context";
 import { useAudioControls } from "@/lib/audio-controls-context";
 import { useIsMobile, useIsTablet } from "@/hooks/useMediaQuery";
+import { useFeatures } from "@/lib/features-context";
 import { useSettingsToggle } from "@/hooks/useSettingsToggle";
 import { useToast } from "@/lib/toast-context";
 import Image from "next/image";
@@ -17,6 +18,8 @@ import { MobileSidebar } from "./MobileSidebar";
 
 // Grouped navigation by user intent. Home lives in the TopBar, so it's not
 // duplicated here. Section labels render as small uppercase headers.
+// Items marked requiresVibeSearch are hidden unless AudioMuse can answer, since
+// the page they lead to is a dead end without it.
 const navSections = [
     {
         label: "Music",
@@ -33,7 +36,7 @@ const navSections = [
             { name: "New Releases", href: "/releases" },
             { name: "Import Playlist", href: "/browse/playlists" },
             { name: "Saved albums", href: "/library/saved-albums" },
-            // { name: "Vibe", href: "/vibe" }, // Resurfaces via the Discover hub (Initiative E)
+            { name: "Vibe", href: "/vibe", requiresVibeSearch: true },
         ],
     },
     {
@@ -72,6 +75,14 @@ export function Sidebar() {
     const [isSyncing, setIsSyncing] = useState(false);
     const [playlistsExpanded, setPlaylistsExpanded] = useState(true);
     const hasLoadedPlaylists = useRef(false);
+    const { vibeEmbeddings } = useFeatures();
+
+    const visibleNavSections = navSections.map((section) => ({
+        label: section.label,
+        items: section.items.filter(
+            (item) => !("requiresVibeSearch" in item) || vibeEmbeddings
+        ),
+    }));
 
     // Handle library sync - no toast, notification bar handles feedback
     const handleSync = async () => {
@@ -326,7 +337,7 @@ export function Sidebar() {
                 role="navigation"
                 aria-label="Main navigation"
             >
-                {navSections.map((section) => (
+                {visibleNavSections.map((section) => (
                     <div key={section.label} className="space-y-1">
                         <p className="px-4 text-[10px] font-black text-gray-500 uppercase tracking-[0.15em] mb-2">
                             {section.label}
