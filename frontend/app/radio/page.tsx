@@ -161,9 +161,9 @@ const getGenreColor = (genre: string): string => {
 const VIBE_STATIONS: RadioStation[] = [
     { id: "vibe-chill", name: "Chill", description: "Relaxing vibes", color: "from-teal-500/30 to-cyan-600/30", filter: { type: "mood", value: "chill" }, minTracks: 15 },
     { id: "vibe-energetic", name: "Energetic", description: "High energy", color: "from-orange-500/30 to-red-600/30", filter: { type: "mood", value: "energetic" }, minTracks: 15 },
-    { id: "vibe-sad", name: "Sad", description: "Melancholy mood", color: "from-indigo-500/30 to-blue-600/30", filter: { type: "mood", value: "sad" }, minTracks: 15 },
+    { id: "vibe-sad", name: "Melancholy", description: "Slow and wistful", color: "from-indigo-500/30 to-blue-600/30", filter: { type: "mood", value: "sad" }, minTracks: 15 },
     { id: "vibe-romantic", name: "Romantic", description: "Love songs", color: "from-rose-500/30 to-pink-600/30", filter: { type: "mood", value: "romantic" }, minTracks: 15 },
-    { id: "vibe-study", name: "Study", description: "Focus music", color: "from-slate-500/30 to-gray-600/30", filter: { type: "mood", value: "study" }, minTracks: 15 },
+    { id: "vibe-study", name: "Focus", description: "Music to work to", color: "from-slate-500/30 to-gray-600/30", filter: { type: "mood", value: "study" }, minTracks: 15 },
     { id: "vibe-driving", name: "Driving", description: "Road trip vibes", color: "from-amber-500/30 to-orange-600/30", filter: { type: "mood", value: "driving" }, minTracks: 15 },
 ];
 

@@ -28,7 +28,9 @@ const MOOD_TILES: MoodTile[] = [
     { id: "driving", name: "Driving", gradient: "from-amber-500/40 to-orange-600/30" },
 ];
 
-const MIN_STATION_TRACKS = 10;
+// Matches the radio page's per-station minimum so a mood is playable in both
+// places or neither.
+const MIN_STATION_TRACKS = 15;
 
 /**
  * "Explore by mood" on the Discover hub. Tapping a mood shuffles a station drawn
